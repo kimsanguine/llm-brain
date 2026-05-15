@@ -1,0 +1,22 @@
+# 사용자 데이터 — 개인 정보 포함, git 제외
+raw/
+
+# wiki 콘텐츠 — 개인 지식베이스 (사용자마다 다름)
+wiki/
+
+# 개인 설정 — 소스 경로·LLM 엔진은 사용자마다 다름
+schema/sources.yaml
+schema/config.yaml
+
+# 시스템 파일
+.venv/
+.ingest_state.json
+.sync_state.json
+.launchd.log
+*.pyc
+__pycache__/
+uv.lock
+
+# Obsidian 캐시 (앱 상태 파일은 공유 불필요)
+.obsidian/workspace.json
+.obsidian/workspace-mobile.json
