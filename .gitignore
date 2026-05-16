@@ -20,3 +20,4 @@ uv.lock
 # Obsidian 캐시 (앱 상태 파일은 공유 불필요)
 .obsidian/workspace.json
 .obsidian/workspace-mobile.json
+tools/intro-video/node_modules/

@@ -1,0 +1,25 @@
+{
+  "name": "llm-brain-intro",
+  "version": "0.1.0",
+  "private": true,
+  "description": "60-second llm-brain intro video built with Remotion",
+  "scripts": {
+    "dev": "remotion preview",
+    "build:16x9": "remotion render LlmBrainIntro16x9 out/intro-16x9.mp4 --concurrency=4",
+    "build:9x16": "remotion render LlmBrainIntro9x16 out/intro-9x16.mp4 --concurrency=4",
+    "build:all": "npm run build:16x9 && npm run build:9x16",
+    "build:gif": "remotion render LlmBrainIntro16x9 out/intro.gif --image-format=jpeg --gif --width=1280"
+  },
+  "dependencies": {
+    "@remotion/cli": "^4.0.0",
+    "@remotion/transitions": "^4.0.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "remotion": "^4.0.0"
+  },
+  "devDependencies": {
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "typescript": "^5.4.0"
+  }
+}

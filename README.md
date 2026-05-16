@@ -1,185 +1,277 @@
-# LLM Wiki — Second Brain Compiler
+# llm-brain — 당신의 두 번째 뇌를 만드세요
 
-> LLM을 컴파일러로 쓰는 개인 지식 관리 시스템
+> **LLM을 컴파일러로 쓰는 Second Brain 시스템**
+> *Build your Second Brain with LLM as the compiler*
 
-`raw/`(원본) → `wiki/`(정제) 2계층 구조에서 LLM이 컴파일러 역할을 한다.
-Karpathy의 원본 패턴을 기반으로, 5가지 축에서 확장했다.
-
----
-
-## Karpathy 원본 대비 5가지 확장
-
-| 축 | Karpathy 원본 | 이 시스템 |
-|---|---|---|
-| **입력** | 수동 raw 파일 추가 | 4가지 입력 채널 |
-| **LLM 호출** | API 직접 호출 | CLI 재사용 + API 선택 가능 |
-| **오퍼레이션** | ingest / lint | ingest / curate (distill + lifecycle) |
-| **시각화** | 없음 | Obsidian Graph View 기본 내장 |
-| **소스 범위** | MD 중심 | PDF · Word · PPT · URL · 텍스트 전부 |
+![Python](https://img.shields.io/badge/Python-3.11+-3776AB?logo=python&logoColor=white)
+![License](https://img.shields.io/badge/License-MIT-green)
+![Claude Code](https://img.shields.io/badge/Claude_Code-CLI-orange)
+![Obsidian](https://img.shields.io/badge/Obsidian-Graph_View-7C3AED)
 
 ---
 
-## 빠른 시작
+## 왜 만들었나 *Why this exists*
+
+매일 TIL을 쓰고, 회의록을 남기고, 논문을 클리핑한다.
+그런데 한 달 뒤 그 지식은 어디 있는가?
+
+*You write TILs, meeting notes, paper clippings every day.*
+*But where does that knowledge go after a month?*
+
+---
+
+## Andrej Karpathy의 LLM Wiki 패턴 *Karpathy's LLM Wiki Pattern*
+
+Karpathy는 이 문제에 대해 명쾌한 답을 제시했다.
+
+> **"LLM을 컴파일러처럼 써라. raw 메모를 넣으면 구조화된 위키가 나온다."**
+
+```
+raw/   →   [LLM 컴파일러]   →   wiki/
+원본                              정제된 지식
+```
+
+### 장점 *Strengths*
+
+| | 설명 |
+|---|---|
+| ✅ | **LLM이 구조화를 담당** — 사람이 직접 편집할 필요 없음 |
+| ✅ | **raw / wiki 분리** — 원본은 보존, 정제본은 별도 관리 |
+| ✅ | **wikilink 연결** — 지식이 그래프로 연결됨 |
+| ✅ | **오염 방지** — raw 없이 wiki 수정 금지 원칙으로 할루시네이션 차단 |
+
+---
+
+## 그러나 4가지가 빠져 있다 *But 4 things are missing*
+
+LLM Wiki는 아이디어 수준에 머물렀다.
+실제로 운영해보면 이 4가지 벽에 부딪힌다.
+
+*LLM Wiki stays at the concept level. In practice, you hit 4 walls.*
+
+| 한계 | 증상 |
+|---|---|
+| ❌ **Express 없음** | 지식이 wiki에 쌓이기만 한다. 꺼내 쓸 방법이 없다 |
+| ❌ **Capture 필터 없음** | 뭐든 ingest하면 노이즈가 차오른다 |
+| ❌ **단발성 압축** | 자주 쓰는 지식이 더 깊이 정제되지 않는다 |
+| ❌ **그래프 맹목** | Obsidian에서 보이는 연결 구조를 curate에 활용하지 않는다 |
+
+---
+
+## Tiago Forte의 Second Brain *Tiago Forte's Second Brain*
+
+Forte는 같은 문제를 다른 각도에서 풀었다.
+
+> **"뇌는 아이디어를 떠올리는 곳이지, 저장하는 곳이 아니다."**
+> *"Your brain is for having ideas, not storing them."*
+
+그의 **CODE 프레임워크**는 지식의 전체 생애주기를 다룬다.
+
+```
+C apture  →  O rganize  →  D istill  →  E xpress
+  수집           정리           정제          출력
+```
+
+Second Brain의 핵심은 **Distill과 Express**다.
+자주 꺼내볼수록 더 압축되고, 결국 창작물로 나와야 한다.
+
+그러나 이 두 단계는 **사람이 직접** 해야 했다. 시간이 가장 많이 드는 곳이다.
+
+---
+
+## llm-brain = LLM Wiki + Second Brain
+
+두 패턴의 결합이 이 프로젝트다.
+
+*This project is the synthesis of both patterns.*
+
+```
+         LLM Wiki          +        Second Brain
+    ─────────────────────────────────────────────
+    raw → wiki 컴파일       +    CODE 전체 생애주기
+    할루시네이션 방지         +    Distill → LLM 대행
+    wikilink 그래프          +    Express → 창작물 출력
+                             +    lifecycle → TTL 관리
+```
+
+**Distill은 LLM이 대행한다. 당신은 Express에만 집중하라.**
+
+*LLM handles Distill. You focus only on Express.*
+
+---
+
+## 핵심 기능 *Core Features*
+
+### 📥 ingest — 4가지 입력 채널 *4 Input Channels*
 
 ```bash
-# 1. 클론
-git clone https://github.com/YOUR_USERNAME/llm-wiki.git
-cd llm-wiki
+# 채널 1: 수동 투입 (MD · TXT · PDF · DOCX · PPTX)
+cp paper.pdf raw/docs/
 
-# 2. 초기 설정 (의존성 설치 + 폴더 구조 생성)
-bash scripts/setup.sh
+# 채널 2: /ingest 명령어
+/ingest https://example.com --resonance high
+/ingest ~/Downloads/paper.pdf
+/ingest "오늘 배운 것: ..."
 
-# 3. 소스 경로 설정
-vi schema/sources.yaml    # 자신의 폴더 경로 등록
-
-# 4. LLM 엔진 선택
-vi schema/config.yaml     # cli (기본) 또는 api
-
-# 5. Obsidian에서 열기
-# 이 폴더를 Obsidian → "Open folder as vault"로 열기
+# 채널 3: Obsidian vault 자동 미러링 (schema/sources.yaml 등록)
+# 채널 4: Claude Code Routines 크론 등록
 ```
+
+`--resonance high/medium/low` 태그로 중요도 표시.
+index.md 기반 중복 검사로 wiki 노이즈 방지.
 
 ---
 
-## 입력 채널 (4가지)
+### 🔁 curate — 점진적 압축 + 그래프 분석 *Progressive Summarization + Graph*
 
-### 채널 1 — 수동 투입
-파일을 직접 `raw/` 하위 폴더에 넣는다.
-```
-raw/
-├── til/          # 학습 메모
-├── meetings/     # 회의록
-├── clippings/    # 웹 클리핑
-├── notes/        # 자유 노트
-└── docs/         # PDF · Word · PPT
+```bash
+python scripts/curate.py --distill    # distill_level 점진 압축
+python scripts/curate.py --graph      # 링크 그래프 분석 → 허브 감지
+python scripts/curate.py --lifecycle  # TTL 초과 페이지 → archive 후보
+python scripts/curate.py --all        # 전체 실행
 ```
 
-지원 형식: `.md` `.txt` `.pdf` `.docx` `.pptx`
-
-### 채널 2 — `/ingest` 명령어
-Claude Code 세션에서 직접 실행한다.
-```
-/ingest https://example.com          # URL 스크랩
-/ingest ~/Downloads/paper.pdf        # 로컬 파일
-/ingest "오늘 배운 것: ..."           # 텍스트 노트
-```
-
-### 채널 3 — 자동 미러링 (선택)
-`schema/sources.yaml`에 폴더를 등록하면 `sync_raw.py`가 변경 파일을 감지해 복사한다.
+wiki 페이지는 접근할수록 더 깊이 정제된다.
 
 ```yaml
-sources:
-  - id: my-notes
-    source: ~/Documents/MyVault/TIL/
-    target: raw/til/
-    ttl_days: 180
-    extensions: [md]
+# 자동 관리되는 frontmatter
+distill_level: 2      # 0=원문 → 1=요약 → 2=핵심 → 3=한줄
+access_count: 12
 ```
 
-### 채널 4 — Routines 크론 (선택)
-Claude Code Routines에 등록하면 매일 자동 ingest된다.
+`--graph`는 [[wikilink]] 인바운드 수를 분석해
+허브 개념은 distill 우선 처리, 고립 페이지는 lifecycle 후보로 자동 분류한다.
 
 ---
 
-## LLM 엔진 선택
+### 📤 express — wiki → 창작물 *Wiki to Output*
+
+Second Brain의 존재 이유. 지식을 꺼내 쓴다.
+
+*The reason Second Brain exists. Get knowledge out.*
+
+```bash
+python scripts/express.py blog "AI 에이전트 설계 패턴"
+python scripts/express.py lecture "context-first-orchestration" --slides 5
+python scripts/express.py summary --week
+python scripts/express.py report "경쟁사 현황"
+```
+
+blog 출력은 `raw/blog/`에도 자동 복사 → 다음 ingest 사이클에 wiki로 피드백.
+
+```
+wiki/ → express/blog/ → raw/blog/ → wiki/   ← 피드백 루프
+```
+
+---
+
+### 🔍 query — wiki 기반 답변 *Wiki-grounded Answers*
+
+```
+사용자: "RAG 구현할 때 뭐가 중요했지?"
+Claude: wiki/ 내용 기반으로만 답변
+        (wiki에 없으면 "raw 데이터가 필요합니다")
+```
+
+query 시 접근한 페이지의 `access_count`가 올라가
+다음 `curate --distill`에서 자동 우선 처리된다.
+
+---
+
+## LLM 엔진 선택 *LLM Engine*
 
 ```yaml
 # schema/config.yaml
 llm:
-  engine: cli    # API 키 불필요, Claude Code 설치 필요
-  # engine: api  # Anthropic API 직접 호출
+  engine: cli   # Claude Code CLI 재사용 — API 키 불필요
+  # engine: api # Anthropic API 직접 호출
 ```
 
-| 모드 | 장점 | 단점 |
+| 모드 | 비용 | 조건 |
 |---|---|---|
-| `cli` (기본) | API 키 불필요, 토큰 비용 없음 | Claude Code 설치 필요 |
-| `api` | 어떤 환경에서도 실행 | API 키 · 비용 발생 |
+| `cli` (기본) | 토큰 비용 없음 | Claude Code 설치 필요 |
+| `api` | API 과금 | `ANTHROPIC_API_KEY` 필요 |
 
 ---
 
-## 오퍼레이션
+## 빠른 시작 *Quick Start*
 
 ```bash
-PYTHON=".venv/bin/python"
-SCRIPTS="wiki/projects/260515_llm_wiki/scripts"
+# 1. 클론
+git clone https://github.com/kimsanguine/llm-brain.git
+cd llm-brain
 
-# 소스 미러링
-$PYTHON $SCRIPTS/sync_raw.py
+# 2. 초기 설정
+bash scripts/setup.sh
 
-# 미처리 파일 확인
-$PYTHON $SCRIPTS/ingest.py
+# 3. 소스 경로 등록
+vi schema/sources.yaml
 
-# URL 스크랩
-$PYTHON $SCRIPTS/ingest.py --url https://example.com
+# 4. 첫 ingest
+python scripts/ingest.py
 
-# 로컬 파일 추가
-$PYTHON $SCRIPTS/ingest.py --file ~/Downloads/paper.pdf
-
-# 텍스트 노트
-$PYTHON $SCRIPTS/ingest.py --note "오늘 배운 것: ..."
-
-# wiki 감사 + 압축 + lifecycle
-$PYTHON $SCRIPTS/curate.py --all
+# 5. Obsidian에서 열기
+# 이 폴더를 Obsidian → "Open folder as vault"
 ```
 
 ---
 
-## Obsidian 연동
+## Obsidian 연동 *Obsidian Integration*
 
-이 폴더(`llm-wiki/`) 자체를 Obsidian vault root로 설정한다.
-`.obsidian/`이 루트에 있으므로 `raw/`와 `wiki/` 양쪽이 Graph View에 표시된다.
+`.obsidian/`이 프로젝트 루트에 있어 `raw/`와 `wiki/` 양쪽이 Graph View에 표시된다.
 
 ```
-llm-wiki/
-├── .obsidian/     ← vault root
-├── raw/           ← Graph View에 표시
-└── wiki/          ← Graph View에 표시
+llm-brain/
+├── .obsidian/   ← vault root
+├── raw/         ← Graph View 표시
+└── wiki/        ← Graph View 표시
 ```
 
 ---
 
-## 디렉토리 구조
+## 디렉토리 구조 *Directory Structure*
 
 ```
-llm-wiki/
-├── CLAUDE.md                          # Claude Code 운영 가이드
+llm-brain/
+├── CLAUDE.md                  # Claude Code 운영 가이드
+├── SPEC.md                    # 기술 명세서
 ├── README.md
-├── pyproject.toml                     # uv 의존성
+├── pyproject.toml
 ├── schema/
-│   ├── sources.example.yaml           # 소스 설정 템플릿
-│   ├── config.yaml                    # LLM 엔진 선택
-│   ├── ingest.md                      # ingest 규칙
-│   └── curate.md                      # curate 규칙
+│   ├── sources.example.yaml   # 소스 설정 템플릿
+│   ├── config.yaml            # LLM 엔진 선택
+│   ├── ingest.md              # ingest 규칙
+│   └── curate.md              # curate 규칙
 ├── scripts/
-│   └── setup.sh                       # 초기 설정
-├── wiki/projects/260515_llm_wiki/scripts/
-│   ├── run_daily.sh                   # launchd 진입점
-│   ├── sync_raw.py                    # 소스 미러링
-│   ├── ingest.py                      # 파일 파싱 + 상태 관리
-│   └── curate.py                      # 감사·압축·lifecycle
-├── raw/                               # 원본 소스 (.gitignore)
-├── wiki/                              # LLM 정제 결과 (.gitignore)
-├── index.md                           # 전체 목차
-└── log.md                             # 실행 이력
+│   ├── setup.sh               # 초기 설정
+│   ├── sync_raw.py            # 소스 미러링
+│   ├── ingest.py              # 파일 파싱 + 상태 관리
+│   ├── curate.py              # 감사·압축·lifecycle·graph
+│   └── express.py             # wiki → 창작물 출력
+├── tools/
+│   └── intro-video/           # Remotion 소개 영상
+├── raw/                       # 원본 소스 (.gitignore)
+├── wiki/                      # LLM 정제 결과 (.gitignore)
+└── express/                   # 창작물 출력 (.gitignore)
 ```
 
 ---
 
-## 의존성
+## 의존성 *Dependencies*
 
 ```toml
-python-docx     # Word 문서 텍스트 추출
-python-pptx     # PowerPoint 텍스트 추출
-pymupdf         # PDF 텍스트 추출
-markdownify     # HTML → Markdown 변환
-httpx           # URL 스크랩
-pyyaml          # 설정 파일 파싱
-python-frontmatter  # MD frontmatter 파싱
-anthropic       # API 모드 (선택)
+pymupdf          # PDF 텍스트 추출
+python-docx      # Word 문서 추출
+python-pptx      # PowerPoint 추출
+markdownify      # HTML → Markdown
+httpx            # URL 스크랩
+pyyaml           # 설정 파일 파싱
+python-frontmatter  # MD frontmatter
+anthropic        # API 모드 (선택)
 ```
 
 ---
 
-## 라이선스
+## 라이선스 *License*
 
-MIT
+MIT © [kimsanguine](https://github.com/kimsanguine)
