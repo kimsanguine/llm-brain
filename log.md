@@ -53,6 +53,14 @@
 - distilled: 0개
 - archive 후보: 0개
 
+## 2026-05-16 [ingest — 하네스 엔지니어링 리서치 보강: raw 11개 → wiki 5개 신규/확장]
+- 처리 raw: raw/clippings/ 11개 신규 (evolution-agentic-patterns, anthropic-harness-design-long-running, anthropic-effective-harnesses, anthropic-three-agent-harness, arxiv-architectural-design-decisions, arxiv-opendev-terminal-agent, dev-agent-harness-is-architecture, langchain-state-of-agent-engineering, augment-harness-engineering-coding, medium-agent-control-plane, augment-single-vs-multi-agent)
+- 신규 wiki: wiki/concepts/harness-engineering-evolution.md, wiki/concepts/generator-evaluator-architecture.md, wiki/concepts/single-vs-multi-agent.md (3개)
+- 확장 wiki: wiki/concepts/agent-harness-pattern.md (이론 심화 + 수치 데이터), wiki/insights/agent-build-harness.md (외부 검증 패턴 추가 + lint P1 중복 해소)
+- 갱신 index.md: 39 → 42페이지 (concepts 12→15)
+- Ghost 추가: 없음
+- lint P1 해소: agent-harness-pattern(이론)↔agent-build-harness(구현) 역할 분리 + 상호 링크 추가
+
 ## 2026-05-16 [ingest — URL 클리핑: OpenAI Realtime API 신규 모델 3종]
 - 처리 raw: raw/clippings/2026-05-07-openai-realtime-api-new-models.md (1개, URL 스크랩)
 - 신규 wiki: wiki/tools/openai-realtime-api.md, wiki/concepts/realtime-voice-ai-patterns.md (2개)
@@ -65,3 +73,23 @@
 - stale_links: 10개
 - distilled: 0개
 - archive 후보: 0개
+
+## 2026-05-16 03:57 [curate]
+- orphan: 0개
+- stale_links: 0개
+- distill 큐: 0개
+- archive 후보: 0개
+- graph 허브: 12개
+
+## 2026-05-16 03:57 [curate]
+- orphan: 0개
+- stale_links: 0개
+- distill 큐: 0개
+- archive 후보: 0개
+
+## 2026-05-16 03:57 [curate]
+- orphan: 0개
+- stale_links: 10개
+- distill 큐: 0개
+- archive 후보: 0개
+- graph 허브: 12개
