@@ -12,7 +12,7 @@ Claude: wiki/ 작성 및 유지 (schema/ 규칙 준수)
 ## 디렉토리 구조
 
 ```
-~/Documents/llm-wiki/
+~/Documents/3_Code/Vibe/Project/260516_llm_brain/
 ├── raw/          원본 소스 (불변 — Claude가 수정하지 않는다)
 │   ├── til/          OpenClaw TIL 미러
 │   ├── meetings/     OpenClaw 회의록 미러
@@ -50,15 +50,16 @@ Claude: wiki/ 작성 및 유지 (schema/ 규칙 준수)
 ```
 사용자: "ingest 해줘"
 또는: "/ingest https://example.com"
-또는: "/ingest ~/Downloads/paper.pdf"
+또는: "/ingest ~/Downloads/paper.pdf --resonance high"
+또는: "/ingest '텍스트' --resonance medium"
 ```
 
 실행 절차:
-1. `log.md`에서 마지막 ingest 이후 추가된 `raw/` 파일 식별
+1. `scripts/ingest.py`로 미처리 파일 목록 확인 (중복 검사 포함)
 2. `schema/ingest.md` 규칙 로드
 3. 각 raw 파일을 읽고 관련 wiki/ 페이지 생성 또는 갱신
 4. `[[wikilink]]` 형식으로 관련 페이지 cross-link
-5. `index.md` 갱신
+5. `index.md` 갱신 (distill_level: 0, access_count: 0 frontmatter 포함)
 6. `log.md`에 작업 이력 기록
 
 ### curate
@@ -66,10 +67,16 @@ wiki 전체를 감사·압축·수명 관리한다.
 
 ```
 사용자: "curate 해줘"
-또는: "curate --audit" / "curate --distill" / "curate --lifecycle"
+또는: "curate --audit"
+또는: "curate --distill"    ← distill_level 점진적 압축
+또는: "curate --lifecycle"
+또는: "curate --graph"      ← 링크 그래프 분석 (NEW)
+또는: "curate --all"        ← 전체 (graph 포함)
 ```
 
-`schema/curate.md` 참조.
+- `--distill`: wiki/distill_queue.md를 읽고 distill_level 기준으로 페이지 압축. 압축 후 frontmatter 갱신.
+- `--graph`: wiki/graph_report.md를 읽고 허브 페이지 distill 우선 처리 + 합성 후보 제안.
+- `schema/curate.md` 참조.
 
 ### query
 wiki를 바탕으로 질문에 답한다.
@@ -83,6 +90,24 @@ wiki를 바탕으로 질문에 답한다.
 1. `index.md`에서 관련 wiki 페이지 식별
 2. 해당 페이지들만 로드
 3. **wiki 내용 기반으로만** 답변 (wiki에 없으면 "raw 데이터가 필요합니다" 응답)
+4. `scripts/curate.py --record-access {slug}`로 접근 기록 (distill 우선순위에 반영)
+
+### express
+wiki 페이지를 창작물로 출력한다. (NEW)
+
+```
+사용자: "express blog '에이전트 설계 패턴에 대해'"
+또는: "express lecture 'context-first' --slides 3"
+또는: "express summary --week"
+또는: "express summary --month"
+또는: "express report 'habix 경쟁사'"
+```
+
+실행 절차:
+1. `scripts/express.py`로 관련 wiki 페이지 수집 및 컨텍스트 준비
+2. 출력 형식에 맞는 구조로 창작물 생성
+3. `express/{type}/YYYY-MM-DD-{slug}.md` 저장
+4. blog 타입: `raw/blog/`에도 복사 → 다음 ingest에서 wiki 피드백 루프
 
 ## wiki 페이지 형식
 

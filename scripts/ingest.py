@@ -4,11 +4,13 @@ ingest.py — 미처리 raw/ 파일을 탐지하고 상태를 관리한다.
 실제 wiki 컴파일은 LLM 엔진 (claude CLI 또는 API)이 담당한다.
 
 사용법:
-  python ingest.py                      # 미처리 파일 목록 출력
-  python ingest.py --url https://...    # URL 스크랩 → raw/clippings/ 저장
-  python ingest.py --file ~/paper.pdf   # 로컬 파일 → raw/docs/ 저장
-  python ingest.py --note "텍스트"      # 텍스트 → raw/notes/ 저장
-  python ingest.py --mark-done          # 현재 raw/ 전체를 처리 완료로 표시
+  python ingest.py                          # 미처리 파일 목록 출력
+  python ingest.py --url https://...        # URL 스크랩 → raw/clippings/ 저장
+  python ingest.py --file ~/paper.pdf       # 로컬 파일 → raw/docs/ 저장
+  python ingest.py --note "텍스트"          # 텍스트 → raw/notes/ 저장
+  python ingest.py --mark-done              # 현재 raw/ 전체를 처리 완료로 표시
+  python ingest.py --url ... --resonance high   # resonance 레벨 지정 저장
+  python ingest.py --priority-only          # resonance: high 파일만 목록 출력
 """
 import argparse
 import json
@@ -74,7 +76,24 @@ def extract_text(file: Path) -> str | None:
     return None
 
 
-def find_unprocessed() -> list[Path]:
+def _get_resonance(file: Path) -> str | None:
+    """파일 frontmatter에서 resonance 값을 읽어 반환한다. 없으면 None."""
+    if file.suffix.lower() not in {".md", ".txt"}:
+        return None
+    try:
+        content = file.read_text(errors="replace")
+        m = re.search(r"^resonance:\s*(\S+)", content, re.MULTILINE)
+        return m.group(1).lower() if m else None
+    except OSError:
+        return None
+
+
+def find_unprocessed(priority_only: bool = False) -> list[Path]:
+    """
+    미처리 raw/ 파일 목록을 반환한다.
+
+    priority_only=True이면 frontmatter에 resonance: high 인 파일만 반환한다.
+    """
     state = load_state()
     processed = set(state.get("processed", []))
     files = [
@@ -83,10 +102,37 @@ def find_unprocessed() -> list[Path]:
         and f.suffix.lower() in SUPPORTED_EXTENSIONS
         and str(f.relative_to(WIKI_ROOT)) not in processed
     ]
+    if priority_only:
+        files = [f for f in files if _get_resonance(f) == "high"]
     return files
 
 
-def scrape_url(url: str) -> Path:
+def is_duplicate(file: Path) -> bool:
+    """
+    index.md의 [[wikilink]] 목록과 파일명 slug를 비교해
+    이미 wiki에 존재하는 주제인지 확인한다.
+    중복이면 경고 메시지를 출력하고 True를 반환한다 (ingest를 중단하지는 않는다).
+    """
+    index_file = WIKI_ROOT / "index.md"
+    if not index_file.exists():
+        return False
+
+    index_text = index_file.read_text(errors="replace")
+    existing_slugs = set(re.findall(r"\[\[([^\]|/]+?)(?:\|[^\]]*)?\]\]", index_text))
+
+    # 파일명에서 날짜 접두사(YYYY-MM-DD-) 제거 후 slug 추출
+    stem = file.stem
+    stem = re.sub(r"^\d{4}-\d{2}-\d{2}-", "", stem)  # 날짜 접두사 제거
+    stem = stem.replace("_", "-").lower()
+
+    if stem in {s.lower() for s in existing_slugs}:
+        print(f"  [경고] '{stem}' 주제가 index.md에 이미 존재합니다.")
+        print(f"         기존 wiki 페이지에 병합하는 것을 권장합니다.")
+        return True
+    return False
+
+
+def scrape_url(url: str, resonance: str | None = None) -> Path:
     print(f"  스크랩 중: {url}")
     resp = httpx.get(url, follow_redirects=True, timeout=30,
                      headers={"User-Agent": "Mozilla/5.0"})
@@ -97,14 +143,15 @@ def scrape_url(url: str) -> Path:
     date_str = datetime.now().strftime("%Y-%m-%d")
     out_file = RAW_DIR / "clippings" / f"{date_str}-{slug}.md"
     out_file.parent.mkdir(parents=True, exist_ok=True)
+    resonance_line = f"resonance: {resonance}\n" if resonance else ""
     out_file.write_text(
-        f"---\ntitle: 웹 스크랩\nurl: {url}\ncollected: {date_str}\n---\n\n{md_content}"
+        f"---\ntitle: 웹 스크랩\nurl: {url}\ncollected: {date_str}\n{resonance_line}---\n\n{md_content}"
     )
     print(f"  저장: {out_file.relative_to(WIKI_ROOT)}")
     return out_file
 
 
-def ingest_file(src: Path) -> Path:
+def ingest_file(src: Path, resonance: str | None = None) -> Path:
     """로컬 파일을 raw/docs/에 복사하고 텍스트 추출 MD를 함께 저장한다."""
     src = src.expanduser().resolve()
     if not src.exists():
@@ -126,9 +173,10 @@ def ingest_file(src: Path) -> Path:
     if src.suffix.lower() not in {".md", ".txt"}:
         text = extract_text(src)
         if text:
+            resonance_line = f"resonance: {resonance}\n" if resonance else ""
             md_out = docs_dir / f"{date_str}-{src.stem}.extracted.md"
             md_out.write_text(
-                f"---\ntitle: {src.name} 추출본\nsource_file: {src.name}\nextracted: {date_str}\n---\n\n{text}"
+                f"---\ntitle: {src.name} 추출본\nsource_file: {src.name}\nextracted: {date_str}\n{resonance_line}---\n\n{text}"
             )
             print(f"  추출 MD: {md_out.relative_to(WIKI_ROOT)}")
 
@@ -136,12 +184,13 @@ def ingest_file(src: Path) -> Path:
     return dst
 
 
-def save_note(text: str) -> Path:
+def save_note(text: str, resonance: str | None = None) -> Path:
     date_str = datetime.now().strftime("%Y-%m-%d-%H%M")
     out_file = RAW_DIR / "notes" / f"{date_str}-note.md"
     out_file.parent.mkdir(exist_ok=True)
+    resonance_line = f"resonance: {resonance}\n" if resonance else ""
     out_file.write_text(
-        f"---\ntitle: 수동 노트\ncreated: {date_str}\n---\n\n{text}"
+        f"---\ntitle: 수동 노트\ncreated: {date_str}\n{resonance_line}---\n\n{text}"
     )
     print(f"  저장: {out_file.relative_to(WIKI_ROOT)}")
     return out_file
@@ -166,6 +215,16 @@ def main() -> None:
     parser.add_argument("--note", help="저장할 텍스트 노트")
     parser.add_argument("--mark-done", action="store_true",
                         help="현재 raw/ 전체를 처리 완료로 표시")
+    parser.add_argument(
+        "--resonance",
+        choices=["high", "medium", "low"],
+        help="중요도 레벨 (--url/--file/--note와 함께 사용). frontmatter에 기록됨.",
+    )
+    parser.add_argument(
+        "--priority-only",
+        action="store_true",
+        help="미처리 파일 중 resonance: high 파일만 출력",
+    )
     args = parser.parse_args()
 
     if args.mark_done:
@@ -173,21 +232,28 @@ def main() -> None:
         return
 
     if args.url:
-        scrape_url(args.url)
+        saved = scrape_url(args.url, resonance=args.resonance)
+        is_duplicate(saved)
     elif args.file:
-        ingest_file(Path(args.file))
+        saved = ingest_file(Path(args.file), resonance=args.resonance)
+        is_duplicate(saved)
     elif args.note:
-        save_note(args.note)
+        saved = save_note(args.note, resonance=args.resonance)
+        is_duplicate(saved)
 
     # 미처리 파일 목록 출력
-    pending = find_unprocessed()
+    pending = find_unprocessed(priority_only=args.priority_only)
     if not pending:
-        print("[ingest] 처리할 새 파일 없음.")
+        label = "우선순위(high) " if args.priority_only else ""
+        print(f"[ingest] 처리할 새 {label}파일 없음.")
         sys.exit(0)
 
-    print(f"[ingest] 미처리 파일 {len(pending)}개:")
+    label = "우선순위(high) " if args.priority_only else ""
+    print(f"[ingest] 미처리 {label}파일 {len(pending)}개:")
     for f in pending:
-        print(f"  - {f.relative_to(WIKI_ROOT)}")
+        resonance = _get_resonance(f)
+        resonance_tag = f" [{resonance}]" if resonance else ""
+        print(f"  - {f.relative_to(WIKI_ROOT)}{resonance_tag}")
 
     # exit code 1 = 처리할 파일 있음 (run_daily.sh가 이를 감지해 LLM 호출)
     sys.exit(1)

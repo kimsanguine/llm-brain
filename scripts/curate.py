@@ -1,14 +1,16 @@
 #!/usr/bin/env python3
 """
-curate.py — wiki 감사(audit) + 압축(distill) + 수명 관리(lifecycle).
+curate.py — wiki 감사(audit) + 압축(distill) + 수명 관리(lifecycle) + 링크 분석(graph).
 
 사용법:
   python scripts/curate.py --all
   python scripts/curate.py --audit
   python scripts/curate.py --distill
   python scripts/curate.py --lifecycle
+  python scripts/curate.py --graph
 """
 import argparse
+import json
 import re
 from collections import defaultdict
 from datetime import datetime, timedelta
@@ -21,15 +23,92 @@ WIKI_DIR = WIKI_ROOT / "wiki"
 SCHEMA_DIR = WIKI_ROOT / "schema"
 LOG_FILE = WIKI_ROOT / "log.md"
 REPORT_FILE = WIKI_DIR / "curate_report.md"
+DISTILL_QUEUE_FILE = WIKI_DIR / "distill_queue.md"
+GRAPH_REPORT_FILE = WIKI_DIR / "graph_report.md"
+WIKI_STATS_FILE = WIKI_ROOT / "wiki_stats.json"
 # lifecycle 제외 도메인 (ttl_days: 0인 것들)
 LIFECYCLE_EXEMPT = {"concepts", "tools", "people", "projects", "business", "lecture"}
+
+
+# ── Stats (access tracking) ────────────────────────────────────────────
+
+def load_wiki_stats() -> dict:
+    """wiki_stats.json 로드. 없으면 빈 dict 반환."""
+    if WIKI_STATS_FILE.exists():
+        return json.loads(WIKI_STATS_FILE.read_text())
+    return {}
+
+
+def save_wiki_stats(stats: dict) -> None:
+    WIKI_STATS_FILE.write_text(json.dumps(stats, ensure_ascii=False, indent=2))
+
+
+def record_access(page_slug: str) -> None:
+    """query 모드에서 호출. page_slug에 대한 access_count를 wiki_stats.json에 기록."""
+    stats = load_wiki_stats()
+    entry = stats.get(page_slug, {"access_count": 0, "last_accessed": None})
+    entry["access_count"] += 1
+    entry["last_accessed"] = datetime.now().strftime("%Y-%m-%d")
+    stats[page_slug] = entry
+    save_wiki_stats(stats)
+    print(f"  [stats] {page_slug} access_count={entry['access_count']}")
+
+
+# ── Frontmatter helpers ────────────────────────────────────────────────
+
+_FM_PATTERN = re.compile(r"^---\n(.*?)\n---", re.DOTALL)
+
+
+def parse_frontmatter(content: str) -> tuple[dict, str]:
+    """(frontmatter_dict, body) 반환. frontmatter 없으면 ({}, content)."""
+    m = _FM_PATTERN.match(content)
+    if not m:
+        return {}, content
+    try:
+        fm = yaml.safe_load(m.group(1)) or {}
+    except yaml.YAMLError:
+        fm = {}
+    body = content[m.end():]
+    return fm, body
+
+
+def serialize_frontmatter(fm: dict, body: str) -> str:
+    dumped = yaml.dump(fm, allow_unicode=True, default_flow_style=False, sort_keys=False)
+    return f"---\n{dumped}---{body}"
+
+
+def ensure_distill_fields(page: Path) -> dict:
+    """
+    distill_level / access_count / last_accessed / last_distilled 필드가
+    없으면 기본값으로 추가하고 파일을 갱신한다. 갱신된 frontmatter 반환.
+    """
+    content = page.read_text()
+    fm, body = parse_frontmatter(content)
+    changed = False
+    for field, default in [
+        ("distill_level", 0),
+        ("access_count", 0),
+        ("last_accessed", None),
+        ("last_distilled", None),
+    ]:
+        if field not in fm:
+            fm[field] = default
+            changed = True
+    if changed:
+        page.write_text(serialize_frontmatter(fm, body))
+    return fm
 
 
 # ── Audit ─────────────────────────────────────────────────────────────
 
 def find_all_wiki_pages() -> list[Path]:
+    excluded = {
+        "curate_report.md",
+        "distill_queue.md",
+        "graph_report.md",
+    }
     return [p for p in WIKI_DIR.rglob("*.md")
-            if p.name not in ("curate_report.md",) and "archive" not in p.parts]
+            if p.name not in excluded and "archive" not in p.parts]
 
 
 def extract_wikilinks(content: str) -> set[str]:
@@ -90,19 +169,179 @@ def run_audit(pages: list[Path]) -> dict:
 
 def run_distill(pages: list[Path]) -> list[str]:
     """
-    distill은 Claude Code (claude CLI)가 담당한다.
-    이 함수는 distill 대상 파일 목록만 반환하고,
-    실제 실행은 run_daily.sh에서 claude -p 로 위임된다.
-    """
-    insight_candidates = [p for p in pages if "insights" in str(p)]
-    if len(insight_candidates) < 3:
-        print("  [distill] insight 페이지 3개 미만 — 건너뜀")
-        return []
+    wiki 전체를 스캔해 distill 후보를 분류하고 distill_queue.md에 저장한다.
+    실제 LLM 압축은 Claude Code가 이 파일을 읽고 실행한다.
 
-    paths = [str(p.relative_to(WIKI_ROOT)) for p in insight_candidates]
-    print(f"  [distill] {len(paths)}개 insight 페이지 → claude distill 위임")
-    # run_daily.sh가 이 출력을 보고 claude -p "curate --distill 해줘" 실행
-    return paths
+    반환값: distill 큐에 추가된 페이지 경로 목록.
+    """
+    now = datetime.now()
+    stats = load_wiki_stats()
+
+    urgent: list[dict] = []    # access_count >= 10 AND distill_level < 3
+    priority: list[dict] = []  # access_count >= 5  AND distill_level < 2
+    lifecycle_via_distill: list[dict] = []  # access_count == 0 AND 90일+
+
+    for page in pages:
+        # frontmatter 필드 보장
+        fm = ensure_distill_fields(page)
+
+        # wiki_stats.json의 access_count를 frontmatter와 동기
+        slug = page.stem
+        stats_entry = stats.get(slug, {})
+        stats_access = stats_entry.get("access_count", 0)
+        # 둘 중 큰 값을 사용 (두 소스 중 최신 반영)
+        access_count = max(fm.get("access_count", 0), stats_access)
+
+        distill_level = fm.get("distill_level", 0)
+        created_raw = fm.get("created")
+        if created_raw:
+            try:
+                created_dt = datetime.strptime(str(created_raw), "%Y-%m-%d")
+                age_days = (now - created_dt).days
+            except ValueError:
+                age_days = 0
+        else:
+            mtime = datetime.fromtimestamp(page.stat().st_mtime)
+            age_days = (now - mtime).days
+
+        rel_path = str(page.relative_to(WIKI_ROOT))
+        entry = {
+            "path": rel_path,
+            "slug": slug,
+            "distill_level": distill_level,
+            "access_count": access_count,
+            "age_days": age_days,
+        }
+
+        if access_count >= 10 and distill_level < 3:
+            urgent.append(entry)
+        elif access_count >= 5 and distill_level < 2:
+            priority.append(entry)
+        elif access_count == 0 and age_days > 90:
+            lifecycle_via_distill.append(entry)
+
+    # distill_queue.md 작성
+    ts = now.strftime("%Y-%m-%d %H:%M")
+    lines = [f"# Distill Queue — {ts}\n",
+             "> 이 파일은 `curate --distill`이 생성합니다. Claude Code가 읽고 순서대로 압축을 실행하세요.\n"]
+
+    lines.append(f"\n## 긴급 후보 (access ≥ 10, distill_level < 3) — {len(urgent)}개")
+    lines.append("우선순위 1: 즉시 압축 필요\n")
+    for e in sorted(urgent, key=lambda x: x["access_count"], reverse=True):
+        lines.append(
+            f"- [ ] `{e['path']}` — "
+            f"access={e['access_count']}, level={e['distill_level']}, age={e['age_days']}일"
+        )
+
+    lines.append(f"\n## 우선 후보 (access ≥ 5, distill_level < 2) — {len(priority)}개")
+    lines.append("우선순위 2: 다음 사이클에 압축\n")
+    for e in sorted(priority, key=lambda x: x["access_count"], reverse=True):
+        lines.append(
+            f"- [ ] `{e['path']}` — "
+            f"access={e['access_count']}, level={e['distill_level']}, age={e['age_days']}일"
+        )
+
+    lines.append(f"\n## Lifecycle 후보 (access=0, 90일+) — {len(lifecycle_via_distill)}개")
+    lines.append("우선순위 3: `curate --lifecycle` 또는 삭제 검토\n")
+    for e in sorted(lifecycle_via_distill, key=lambda x: x["age_days"], reverse=True):
+        lines.append(
+            f"- [ ] `{e['path']}` — "
+            f"age={e['age_days']}일, access=0"
+        )
+
+    DISTILL_QUEUE_FILE.write_text("\n".join(lines))
+    total = len(urgent) + len(priority)
+    print(f"  [distill] 긴급={len(urgent)}, 우선={len(priority)}, lifecycle={len(lifecycle_via_distill)} → wiki/distill_queue.md 저장")
+
+    all_candidates = [e["path"] for e in urgent + priority]
+    return all_candidates
+
+
+# ── Graph ─────────────────────────────────────────────────────────────
+
+def run_graph(pages: list[Path]) -> dict:
+    """
+    wiki 전체 wikilink를 파싱해 인바운드 링크 수를 계산하고 graph_report.md를 생성한다.
+
+    반환값: {"hubs": [...], "connected": [...], "isolated": [...]}
+    """
+    now = datetime.now()
+    _, inbound = build_link_graph(pages)
+    page_names = {p.stem for p in pages}
+
+    hubs: list[dict] = []        # 인바운드 5+
+    connected: list[dict] = []   # 인바운드 1-4
+    isolated: list[dict] = []    # 인바운드 0, 90일+
+
+    for page in pages:
+        name = page.stem
+        in_count = len(inbound.get(name, set()))
+        rel_path = str(page.relative_to(WIKI_ROOT))
+
+        # 생성일 또는 mtime으로 age 계산
+        content = page.read_text()
+        fm, _ = parse_frontmatter(content)
+        created_raw = fm.get("created")
+        if created_raw:
+            try:
+                created_dt = datetime.strptime(str(created_raw), "%Y-%m-%d")
+                age_days = (now - created_dt).days
+            except ValueError:
+                age_days = (now - datetime.fromtimestamp(page.stat().st_mtime)).days
+        else:
+            age_days = (now - datetime.fromtimestamp(page.stat().st_mtime)).days
+
+        entry = {
+            "path": rel_path,
+            "slug": name,
+            "inbound": in_count,
+            "age_days": age_days,
+        }
+
+        if in_count >= 5:
+            hubs.append(entry)
+        elif in_count >= 1:
+            connected.append(entry)
+        elif age_days > 90:
+            isolated.append(entry)
+
+    hubs.sort(key=lambda x: x["inbound"], reverse=True)
+    connected.sort(key=lambda x: x["inbound"], reverse=True)
+    isolated.sort(key=lambda x: x["age_days"], reverse=True)
+
+    # graph_report.md 작성
+    ts = now.strftime("%Y-%m-%d %H:%M")
+    lines = [f"# Graph Report — {ts}\n",
+             f"> 전체 {len(pages)}개 페이지 분석\n"]
+
+    lines.append(f"\n## 허브 페이지 (인바운드 5+) — {len(hubs)}개")
+    lines.append("distill 우선 처리 및 `wiki/synthesis/` 합성 후보\n")
+    for e in hubs:
+        inbound_pages = sorted(inbound.get(e["slug"], set()))
+        sample = ", ".join(f"[[{p}]]" for p in inbound_pages[:5])
+        if len(inbound_pages) > 5:
+            sample += f" 외 {len(inbound_pages) - 5}개"
+        lines.append(
+            f"- **[[{e['slug']}]]** — 인바운드 {e['inbound']}개  \n"
+            f"  참조 페이지: {sample}"
+        )
+
+    lines.append(f"\n## 연결 페이지 (인바운드 1–4) — {len(connected)}개\n")
+    for e in connected:
+        lines.append(f"- [[{e['slug']}]] — 인바운드 {e['inbound']}개")
+
+    lines.append(f"\n## 고립 페이지 (인바운드 0, 90일+) — {len(isolated)}개")
+    lines.append("lifecycle 후보 — `curate --lifecycle` 또는 삭제 검토\n")
+    for e in isolated:
+        lines.append(f"- [[{e['slug']}]] — age={e['age_days']}일, 인바운드 0")
+
+    GRAPH_REPORT_FILE.write_text("\n".join(lines))
+    print(
+        f"  [graph] 허브={len(hubs)}, 연결={len(connected)}, "
+        f"고립={len(isolated)} → wiki/graph_report.md 저장"
+    )
+
+    return {"hubs": hubs, "connected": connected, "isolated": isolated}
 
 
 # ── Lifecycle ──────────────────────────────────────────────────────────
@@ -148,7 +387,7 @@ def run_lifecycle(pages: list[Path]) -> dict:
 
 # ── Report ─────────────────────────────────────────────────────────────
 
-def write_report(audit: dict, distilled: list, lifecycle: dict) -> None:
+def write_report(audit: dict, distilled: list, lifecycle: dict, graph: dict | None = None) -> None:
     now = datetime.now().strftime("%Y-%m-%d %H:%M")
     lines = [f"# Curate Report — {now}\n"]
 
@@ -164,9 +403,11 @@ def write_report(audit: dict, distilled: list, lifecycle: dict) -> None:
         lines.append(f"- {s['source']} → [[{s['missing_target']}]] (페이지 없음)")
 
     lines.append(f"\n## Distill 결과")
-    lines.append(f"- 생성된 insights 페이지: {len(distilled)}개")
+    lines.append(f"- 큐에 추가된 페이지: {len(distilled)}개")
     for d in distilled:
         lines.append(f"  - {d}")
+    if distilled:
+        lines.append("\n> 상세 큐: `wiki/distill_queue.md`")
 
     lines.append("\n## Lifecycle 후보 (사용자 확인 필요)")
     archive = lifecycle.get("archive", [])
@@ -181,6 +422,14 @@ def write_report(audit: dict, distilled: list, lifecycle: dict) -> None:
     if delete:
         lines.append("\n> 삭제 실행: `python scripts/curate.py --purge`")
 
+    if graph is not None:
+        hubs = graph.get("hubs", [])
+        isolated = graph.get("isolated", [])
+        lines.append(f"\n## Graph 분석 요약")
+        lines.append(f"- 허브 페이지: {len(hubs)}개 (인바운드 5+)")
+        lines.append(f"- 고립 페이지: {len(isolated)}개 (인바운드 0, 90일+)")
+        lines.append("\n> 상세 보고서: `wiki/graph_report.md`")
+
     REPORT_FILE.write_text("\n".join(lines))
     print(f"\n[curate] 리포트 저장: wiki/curate_report.md")
 
@@ -188,9 +437,11 @@ def write_report(audit: dict, distilled: list, lifecycle: dict) -> None:
         f"\n## {now} [curate]\n"
         f"- orphan: {len(orphans)}개\n"
         f"- stale_links: {len(stale)}개\n"
-        f"- distilled: {len(distilled)}개\n"
+        f"- distill 큐: {len(distilled)}개\n"
         f"- archive 후보: {len(archive)}개\n"
     )
+    if graph is not None:
+        log_entry += f"- graph 허브: {len(graph.get('hubs', []))}개\n"
     LOG_FILE.open("a").write(log_entry)
 
 
@@ -219,22 +470,29 @@ def main() -> None:
     parser.add_argument("--audit", action="store_true")
     parser.add_argument("--distill", action="store_true")
     parser.add_argument("--lifecycle", action="store_true")
+    parser.add_argument("--graph", action="store_true", help="wikilink 인바운드 분석 + graph_report.md 생성")
     parser.add_argument("--purge", action="store_true", help="archive 후보 실제 이동")
+    parser.add_argument("--record-access", metavar="PAGE_SLUG", help="access_count 기록 (query 모드용)")
     args = parser.parse_args()
 
     if args.purge:
         do_purge()
         return
 
-    run_all = args.all or not any([args.audit, args.distill, args.lifecycle])
+    if args.record_access:
+        record_access(args.record_access)
+        return
+
+    run_all = args.all or not any([args.audit, args.distill, args.lifecycle, args.graph])
     pages = find_all_wiki_pages()
     print(f"[curate] {datetime.now().strftime('%Y-%m-%d %H:%M')} — {len(pages)}개 페이지 분석")
 
     audit_result = run_audit(pages) if (run_all or args.audit) else {}
     distilled = run_distill(pages) if (run_all or args.distill) else []
     lifecycle_result = run_lifecycle(pages) if (run_all or args.lifecycle) else {}
+    graph_result = run_graph(pages) if (run_all or args.graph) else None
 
-    write_report(audit_result, distilled, lifecycle_result)
+    write_report(audit_result, distilled, lifecycle_result, graph_result)
 
 
 if __name__ == "__main__":
