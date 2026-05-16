@@ -22,3 +22,8 @@ uv.lock
 .obsidian/workspace-mobile.json
 tools/intro-video/node_modules/
 CLAUDE.local.md
+tools/intro-video/out/
+.playwright-mcp/
+wiki_stats.json
+.obsidian/community-plugins.json
+.obsidian/plugins/
