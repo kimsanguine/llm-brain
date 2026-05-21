@@ -134,30 +134,98 @@ def test_compute_delta_new_edges(graph_stub):
     assert len(delta["new_edges"]) == len(graph_stub["links"])
 
 
-def test_build_delta_canvas_returns_none_when_no_delta(graph_stub):
-    """변경 없으면 None 반환."""
+def test_build_delta_canvas_returns_none_when_no_new_nodes(graph_stub):
+    """신규 노드가 없으면 None 반환 (갱신만 있어도 None)."""
     same = json.loads(json.dumps(graph_stub))
-    result = build_delta_canvas(graph_stub, same)
-    assert result is None
+    assert build_delta_canvas(graph_stub, same) is None
+
+    # 갱신만 있고 신규가 없는 경우도 None
+    prev_with_updated_only = json.loads(json.dumps(graph_stub))
+    for n in prev_with_updated_only["nodes"]:
+        if n["id"] == "alpha":
+            n["inbound"] = 0
+    assert build_delta_canvas(graph_stub, prev_with_updated_only) is None
 
 
 def test_build_delta_canvas_new_node_color(graph_stub):
-    """신규 노드 color='3' (yellow)."""
+    """신규 노드 color='3' (yellow), 신규 노드는 y=0."""
     prev = {"nodes": [], "links": []}
     canvas = build_delta_canvas(graph_stub, prev)
     assert canvas is not None
     new_node = next(n for n in canvas["nodes"] if n["id"] == "alpha")
     assert new_node["color"] == "3"
+    assert new_node["y"] == 0
 
 
-def test_build_delta_canvas_updated_node_color(graph_stub):
-    """갱신 노드 color='6' (purple)."""
-    prev = json.loads(json.dumps(graph_stub))
-    for n in prev["nodes"]:
-        if n["id"] == "alpha":
-            n["inbound"] = 0
+def test_build_delta_canvas_excludes_updated_nodes(graph_stub):
+    """갱신 노드는 canvas에 포함되지 않아야 한다."""
+    # gamma를 신규로 만들고, alpha는 갱신만 되도록 prev 구성
+    prev = {
+        "nodes": [
+            {"id": "alpha", "kind": "page", "title": "Alpha", "type": "concept",
+             "category": "concepts", "domain": [], "tags": [], "inbound": 0, "outbound": 0},
+            {"id": "beta",  "kind": "page", "title": "Beta",  "type": "concept",
+             "category": "concepts", "domain": [], "tags": [], "inbound": 1, "outbound": 0},
+        ],
+        "links": [],
+    }
+    # current: gamma 신규, alpha는 inbound 변경 (갱신)
     canvas = build_delta_canvas(graph_stub, prev)
     assert canvas is not None
-    upd_node = next((n for n in canvas["nodes"] if n["id"] == "alpha"), None)
-    assert upd_node is not None
-    assert upd_node["color"] == "6"
+    canvas_ids = {n["id"] for n in canvas["nodes"]}
+    # gamma는 신규로 포함
+    assert "gamma" in canvas_ids
+    # alpha는 신규 노드의 이웃이므로 포함될 수 있음 (이웃 자격)
+    # 핵심: alpha가 "갱신 노드" 자격으로는 들어가지 않음 = color가 없어야 함
+    if "alpha" in canvas_ids:
+        alpha_node = next(n for n in canvas["nodes"] if n["id"] == "alpha")
+        assert alpha_node.get("color") is None or alpha_node["color"] != "6"
+
+
+def test_build_delta_canvas_neighbor_dedup(graph_stub):
+    """같은 노드가 여러 신규 노드의 이웃이어도 한 번만 표시되어야 한다."""
+    # alpha, beta를 신규로 만들기 위해 prev에서 둘 다 제거
+    prev = {
+        "nodes": [
+            {"id": "gamma", "kind": "page", "title": "Gamma", "type": "concept",
+             "category": "concepts", "domain": [], "tags": [], "inbound": 0, "outbound": 0},
+        ],
+        "links": [],
+    }
+    # graph_stub은 beta→alpha, gamma→alpha, alpha→gamma 링크 보유
+    # alpha, beta 모두 신규 → gamma는 두 신규의 이웃
+    canvas = build_delta_canvas(graph_stub, prev)
+    assert canvas is not None
+    gamma_nodes = [n for n in canvas["nodes"] if n["id"] == "gamma"]
+    assert len(gamma_nodes) == 1, "이웃 노드는 dedup되어 한 번만 표시되어야 함"
+
+
+def test_build_delta_canvas_includes_internal_edges(graph_stub):
+    """신규 노드끼리의 wikilink 엣지도 포함되어야 한다."""
+    # alpha, beta를 신규로, gamma는 이웃으로
+    prev = {
+        "nodes": [
+            {"id": "gamma", "kind": "page", "title": "Gamma", "type": "concept",
+             "category": "concepts", "domain": [], "tags": [], "inbound": 0, "outbound": 0},
+        ],
+        "links": [],
+    }
+    canvas = build_delta_canvas(graph_stub, prev)
+    assert canvas is not None
+    edge_pairs = {(e["fromNode"], e["toNode"]) for e in canvas["edges"]}
+    # 신규-신규 엣지: beta→alpha
+    assert ("beta", "alpha") in edge_pairs
+    # 신규-이웃 엣지: alpha→gamma, gamma→alpha
+    assert ("alpha", "gamma") in edge_pairs
+    assert ("gamma", "alpha") in edge_pairs
+
+
+def test_build_delta_canvas_neighbor_position(graph_stub):
+    """이웃 노드는 y=±400에 배치되어야 한다."""
+    prev = {"nodes": [], "links": []}
+    canvas = build_delta_canvas(graph_stub, prev)
+    assert canvas is not None
+    # 신규: alpha, beta, gamma — 이웃 없음 (다른 page 노드 없음)
+    # 모든 노드가 y=0이어야 함
+    for n in canvas["nodes"]:
+        assert n["y"] == 0  # 모두 신규, 이웃 없음

@@ -19,12 +19,10 @@ _CENTER_H = 80
 _SIDE_X_OFFSET = 340
 _SIDE_Y_SPACING = 120
 _MAX_NEIGHBORS = 5
-_DELTA_X_SPACING = 320
 
 # Obsidian Canvas color: 1=red 2=orange 3=yellow 4=green 5=cyan 6=purple
 _COLOR_QUERY_CENTER = "4"   # green — 현재 쿼리 노드
 _COLOR_NEW_NODE     = "3"   # yellow — ingest 신규 노드
-_COLOR_UPDATED_NODE = "6"   # purple — ingest 갱신 노드
 
 
 def _wiki_path(node: dict) -> str:
@@ -157,71 +155,87 @@ def compute_delta(current: dict, prev: dict) -> dict:
     }
 
 
+_NEW_ROW_SPACING_X      = 500   # 신규 노드 간 x 간격
+_NEIGHBOR_ROW_SPACING_X = 320   # 이웃 노드 간 x 간격
+_NEIGHBOR_ROW_Y         = 400   # 이웃 row의 y 절댓값 (위쪽 -400, 아래쪽 +400)
+
+
 def build_delta_canvas(current: dict, prev: dict) -> dict | None:
     """
-    ingest delta를 시각화한 Canvas를 반환한다.
-    delta(신규 + 갱신 노드)가 없으면 None 반환.
+    이번 ingest에서 추가된 신규 page 노드와, 그 노드들의 1-depth 이웃을
+    union한 Canvas를 반환한다.
 
-    신규/갱신 노드를 중앙 행에 배치하고
-    각 노드의 inbound/outbound 맥락 노드를 좌우에 표시한다.
+    갱신/제거 노드는 표시하지 않는다 (터미널 print_delta에서 확인).
+    신규 노드가 없으면 None 반환.
+
+    레이아웃:
+      - 신규 노드: 중앙 가로 row (y=0), color=_COLOR_NEW_NODE
+      - 이웃 노드: 위(y=-_NEIGHBOR_ROW_Y) / 아래(y=+_NEIGHBOR_ROW_Y)로 분산, 색상 없음
+      - 엣지: 양끝이 canvas 노드인 wikilink 엣지 전부 (신규-신규, 신규-이웃)
     """
     delta = compute_delta(current, prev)
-    delta_nodes = delta["new_nodes"] + delta["updated_nodes"]
-    if not delta_nodes:
+    new_nodes = delta["new_nodes"]
+    if not new_nodes:
         return None
 
     cur_nodes_by_id = {n["id"]: n for n in current["nodes"] if n["kind"] == "page"}
     links = current.get("links", [])
 
+    new_ids = {n["id"] for n in new_nodes}
+
+    # 신규 노드의 1-depth 이웃 수집 (page 노드만, 신규 자체 제외)
+    neighbor_ids: set[str] = set()
+    for lnk in links:
+        s, t = lnk["source"], lnk["target"]
+        if s in new_ids and t in cur_nodes_by_id and t not in new_ids:
+            neighbor_ids.add(t)
+        if t in new_ids and s in cur_nodes_by_id and s not in new_ids:
+            neighbor_ids.add(s)
+
     canvas_nodes: list[dict] = []
     canvas_edges: list[dict] = []
-    new_node_ids = {n["id"] for n in delta["new_nodes"]}
 
-    for col_idx, node in enumerate(delta_nodes):
-        color = _COLOR_NEW_NODE if node["id"] in new_node_ids else _COLOR_UPDATED_NODE
-        cx = col_idx * _DELTA_X_SPACING
-
+    # 신규 노드 배치: 중앙 가로 row, 가운데 정렬
+    new_list = sorted(new_nodes, key=lambda n: n["id"])
+    n_new = len(new_list)
+    for i, node in enumerate(new_list):
+        x = int((i - (n_new - 1) / 2) * _NEW_ROW_SPACING_X)
         canvas_nodes.append(_make_file_node(
-            node["id"], _wiki_path(node), cx, 0, color,
+            node["id"], _wiki_path(node), x, 0, _COLOR_NEW_NODE,
         ))
 
-        inbound_ids = [
-            lnk["source"] for lnk in links
-            if lnk["target"] == node["id"] and lnk["source"] in cur_nodes_by_id
-        ]
-        inbound_ids = sorted(
-            set(inbound_ids),
-            key=lambda nid: cur_nodes_by_id[nid].get("inbound", 0),
-            reverse=True,
-        )[:_MAX_NEIGHBORS]
+    # 이웃 배치: inbound count 내림차순 정렬 후 위/아래로 절반씩 분배
+    sorted_neighbors = sorted(
+        neighbor_ids,
+        key=lambda nid: cur_nodes_by_id[nid].get("inbound", 0),
+        reverse=True,
+    )
+    n_up = (len(sorted_neighbors) + 1) // 2
+    upper = sorted_neighbors[:n_up]
+    lower = sorted_neighbors[n_up:]
 
-        for i, nid in enumerate(inbound_ids):
-            ctx_id = f"ctx-in-{col_idx}-{i}"
-            y = (i - len(inbound_ids) // 2) * _SIDE_Y_SPACING
-            canvas_nodes.append(_make_file_node(
-                ctx_id, _wiki_path(cur_nodes_by_id[nid]),
-                cx - _SIDE_X_OFFSET, y,
-            ))
-            canvas_edges.append(_make_edge(f"e-in-{col_idx}-{i}", ctx_id, node["id"]))
+    for j, nid in enumerate(upper):
+        x = int((j - (len(upper) - 1) / 2) * _NEIGHBOR_ROW_SPACING_X)
+        canvas_nodes.append(_make_file_node(
+            nid, _wiki_path(cur_nodes_by_id[nid]), x, -_NEIGHBOR_ROW_Y,
+        ))
 
-        outbound_ids = [
-            lnk["target"] for lnk in links
-            if lnk["source"] == node["id"] and lnk["target"] in cur_nodes_by_id
-        ]
-        outbound_ids = sorted(
-            set(outbound_ids),
-            key=lambda nid: cur_nodes_by_id[nid].get("inbound", 0),
-            reverse=True,
-        )[:_MAX_NEIGHBORS]
+    for j, nid in enumerate(lower):
+        x = int((j - (len(lower) - 1) / 2) * _NEIGHBOR_ROW_SPACING_X)
+        canvas_nodes.append(_make_file_node(
+            nid, _wiki_path(cur_nodes_by_id[nid]), x, _NEIGHBOR_ROW_Y,
+        ))
 
-        for i, nid in enumerate(outbound_ids):
-            ctx_id = f"ctx-out-{col_idx}-{i}"
-            y = (i - len(outbound_ids) // 2) * _SIDE_Y_SPACING
-            canvas_nodes.append(_make_file_node(
-                ctx_id, _wiki_path(cur_nodes_by_id[nid]),
-                cx + _SIDE_X_OFFSET, y,
-            ))
-            canvas_edges.append(_make_edge(f"e-out-{col_idx}-{i}", node["id"], ctx_id))
+    # 엣지: 양끝이 canvas 노드(신규 ∪ 이웃)에 모두 포함된 wikilink만 표시
+    canvas_ids = new_ids | neighbor_ids
+    edge_idx = 0
+    for lnk in links:
+        if lnk.get("kind") != "wikilink":
+            continue
+        s, t = lnk["source"], lnk["target"]
+        if s in canvas_ids and t in canvas_ids:
+            canvas_edges.append(_make_edge(f"e-{edge_idx}", s, t))
+            edge_idx += 1
 
     return {"nodes": canvas_nodes, "edges": canvas_edges}
 
