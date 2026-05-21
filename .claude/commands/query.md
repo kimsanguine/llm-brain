@@ -34,3 +34,53 @@ llm-brain의 query 커맨드입니다. 질문: **$ARGUMENTS**
 cd /Users/sanguinekim/Documents/3_Code/Vibe/Project/260516_llm_brain
 uv run python scripts/curate.py --record-access <페이지_slug>
 ```
+
+## Step 5: 연결 요약 출력
+
+`wiki/graph.json`이 없으면 이 단계를 건너뜁니다.
+
+답변에서 첫 번째로 참조한 페이지(`primary_slug`)의 연결 현황을 출력합니다:
+
+```python
+import json, sys
+from pathlib import Path
+sys.path.insert(0, "scripts")
+
+graph_path = Path("wiki/graph.json")
+if graph_path.exists():
+    graph = json.loads(graph_path.read_text())
+    nodes_by_id = {n["id"]: n for n in graph["nodes"] if n["kind"] == "page"}
+    links = graph["links"]
+
+    # primary_slug = 답변에서 첫 번째로 참조한 wiki 페이지의 slug
+    if primary_slug in nodes_by_id:
+        node = nodes_by_id[primary_slug]
+        n_in  = node["inbound"]
+        n_out = node["outbound"]
+        inbound_list  = [l["source"] for l in links if l["target"] == primary_slug and l["source"] in nodes_by_id][:2]
+        outbound_list = [l["target"] for l in links if l["source"] == primary_slug and l["target"] in nodes_by_id][:2]
+        print(f"[query] 참조: [[{primary_slug}]]  인바운드 {n_in} / 아웃바운드 {n_out}")
+        if inbound_list:
+            extra = f" 외 {n_in - 2}개" if n_in > 2 else ""
+            print(f"  ◀ inbound:  {', '.join(inbound_list)}{extra}")
+        if outbound_list:
+            extra = f" 외 {n_out - 2}개" if n_out > 2 else ""
+            print(f"  ▶ outbound: {', '.join(outbound_list)}{extra}")
+```
+
+## Step 6: Neighborhood Canvas 생성
+
+primary 페이지의 1-depth 네이버후드 Canvas를 생성합니다:
+
+```python
+from canvas_utils import build_neighborhood_canvas, save_canvas
+
+if graph_path.exists() and primary_slug in nodes_by_id:
+    canvas = build_neighborhood_canvas(graph, primary_slug)
+    if canvas:
+        canvas_path = Path(f"wiki/canvas/query-{primary_slug}.canvas")
+        save_canvas(canvas, canvas_path)
+        print(f"[query] canvas → wiki/canvas/query-{primary_slug}.canvas")
+```
+
+Obsidian에서 `wiki/canvas/query-{primary_slug}.canvas`를 열어 노드 연결 맥락을 확인할 수 있습니다.

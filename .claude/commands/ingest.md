@@ -57,6 +57,54 @@ cd /Users/sanguinekim/Documents/3_Code/Vibe/Project/260516_llm_brain
 uv run python scripts/ingest.py --mark-done
 ```
 
+## Step 4: 그래프 delta 처리
+
+> wiki 페이지가 0개이거나 Step 2에서 변경 사항이 없으면 이 단계를 건너뜁니다.
+
+**4-0. 스냅샷** (export_graph.py 실행 전 반드시 먼저):
+
+```python
+import sys
+sys.path.insert(0, "scripts")
+from ingest import snapshot_graph
+snapshot_graph()  # wiki/graph.json → wiki/.graph_prev.json 복사
+```
+
+**4-1. export_graph.py 실행** (graph.json 갱신):
+
+```bash
+cd /Users/sanguinekim/Documents/3_Code/Vibe/Project/260516_llm_brain
+uv run python scripts/export_graph.py
+```
+
+**4-2. delta 계산 및 출력**:
+
+```python
+import sys
+sys.path.insert(0, "scripts")
+from ingest import run_delta_pipeline, print_delta
+delta = run_delta_pipeline()
+if delta:
+    print_delta(delta)
+else:
+    print("[ingest] delta — 변경 없음")
+```
+
+## Step 5: Canvas 생성
+
+delta가 있으면 `wiki/canvas/ingest-delta.canvas`를 생성합니다:
+
+```python
+import sys
+sys.path.insert(0, "scripts")
+from ingest import generate_ingest_delta_canvas
+generated = generate_ingest_delta_canvas()
+if not generated:
+    print("[ingest] canvas 생성 생략 (delta 없음)")
+```
+
+Obsidian에서 `wiki/canvas/ingest-delta.canvas`를 열어 신규/갱신 노드와 맥락을 확인할 수 있습니다.
+
 ## 가드레일 (절대 위반 금지)
 
 - `raw/` 파일 수정 금지 (읽기 전용)
