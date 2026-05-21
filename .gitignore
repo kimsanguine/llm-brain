@@ -9,6 +9,7 @@ schema/sources.yaml
 schema/config.yaml
 
 # 시스템 파일
+.DS_Store
 .venv/
 .ingest_state.json
 .sync_state.json

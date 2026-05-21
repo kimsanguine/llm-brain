@@ -18,6 +18,58 @@
 
 <!-- 로그 항목은 아래에 최신순으로 추가 -->
 
+## 2026-05-22 [curate --graph]
+- 분석 대상: 46개 페이지 (이전 그래프: 41개, delta +5)
+- 신규 허브 진입: agent-build-harness (4→7), single-vs-multi-agent (3→6)
+- 허브 총계: 12 → 14개
+- 합성 후보: PM 3부작 클러스터 (pm-agency-ai-era+team-decision-structure-agent-era+background-agent-n-kpi → insights/pm-era-agent-leverage.md), OpenAI 실행환경 클러스터 (openai-agents-sdk+agent-harness-pattern+context-first → insights/execution-environment-patterns.md)
+- stale 링크: 0개
+- graph_report.md 갱신 완료
+
+## 2026-05-22 [ingest — URL 클리핑: OpenAI Agents SDK 진화 (2026-04-15)]
+- 처리 raw: raw/clippings/2026-04-15-openai-agents-sdk-next-evolution.md (1개, URL 스크랩)
+- 신규 wiki: wiki/tools/openai-agents-sdk.md (1개)
+- 갱신 wiki: wiki/concepts/agent-harness-pattern.md (관련 개념에 [[openai-agents-sdk]] 링크 추가), index.md (tools 5→6개, 총 45→46개)
+- 반영 내용: SandboxAgent + Manifest 추상화, 실행환경·컴퓨팅 분리 3원칙(보안·안정성·확장성), 스냅샷/복원, 샌드박스 파트너 7종, MCP·skills·AGENTS.md 기본 구성요소 통합
+- Ghost 추가: 없음
+- 게이트: G-1 (1차 소스 예외 적용), TK-014 promote
+
+## 2026-05-21 07:01 [ingest — 일일 sync: TIL 2026-05-21 반영]
+- 처리 raw: raw/til/2026-05-21.md (1개)
+- 신규 wiki: 없음 (0개)
+- 갱신 wiki: wiki/insights/claude-code-workflow.md, wiki/insights/til-patterns-2026-05.md, index.md (3개)
+- 반영 내용: Claude Code settings.json 키 검증(remoteControlAtStartup), IDE 실행 경로별 설정 적용 한계, /wrapup MEMORY.md 업데이트 후보의 HITL 3지선다 패턴
+- Ghost 추가: 없음
+
+## 2026-05-20 07:01 [ingest — 일일 sync: TIL 2026-05-20 반영]
+- 처리 raw: raw/til/2026-05-20.md (1개)
+- 신규 wiki: 없음 (0개)
+- 갱신 wiki: wiki/business/habix-profile.md, wiki/insights/til-patterns-2026-05.md, index.md (3개)
+- 반영 내용: habix.ai 후기 6건 승인 및 사이트/JSON-LD 실데이터 반영, footer © 1970 버그의 정적 export Date 초기화 폴백 패턴
+- Ghost 추가: 없음
+
+## 2026-05-19 07:01 [ingest — 일일 sync: eval 설계 + T3 주간요약 + TIL 2026-05-19 반영]
+- 처리 raw: raw/blog/2026-05-18-pm-evaluation-design-mindset.md, raw/meetings/clients/T3-TEACH/weekly_summary_2026-05-18.md, raw/til/2026-05-19.md (3개)
+- 신규 wiki: 없음 (0개)
+- 갱신 wiki: wiki/concepts/ai-pm-role.md, wiki/concepts/agent-harness-pattern.md, wiki/concepts/model-routing-cost.md, wiki/projects/t3-teach-lecture-operations.md, wiki/insights/til-patterns-2026-05.md, index.md (6개)
+- 반영 내용: PM의 Spec→Eval 역할 전환, P0/P1/P2 평가 게이트, 팀별 스코어카드 기반 모델 라우팅 검증, T3-TEACH 현장 대응형 AI 서비스 발표 패턴, cross-domain shared asset cache busting, 병렬 worktree cleanup 부채
+- Ghost 추가: 없음
+
+## 2026-05-18 07:30 [ingest — 일일 sync: blog 4개 + TIL 2026-05-18 반영]
+- 처리 raw: raw/blog/2026-05-14-skills-vs-agency-pm.md, raw/blog/2026-05-15-pm-leverage-team-decisions.md, raw/blog/2026-05-16-domain-vertical-agent-sku.md, raw/blog/2026-05-17-background-agents-n-kpi.md, raw/til/2026-05-18.md (5개)
+- 신규 wiki: wiki/concepts/pm-agency-ai-era.md, wiki/concepts/team-decision-structure-agent-era.md, wiki/concepts/background-agent-n-kpi.md (3개)
+- 갱신 wiki: wiki/concepts/ai-pm-role.md, wiki/concepts/vertical-agent-domain-depth.md, wiki/concepts/agent-pricing-model.md, wiki/insights/til-patterns-2026-05.md, wiki/insights/agent-build-harness.md, index.md (6개)
+- 반영 내용: PM 에이전시, 팀 의사결정 구조, 도메인 번들 SKU, 백그라운드 에이전트의 한 명의 N KPI, hplan v0.8.4 production cycle, llm-brain/hplan 제품 페이지 후속 과제
+- Ghost 추가: 없음
+
+## 2026-05-17 07:05 [ingest — 일일 sync: TIL 2026-05-16 반영]
+- 처리 raw: raw/til/2026-05-16.md (1개)
+- 신규 wiki: 없음
+- 갱신 wiki: wiki/insights/til-patterns-2026-05.md, wiki/insights/agent-build-harness.md, index.md (3개)
+- 반영 내용: hplan PMF 반복 엔진, STATE.md 자동 주입, HARD-GATE 태그/예외 설계, 하네스 레이어 분리
+- 참고: raw/clippings/ 12개는 이미 2026-05-16 wiki sources에 반영되어 있어 신규 편집 없이 mark-done 대상으로 처리
+- Ghost 추가: 없음
+
 ## 2026-05-15 [ingest — raw/til/ 49개 → insights/ 패턴 압축]
 - 처리 raw: 2026-02-24.md~2026-04-26.md (실존 파일 40개, 목록 상 49개 중 누락 9개 제외)
 - 신규 wiki: wiki/insights/remotion-video-patterns.md, wiki/insights/pptx-automation-patterns.md, wiki/insights/agent-build-harness.md, wiki/insights/youtube-dubbing-patterns.md, wiki/insights/teaching-lecture-patterns.md, wiki/insights/session-scribe-meeting-system.md, wiki/insights/claude-code-workflow.md (7개)
@@ -93,3 +145,10 @@
 - distill 큐: 0개
 - archive 후보: 0개
 - graph 허브: 12개
+
+## 2026-05-22 00:24 [curate]
+- orphan: 0개
+- stale_links: 11개
+- distill 큐: 0개
+- archive 후보: 0개
+- graph 허브: 14개
