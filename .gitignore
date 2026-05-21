@@ -3,6 +3,8 @@ raw/
 
 # wiki 콘텐츠 — 개인 지식베이스 (사용자마다 다름)
 wiki/
+wiki/.graph_prev.json
+wiki/canvas/
 
 # 개인 설정 — 소스 경로·LLM 엔진은 사용자마다 다름
 schema/sources.yaml
