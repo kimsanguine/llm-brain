@@ -24,7 +24,6 @@ SCHEMA_DIR = WIKI_ROOT / "schema"
 LOG_FILE = WIKI_ROOT / "log.md"
 REPORT_FILE = WIKI_DIR / "curate_report.md"
 DISTILL_QUEUE_FILE = WIKI_DIR / "distill_queue.md"
-GRAPH_REPORT_FILE = WIKI_DIR / "graph_report.md"
 WIKI_STATS_FILE = WIKI_ROOT / "wiki_stats.json"
 # lifecycle 제외 도메인 (ttl_days: 0인 것들)
 LIFECYCLE_EXEMPT = {"concepts", "tools", "people", "projects", "business", "lecture"}
@@ -257,93 +256,6 @@ def run_distill(pages: list[Path]) -> list[str]:
     return all_candidates
 
 
-# ── Graph ─────────────────────────────────────────────────────────────
-
-def run_graph(pages: list[Path]) -> dict:
-    """
-    wiki 전체 wikilink를 파싱해 인바운드 링크 수를 계산하고 graph_report.md를 생성한다.
-
-    반환값: {"hubs": [...], "connected": [...], "isolated": [...]}
-    """
-    now = datetime.now()
-    _, inbound = build_link_graph(pages)
-    page_names = {p.stem for p in pages}
-
-    hubs: list[dict] = []        # 인바운드 5+
-    connected: list[dict] = []   # 인바운드 1-4
-    isolated: list[dict] = []    # 인바운드 0, 90일+
-
-    for page in pages:
-        name = page.stem
-        in_count = len(inbound.get(name, set()))
-        rel_path = str(page.relative_to(WIKI_ROOT))
-
-        # 생성일 또는 mtime으로 age 계산
-        content = page.read_text()
-        fm, _ = parse_frontmatter(content)
-        created_raw = fm.get("created")
-        if created_raw:
-            try:
-                created_dt = datetime.strptime(str(created_raw), "%Y-%m-%d")
-                age_days = (now - created_dt).days
-            except ValueError:
-                age_days = (now - datetime.fromtimestamp(page.stat().st_mtime)).days
-        else:
-            age_days = (now - datetime.fromtimestamp(page.stat().st_mtime)).days
-
-        entry = {
-            "path": rel_path,
-            "slug": name,
-            "inbound": in_count,
-            "age_days": age_days,
-        }
-
-        if in_count >= 5:
-            hubs.append(entry)
-        elif in_count >= 1:
-            connected.append(entry)
-        elif age_days > 90:
-            isolated.append(entry)
-
-    hubs.sort(key=lambda x: x["inbound"], reverse=True)
-    connected.sort(key=lambda x: x["inbound"], reverse=True)
-    isolated.sort(key=lambda x: x["age_days"], reverse=True)
-
-    # graph_report.md 작성
-    ts = now.strftime("%Y-%m-%d %H:%M")
-    lines = [f"# Graph Report — {ts}\n",
-             f"> 전체 {len(pages)}개 페이지 분석\n"]
-
-    lines.append(f"\n## 허브 페이지 (인바운드 5+) — {len(hubs)}개")
-    lines.append("distill 우선 처리 및 `wiki/synthesis/` 합성 후보\n")
-    for e in hubs:
-        inbound_pages = sorted(inbound.get(e["slug"], set()))
-        sample = ", ".join(f"[[{p}]]" for p in inbound_pages[:5])
-        if len(inbound_pages) > 5:
-            sample += f" 외 {len(inbound_pages) - 5}개"
-        lines.append(
-            f"- **[[{e['slug']}]]** — 인바운드 {e['inbound']}개  \n"
-            f"  참조 페이지: {sample}"
-        )
-
-    lines.append(f"\n## 연결 페이지 (인바운드 1–4) — {len(connected)}개\n")
-    for e in connected:
-        lines.append(f"- [[{e['slug']}]] — 인바운드 {e['inbound']}개")
-
-    lines.append(f"\n## 고립 페이지 (인바운드 0, 90일+) — {len(isolated)}개")
-    lines.append("lifecycle 후보 — `curate --lifecycle` 또는 삭제 검토\n")
-    for e in isolated:
-        lines.append(f"- [[{e['slug']}]] — age={e['age_days']}일, 인바운드 0")
-
-    GRAPH_REPORT_FILE.write_text("\n".join(lines))
-    print(
-        f"  [graph] 허브={len(hubs)}, 연결={len(connected)}, "
-        f"고립={len(isolated)} → wiki/graph_report.md 저장"
-    )
-
-    return {"hubs": hubs, "connected": connected, "isolated": isolated}
-
-
 # ── Lifecycle ──────────────────────────────────────────────────────────
 
 def run_lifecycle(pages: list[Path]) -> dict:
@@ -387,7 +299,7 @@ def run_lifecycle(pages: list[Path]) -> dict:
 
 # ── Report ─────────────────────────────────────────────────────────────
 
-def write_report(audit: dict, distilled: list, lifecycle: dict, graph: dict | None = None) -> None:
+def write_report(audit: dict, distilled: list, lifecycle: dict) -> None:
     now = datetime.now().strftime("%Y-%m-%d %H:%M")
     lines = [f"# Curate Report — {now}\n"]
 
@@ -422,14 +334,6 @@ def write_report(audit: dict, distilled: list, lifecycle: dict, graph: dict | No
     if delete:
         lines.append("\n> 삭제 실행: `python scripts/curate.py --purge`")
 
-    if graph is not None:
-        hubs = graph.get("hubs", [])
-        isolated = graph.get("isolated", [])
-        lines.append(f"\n## Graph 분석 요약")
-        lines.append(f"- 허브 페이지: {len(hubs)}개 (인바운드 5+)")
-        lines.append(f"- 고립 페이지: {len(isolated)}개 (인바운드 0, 90일+)")
-        lines.append("\n> 상세 보고서: `wiki/graph_report.md`")
-
     REPORT_FILE.write_text("\n".join(lines))
     print(f"\n[curate] 리포트 저장: wiki/curate_report.md")
 
@@ -440,8 +344,6 @@ def write_report(audit: dict, distilled: list, lifecycle: dict, graph: dict | No
         f"- distill 큐: {len(distilled)}개\n"
         f"- archive 후보: {len(archive)}개\n"
     )
-    if graph is not None:
-        log_entry += f"- graph 허브: {len(graph.get('hubs', []))}개\n"
     LOG_FILE.open("a").write(log_entry)
 
 
@@ -470,7 +372,6 @@ def main() -> None:
     parser.add_argument("--audit", action="store_true")
     parser.add_argument("--distill", action="store_true")
     parser.add_argument("--lifecycle", action="store_true")
-    parser.add_argument("--graph", action="store_true", help="wikilink 인바운드 분석 + graph_report.md 생성")
     parser.add_argument("--purge", action="store_true", help="archive 후보 실제 이동")
     parser.add_argument("--record-access", metavar="PAGE_SLUG", help="access_count 기록 (query 모드용)")
     args = parser.parse_args()
@@ -483,16 +384,15 @@ def main() -> None:
         record_access(args.record_access)
         return
 
-    run_all = args.all or not any([args.audit, args.distill, args.lifecycle, args.graph])
+    run_all = args.all or not any([args.audit, args.distill, args.lifecycle])
     pages = find_all_wiki_pages()
     print(f"[curate] {datetime.now().strftime('%Y-%m-%d %H:%M')} — {len(pages)}개 페이지 분석")
 
     audit_result = run_audit(pages) if (run_all or args.audit) else {}
     distilled = run_distill(pages) if (run_all or args.distill) else []
     lifecycle_result = run_lifecycle(pages) if (run_all or args.lifecycle) else {}
-    graph_result = run_graph(pages) if (run_all or args.graph) else None
 
-    write_report(audit_result, distilled, lifecycle_result, graph_result)
+    write_report(audit_result, distilled, lifecycle_result)
 
 
 if __name__ == "__main__":
