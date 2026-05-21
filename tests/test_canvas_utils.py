@@ -77,3 +77,87 @@ def test_neighborhood_tag_nodes_excluded(graph_stub):
     """tag 노드는 center로 지정할 수 없어야 한다."""
     result = build_neighborhood_canvas(graph_stub, "delta-tag")
     assert result is None
+
+
+# ── Delta canvas ────────────────────────────────────────────
+
+from canvas_utils import compute_delta, build_delta_canvas
+
+
+def test_compute_delta_new_nodes(graph_stub):
+    """prev에 없고 current에 있는 page 노드는 new_nodes에 포함."""
+    prev = {"nodes": [], "links": []}
+    delta = compute_delta(graph_stub, prev)
+    new_ids = {n["id"] for n in delta["new_nodes"]}
+    assert "alpha" in new_ids
+    assert "beta" in new_ids
+
+
+def test_compute_delta_removed_nodes(graph_stub):
+    """prev에 있고 current에 없는 page 노드는 removed_nodes에 포함."""
+    prev = json.loads(json.dumps(graph_stub))
+    prev["nodes"].append({
+        "id": "old-page", "kind": "page", "title": "Old",
+        "type": "concept", "category": "concepts", "domain": [], "tags": [],
+        "inbound": 0, "outbound": 0,
+    })
+    delta = compute_delta(graph_stub, prev)
+    assert "old-page" in {n["id"] for n in delta["removed_nodes"]}
+
+
+def test_compute_delta_excludes_ghost_from_removed(graph_stub):
+    """ghost 노드는 removed_nodes에 포함되지 않아야 한다."""
+    prev = json.loads(json.dumps(graph_stub))
+    prev["nodes"].append({
+        "id": "ghost-1", "kind": "ghost", "title": "Ghost",
+        "type": None, "category": None, "domain": [], "tags": [],
+        "inbound": 0, "outbound": 0,
+    })
+    delta = compute_delta(graph_stub, prev)
+    assert "ghost-1" not in {n["id"] for n in delta["removed_nodes"]}
+
+
+def test_compute_delta_updated_nodes(graph_stub):
+    """inbound count가 변한 노드는 updated_nodes에 포함."""
+    prev = json.loads(json.dumps(graph_stub))
+    for n in prev["nodes"]:
+        if n["id"] == "alpha":
+            n["inbound"] = 0
+    delta = compute_delta(graph_stub, prev)
+    assert "alpha" in {n["id"] for n in delta["updated_nodes"]}
+
+
+def test_compute_delta_new_edges(graph_stub):
+    """prev에 없는 엣지는 new_edges에 포함."""
+    prev = {"nodes": list(graph_stub["nodes"]), "links": []}
+    delta = compute_delta(graph_stub, prev)
+    assert len(delta["new_edges"]) == len(graph_stub["links"])
+
+
+def test_build_delta_canvas_returns_none_when_no_delta(graph_stub):
+    """변경 없으면 None 반환."""
+    same = json.loads(json.dumps(graph_stub))
+    result = build_delta_canvas(graph_stub, same)
+    assert result is None
+
+
+def test_build_delta_canvas_new_node_color(graph_stub):
+    """신규 노드 color='3' (yellow)."""
+    prev = {"nodes": [], "links": []}
+    canvas = build_delta_canvas(graph_stub, prev)
+    assert canvas is not None
+    new_node = next(n for n in canvas["nodes"] if n["id"] == "alpha")
+    assert new_node["color"] == "3"
+
+
+def test_build_delta_canvas_updated_node_color(graph_stub):
+    """갱신 노드 color='6' (purple)."""
+    prev = json.loads(json.dumps(graph_stub))
+    for n in prev["nodes"]:
+        if n["id"] == "alpha":
+            n["inbound"] = 0
+    canvas = build_delta_canvas(graph_stub, prev)
+    assert canvas is not None
+    upd_node = next((n for n in canvas["nodes"] if n["id"] == "alpha"), None)
+    assert upd_node is not None
+    assert upd_node["color"] == "6"
