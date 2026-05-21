@@ -152,3 +152,17 @@
 - distill 큐: 0개
 - archive 후보: 0개
 - graph 허브: 14개
+
+## 2026-05-22 07:03 [ingest — 일일 sync: 에이전트 하네스 합성 대기 + T3 주간요약 + TIL 2026-05-22 반영]
+- 처리 raw: raw/blog/2026-05-22-에이전트-하네스-패턴.md, raw/meetings/clients/T3-TEACH/weekly_summary_2026-05-21.md, raw/til/2026-05-22.md (3개)
+- 신규 wiki: 없음 (0개)
+- 갱신 wiki: wiki/projects/t3-teach-lecture-operations.md, wiki/insights/til-patterns-2026-05.md, wiki/insights/agent-build-harness.md, index.md (4개)
+- 반영 내용: T3-TEACH 현장 대응형 AI 서비스 발표 재요약, 데모 전달력 보강 처방, hplan v0.9.1 한국어 문서 Hero/install 개선, GUIDE-ko 시나리오 1의 일관성 플로우, 역할극 기반 제안 압축, ASCII 구조 비교 패턴
+- 참고: raw/blog/2026-05-22-에이전트-하네스-패턴.md는 기존 wiki 소스 합성 대기 파일이라 신규 사실 추가 없이 처리 대상으로 기록
+- Ghost 추가: 없음
+
+## 2026-05-22 08:18 [curate]
+- orphan: 0개
+- stale_links: 11개
+- distill 큐: 0개
+- archive 후보: 0개
