@@ -259,5 +259,106 @@ def main() -> None:
     sys.exit(1)
 
 
+# ── Graph delta pipeline ────────────────────────────────────
+
+_GRAPH_FILE      = WIKI_ROOT / "wiki" / "graph.json"
+_GRAPH_PREV_FILE = WIKI_ROOT / "wiki" / ".graph_prev.json"
+_CANVAS_DIR      = WIKI_ROOT / "wiki" / "canvas"
+_EXPORT_SCRIPT   = Path(__file__).parent / "export_graph.py"
+
+
+def snapshot_graph(wiki_dir: Path | None = None) -> None:
+    """wiki/graph.json → wiki/.graph_prev.json 복사. graph.json 없으면 무시."""
+    _wiki = Path(wiki_dir) if wiki_dir else WIKI_ROOT / "wiki"
+    src = _wiki / "graph.json"
+    dst = _wiki / ".graph_prev.json"
+    if src.exists():
+        shutil.copy2(src, dst)
+
+
+def run_delta_pipeline(wiki_dir: Path | None = None) -> dict | None:
+    """
+    현재 graph.json과 .graph_prev.json을 비교해 delta dict를 반환한다.
+    delta가 없거나 graph.json이 없으면 None 반환.
+    """
+    sys.path.insert(0, str(Path(__file__).parent))
+    from canvas_utils import compute_delta  # noqa: PLC0415
+
+    _wiki = Path(wiki_dir) if wiki_dir else WIKI_ROOT / "wiki"
+    cur_path  = _wiki / "graph.json"
+    prev_path = _wiki / ".graph_prev.json"
+
+    if not cur_path.exists():
+        return None
+
+    current = json.loads(cur_path.read_text())
+    prev = json.loads(prev_path.read_text()) if prev_path.exists() else {"nodes": [], "links": []}
+
+    delta = compute_delta(current, prev)
+    has_changes = any([
+        delta["new_nodes"], delta["removed_nodes"],
+        delta["updated_nodes"], delta["new_edges"],
+    ])
+    return delta if has_changes else None
+
+
+def print_delta(delta: dict) -> None:
+    """delta를 터미널에 출력한다."""
+    n_new = len(delta["new_nodes"])
+    n_upd = len(delta["updated_nodes"])
+    n_rem = len(delta["removed_nodes"])
+    print(f"[ingest] delta — {n_new}개 신규, {n_upd}개 갱신, {n_rem}개 제거")
+
+    for node in delta["new_nodes"]:
+        cat = node.get("category") or "?"
+        print(f"  + {node['id']}  ({cat}/)  inbound 0 → {node['inbound']}")
+
+    for node in delta["updated_nodes"]:
+        cat = node.get("category") or "?"
+        print(f"  ~ {node['id']}  ({cat}/)  inbound → {node['inbound']}")
+
+    for node in delta["removed_nodes"]:
+        cat = node.get("category") or "?"
+        print(f"  - {node['id']}  ({cat}/)  제거됨")
+
+    new_edges = delta["new_edges"]
+    if new_edges:
+        first = new_edges[0]
+        rest  = len(new_edges) - 1
+        msg = f"  엣지 +{len(new_edges)}: {first['source']} → {first['target']}"
+        if rest > 0:
+            msg += f" 외 {rest}개"
+        print(msg)
+
+
+def generate_ingest_delta_canvas(wiki_dir: Path | None = None) -> bool:
+    """
+    delta canvas를 wiki/canvas/ingest-delta.canvas로 저장한다.
+    snapshot_graph() + export_graph.py 실행 이후에 호출해야 한다.
+    canvas가 생성되면 True, delta 없으면 False 반환.
+    """
+    sys.path.insert(0, str(Path(__file__).parent))
+    from canvas_utils import build_delta_canvas, save_canvas  # noqa: PLC0415
+
+    _wiki = Path(wiki_dir) if wiki_dir else WIKI_ROOT / "wiki"
+    cur_path  = _wiki / "graph.json"
+    prev_path = _wiki / ".graph_prev.json"
+
+    if not cur_path.exists():
+        return False
+
+    current = json.loads(cur_path.read_text())
+    prev = json.loads(prev_path.read_text()) if prev_path.exists() else {"nodes": [], "links": []}
+
+    canvas = build_delta_canvas(current, prev)
+    if canvas is None:
+        return False
+
+    out_path = _wiki / "canvas" / "ingest-delta.canvas"
+    save_canvas(canvas, out_path)
+    print(f"[ingest] canvas → wiki/canvas/ingest-delta.canvas")
+    return True
+
+
 if __name__ == "__main__":
     main()
