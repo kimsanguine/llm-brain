@@ -1,0 +1,149 @@
+* { margin: 0; padding: 0; box-sizing: border-box; }
+html, body {
+  font-family: 'Pretendard', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+  background: #ffffff;
+  color: #0d0d0d;
+  -webkit-font-smoothing: antialiased;
+  letter-spacing: -0.01em;
+  height: 100vh;
+  overflow: hidden;
+}
+
+/* Topbar */
+.topbar {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 14px 24px; border-bottom: 1px solid #f0f0f0;
+}
+.brand { display: flex; align-items: center; gap: 10px; }
+.brand-mark {
+  width: 28px; height: 28px; background: #0d0d0d; border-radius: 7px;
+  color: white; font-weight: 700; font-size: 14px;
+  display: flex; align-items: center; justify-content: center;
+}
+.brand-name { font-weight: 600; font-size: 16px; }
+.brand-badge {
+  font-size: 11px; background: #f3f0ff; color: #5e3fcf;
+  padding: 3px 9px; border-radius: 10px; font-weight: 500;
+}
+.meta { font-size: 12px; color: #888; }
+
+/* Empty state */
+.view-empty {
+  display: flex; flex-direction: column; align-items: center;
+  padding: 80px 24px;
+}
+.view-empty h1 { font-size: 32px; font-weight: 700; margin-bottom: 10px; letter-spacing: -0.02em; }
+.view-empty .subtitle { font-size: 16px; color: #6e6e6e; margin-bottom: 36px; }
+
+.search-wrap { max-width: 560px; width: 100%; position: relative; }
+.search-input {
+  width: 100%; padding: 16px 56px 16px 22px; border: 1px solid #d9d9d9;
+  border-radius: 24px; font-size: 15px; font-family: inherit; outline: none;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.04);
+}
+.search-input:focus { border-color: #0d0d0d; box-shadow: 0 2px 12px rgba(0,0,0,0.08); }
+.search-btn {
+  position: absolute; right: 8px; top: 50%; transform: translateY(-50%);
+  width: 36px; height: 36px; border-radius: 50%; background: #0d0d0d;
+  border: none; color: white; cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+}
+
+.suggestions { display: flex; gap: 8px; margin-top: 20px; flex-wrap: wrap; justify-content: center; }
+.suggestion {
+  font-size: 12px; padding: 6px 12px; background: #f5f5f5; border: none;
+  border-radius: 14px; cursor: pointer; color: #555;
+}
+.suggestion:hover { background: #ececec; }
+
+/* Results view */
+.view-results { height: calc(100vh - 57px); display: flex; flex-direction: column; }
+.results-bar {
+  display: flex; align-items: center; gap: 14px; padding: 10px 24px;
+  border-bottom: 1px solid #f0f0f0;
+}
+.search-wrap-compact { flex: 1; max-width: 600px; }
+.search-input-compact {
+  width: 100%; padding: 8px 16px; border: 1px solid #d9d9d9;
+  border-radius: 18px; font-size: 13px; font-family: inherit; outline: none;
+}
+.results-meta { font-size: 11px; color: #888; }
+
+.results-grid { flex: 1; display: flex; min-height: 0; }
+.results-list { width: 320px; overflow-y: auto; border-right: 1px solid #eee; padding: 8px; }
+.result-card {
+  padding: 12px; margin-bottom: 4px; border-radius: 8px; cursor: pointer;
+  border: 1px solid transparent;
+}
+.result-card:hover { background: #fafafa; }
+.result-card.active { background: #f0f6fc; border-left: 3px solid #2563eb; padding-left: 9px; }
+.result-card-title { font-weight: 600; font-size: 13px; }
+.result-card-desc { color: #666; font-size: 11px; margin-top: 4px; line-height: 1.5; }
+.result-card-meta { color: #888; font-size: 10px; margin-top: 6px; }
+.result-card-snippet {
+  background: #fffbeb; padding: 4px 6px; margin-top: 5px;
+  font-size: 10px; font-style: italic; color: #92500e; border-radius: 3px;
+}
+.result-card-snippet mark { background: #fde68a; padding: 0 2px; }
+
+/* Page view */
+.page-view { flex: 1; overflow-y: auto; padding: 24px 32px; }
+.page-view h1 { font-size: 24px; margin-bottom: 8px; }
+.page-view .page-meta { font-size: 11px; color: #888; margin-bottom: 16px; }
+.page-view .ai-toggle-row {
+  display: flex; justify-content: flex-end; margin-bottom: 12px;
+}
+.ai-toggle {
+  font-size: 12px; padding: 6px 12px; background: white;
+  border: 1px solid #d9d9d9; border-radius: 14px; cursor: pointer; color: #666;
+}
+.ai-toggle:hover { background: #fafafa; }
+.page-content { font-size: 14px; line-height: 1.75; color: #1a1a1a; }
+.page-content h1 { font-size: 22px; margin: 20px 0 10px; }
+.page-content h2 { font-size: 18px; margin: 18px 0 8px; }
+.page-content h3 { font-size: 16px; margin: 14px 0 6px; }
+.page-content p { margin-bottom: 10px; }
+.page-content ul, .page-content ol { margin: 8px 0 12px 22px; }
+.page-content table { border-collapse: collapse; margin: 12px 0; font-size: 13px; }
+.page-content th, .page-content td { border: 1px solid #e5e5e5; padding: 6px 10px; }
+.page-content th { background: #fafafa; font-weight: 600; }
+.page-content a[data-link] {
+  color: #2563eb; text-decoration: underline; cursor: pointer;
+}
+.page-content code { background: #f5f5f5; padding: 1px 5px; border-radius: 3px; font-size: 0.9em; }
+.page-content pre { background: #fafafa; padding: 12px; border-radius: 6px; overflow-x: auto; }
+.page-content pre code { background: none; padding: 0; }
+
+/* AI CTA - 부족 결과 (노란 박스) */
+.ai-cta-box {
+  margin-top: 16px; padding: 16px; background: #fffbf0;
+  border: 1px solid #fcd34d; border-radius: 10px;
+}
+.ai-cta-box-title { font-size: 13px; font-weight: 600; color: #92500e; margin-bottom: 6px; }
+.ai-cta-box-desc { font-size: 12px; color: #78350f; line-height: 1.6; margin-bottom: 10px; }
+.ai-cta-box-btn {
+  font-size: 12px; padding: 8px 14px; background: #0d0d0d; color: white;
+  border: none; border-radius: 8px; cursor: pointer; font-weight: 500;
+}
+
+/* AI CTA - empty state */
+.view-empty-results {
+  display: flex; flex-direction: column; align-items: center;
+  padding: 80px 24px; text-align: center;
+}
+.empty-icon { font-size: 40px; margin-bottom: 12px; }
+.view-empty-results h2 { font-size: 18px; font-weight: 600; margin-bottom: 8px; }
+.ai-cta-large {
+  margin-top: 16px; font-size: 13px; padding: 12px 22px;
+  background: #0d0d0d; color: white; border: none; border-radius: 10px;
+  cursor: pointer; font-weight: 500;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+}
+
+/* Expansion notice */
+.expansion-notice {
+  background: #faf5ff; color: #7c3aed; padding: 6px 10px;
+  font-size: 11px; border-radius: 6px; margin: 8px;
+}
+
+.hidden { display: none !important; }
