@@ -10,6 +10,22 @@
 
 ---
 
+## 미리보기 *Preview*
+
+로컬 HTML 검색·페이지뷰 (`uv run python -m wiki_app`):
+
+| 검색 + 페이지 뷰 | 본문 grep 자동 확장 |
+|---|---|
+| ![검색](docs/screenshots/dod-3-korean-search.png) | ![확장](docs/screenshots/dod-4-resnet-expansion.png) |
+
+| 결과 0개 → AI CTA | AI 답변 모달 (stub) |
+|---|---|
+| ![empty](docs/screenshots/dod-5-zero-results.png) | ![ai](docs/screenshots/dod-9-ai-modal.png) |
+
+> 한국어/영문 검색 · 결과 < 3개일 때 본문 grep 자동 확장 · 페이지 뷰 + wikilink SPA 네비게이션 · AI 답변 옵션 토글
+
+---
+
 ## 왜 만들었나 *Why this exists*
 
 매일 TIL을 쓰고, 회의록을 남기고, 논문을 클리핑한다.
