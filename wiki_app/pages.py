@@ -40,7 +40,7 @@ def load_page(slug: str, wiki_root: Path) -> dict:
     node = graph_nodes.get(slug, {})
     return {
         "slug": slug,
-        "category": path.parent.name,
+        "category": path.relative_to(wiki_root).parts[0],
         "frontmatter": post.metadata,
         "body_md": post.content,
         "inbound": node.get("inbound", 0),
