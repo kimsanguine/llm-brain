@@ -261,10 +261,51 @@ function maybeAiCtaBox() {
   return "";
 }
 
-// --- AI 호출 (Task 12에서 구현) ---
+// --- AI 호출 ---
 async function callAI(question, contextSlugs) {
-  // TODO Task 12: 백엔드 호출 + 응답 표시
-  alert(`AI 호출 (stub): ${question}`);
+  // 모달 또는 페이지 영역에 응답 표시
+  const modal = ensureAiModal();
+  modal.classList.remove("hidden");
+  modal.querySelector(".ai-modal-body").innerHTML =
+    '<div class="ai-modal-loading">AI 답변 요청 중...</div>';
+
+  try {
+    const r = await fetch("/api/ai-answer", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ question, context_slugs: contextSlugs }),
+    });
+    const data = await r.json();
+    modal.querySelector(".ai-modal-body").innerHTML = `
+      <div class="ai-modal-question">Q: ${escapeHtml(data.question)}</div>
+      <div class="ai-modal-status">${escapeHtml(data.message)}</div>
+      <div class="ai-modal-context">컨텍스트: ${(data.context_slugs || []).map(s => `<code>${s}</code>`).join(", ") || "(없음)"}</div>
+    `;
+  } catch (e) {
+    modal.querySelector(".ai-modal-body").innerHTML =
+      `<div class="ai-modal-status">오류: ${e.message}</div>`;
+  }
+}
+
+function ensureAiModal() {
+  let modal = document.getElementById("ai-modal");
+  if (modal) return modal;
+  modal = document.createElement("div");
+  modal.id = "ai-modal";
+  modal.className = "ai-modal hidden";
+  modal.innerHTML = `
+    <div class="ai-modal-card">
+      <button class="ai-modal-close" aria-label="닫기">×</button>
+      <h3>✨ AI 답변</h3>
+      <div class="ai-modal-body"></div>
+    </div>
+  `;
+  modal.addEventListener("click", (e) => {
+    if (e.target === modal) modal.classList.add("hidden");
+  });
+  modal.querySelector(".ai-modal-close").addEventListener("click", () => modal.classList.add("hidden"));
+  document.body.appendChild(modal);
+  return modal;
 }
 
 init();
