@@ -190,13 +190,75 @@ async function handleHash() {
   }
 }
 
-// --- 페이지 선택 (Task 11에서 구현) ---
+// --- 페이지 선택 ---
 async function selectPage(slug) {
   state.selectedSlug = slug;
   setHash({ q: state.query, page: slug });
   renderResultList();
-  // TODO Task 11: 페이지 fetch + 렌더
-  els.pageView.innerHTML = `<div class="page-loading">페이지 로드 중: ${slug}</div>`;
+
+  els.pageView.innerHTML = `<div class="page-loading">로드 중…</div>`;
+  try {
+    const r = await fetch(`/api/page/${slug}`);
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    state.pageData = await r.json();
+    renderPage();
+  } catch (e) {
+    els.pageView.innerHTML = `<div class="page-loading">오류: ${e.message}</div>`;
+  }
+}
+
+function renderPage() {
+  const p = state.pageData;
+  if (!p) return;
+  const tags = (p.frontmatter.tags || []).map(t => `<span class="result-card-meta">#${t}</span>`).join(" ");
+  els.pageView.innerHTML = `
+    <div class="ai-toggle-row">
+      <button class="ai-toggle" id="ai-toggle-btn">✨ AI 답변</button>
+    </div>
+    <h1>${escapeHtml(p.title)}</h1>
+    <div class="page-meta">
+      ${p.category} · in ${p.inbound} / out ${p.outbound} · access ${p.frontmatter.access_count || 0} · ${tags}
+    </div>
+    <div class="page-content">${p.html}</div>
+    ${maybeAiCtaBox()}
+  `;
+  // wikilink 클릭 위임
+  els.pageView.querySelectorAll("a[data-link]").forEach(a => {
+    a.addEventListener("click", (e) => {
+      e.preventDefault();
+      selectPage(a.dataset.link);
+    });
+  });
+  // AI 토글 (Task 12)
+  const aiBtn = $("#ai-toggle-btn");
+  if (aiBtn) {
+    aiBtn.addEventListener("click", () => {
+      const slugs = state.results.map(r => r.slug).slice(0, 5);
+      callAI(state.query || p.title, slugs);
+    });
+  }
+  // AI CTA box (결과 부족 시)
+  const ctaBtn = $("#ai-cta-box-btn");
+  if (ctaBtn) {
+    ctaBtn.addEventListener("click", () => {
+      const slugs = state.results.map(r => r.slug);
+      callAI(state.query, slugs);
+    });
+  }
+}
+
+function maybeAiCtaBox() {
+  // 결과 < 3개일 때만 결과 영역 아래에 큰 박스 CTA
+  if (state.results.length > 0 && state.results.length < 3) {
+    return `
+      <div class="ai-cta-box">
+        <div class="ai-cta-box-title">✨ 결과가 충분하지 않으신가요?</div>
+        <div class="ai-cta-box-desc">위 ${state.results.length}개 페이지를 컨텍스트로 AI가 직접 답변해드릴 수 있어요.</div>
+        <button id="ai-cta-box-btn" class="ai-cta-box-btn">"${escapeHtml(state.query)}" — AI에게 물어보기 →</button>
+      </div>
+    `;
+  }
+  return "";
 }
 
 // --- AI 호출 (Task 12에서 구현) ---
