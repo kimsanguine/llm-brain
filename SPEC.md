@@ -69,6 +69,18 @@
 │   ├── summary/                 # 주간·월간 요약 초안
 │   └── report/                  # 심층 리포트 초안
 │
+├── wiki_app/                    # HTML 검색·페이지뷰 (FastAPI + vanilla JS, port 8000)
+│   ├── __main__.py              # uv run python -m wiki_app
+│   ├── api.py                   # 4 endpoints (/api/index, /api/search, /api/page/{slug}, /api/ai-answer)
+│   ├── search.py                # Index + B 알고리즘 + C 확장 (본문 grep)
+│   ├── pages.py                 # 페이지 로더 (frontmatter + body + graph metadata)
+│   ├── render.py                # markdown-it + [[wikilink]] SPA 앵커 후처리
+│   ├── access.py                # access_count 갱신 wrapper (scripts/curate.record_access)
+│   └── static/
+│       ├── index.html           # 3 views (empty / results / empty-results)
+│       ├── styles.css           # Pretendard + 디자인 톤
+│       └── app.js               # 상태관리·검색·페이지뷰·AI 모달
+│
 └── .obsidian/                   # Obsidian vault 설정 (Graph View 연동)
 ```
 

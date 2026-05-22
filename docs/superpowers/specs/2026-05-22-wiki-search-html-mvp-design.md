@@ -302,11 +302,72 @@ const state = {
 
 ## 11. 후속 단계 (v2 예정)
 
-- AI endpoint 활성화: `claude -p` CLI 호출 + sources 추출 + streaming
-- 그래프 시각화: 페이지 뷰 옆 작은 mini-graph (d3 또는 sigma.js)
+### v2 핵심 (우선순위 높음)
+
+1. **AI endpoint 활성화 (P0)** — 1차 MVP에서 stub인 `/api/ai-answer`를 실제 구현으로 교체
+   - 1차 모드: `claude -p` CLI subprocess 호출 (PRD v2의 `engine: cli` 기본값, 토큰 비용 0)
+   - 2차 모드: Anthropic API 직접 호출 (`engine: api`, 환경변수 `ANTHROPIC_API_KEY`)
+   - 답변 streaming: SSE 또는 chunked response → 프론트 typewriter 효과
+   - sources 추출: 응답에 참고한 wiki 페이지 slug 리스트 첨부 → 모달에 source card 표시
+
+2. **모달 잔존 fix (P1, 1줄 변경)** — `wiki_app/static/app.js`의 `ensureAiModal()` 내부:
+   ```js
+   window.addEventListener("hashchange", () => modal.classList.add("hidden"));
+   ```
+   추가. URL hash 변경 시 모달 자동 닫힘. 또는 ESC 키 처리도 함께.
+
+3. **그래프 시각화 (P2)** — 페이지 뷰 우측 또는 새 탭에 1-depth 미니 그래프
+   - `wiki/graph.json` 활용
+   - d3-force 또는 sigma.js
+   - 현재는 Obsidian Canvas로 위임 중 (`wiki/canvas/query-*.canvas`)
+
+### v2 부수 기능 (가능한 추가)
+
 - 검색 결과 카테고리 필터 (concepts/tools/projects 등)
 - 검색 기록 사이드바 (localStorage)
 - `obsidian://` URI 통합 — "Obsidian에서 열기" 버튼
+- 다크 모드 토글
+- 키보드 shortcut (Cmd+K 검색, j/k 결과 이동, Enter 페이지 열기)
+- 검색 결과 page_title 한국어 highlight (현재 slug만 highlight됨)
+
+---
+
+## 14. Known Issues (1차 MVP)
+
+| # | Issue | 영향 | Fix 비용 | 우선순위 |
+|---|---|---|---|---|
+| 1 | AI 모달이 hash navigate 시 자동으로 닫히지 않음 (intercept 발생 가능) | 사용자가 ×버튼 잊으면 다음 클릭 차단 | 1줄 (v2 #2 참조) | P1 |
+| 2 | `rglob` 매 페이지뷰 호출 (`access._update_frontmatter_access`) | 50개 파일 스캔 — 미세한 latency 누적 | category 인덱스 캐시 추가 (10줄) | P3 |
+| 3 | 검색 결과 page_title 한국어가 카드에 표시 안 됨 (slug만 표시) | 한국어 사용자가 어떤 페이지인지 인지 어려움 | API 응답에 page_title 포함 + 카드 렌더 수정 (10줄) | P2 |
+| 4 | `access_count`가 wiki_stats.json과 frontmatter 두 곳에 기록됨 (Task 5 deviation) | CLI `/query`와 일관성 미세 차이 | source-of-truth 단일화 (20줄, plan 수정 필요) | P3 |
+| 5 | `_count_links`가 매 `/api/index` 호출마다 graph.json 재읽음 | 미세한 latency (~ms) | 캐싱 (5줄) | P4 |
+
+---
+
+## 15. 1차 MVP 구현 회고
+
+### 잘 된 점
+
+- **TDD가 백엔드 6개 모듈에서 일관되게 적용됨** (26개 unit tests) — 각 모듈이 독립적으로 검증되어 통합 시점에 문제 거의 없었음
+- **`/api/ai-answer` stub 패턴** — UI는 풀버전(모달·CTA 차등화)을 1차에 완성하고 백엔드만 stub. 2차 작업 범위가 명확함
+- **검색의 점진적 확장 (B → C)** — Plan의 "ResNet 시나리오"가 실제로 의도대로 작동 (B 1개 → C grep 1개 추가 + 보라색 안내)
+
+### plan-vs-reality drift 4가지
+
+구현 과정에서 plan이 잘못된 가정을 가진 4개 케이스 발견·대응. 모두 implementer가 합리적으로 처리했지만, **다음 plan 작성 시 학습 포인트**:
+
+1. **Task 1**: `path.parent.name` → subpath slug에서 잘못된 category. plan 수정 필요했음.
+2. **Task 3**: `index.md`가 wiki/ 안이 아니라 프로젝트 루트. plan이 위치 가정 잘못.
+3. **Task 3**: `description`엔 한국어 "에이전트" 없음 (frontmatter title에만). plan test가 데이터 검증 없이 작성됨.
+4. **Task 5**: `scripts/curate.record_access`가 wiki_stats.json만 갱신, frontmatter는 안 함. plan이 함수 본문 verify 없이 가정.
+
+**교훈**: plan 작성 시 "기존 함수 재사용" 또는 "기존 데이터 파싱"이 들어가면, 그 함수/데이터의 실제 모양을 1줄이라도 verify해서 plan에 박아야 함. brainstorm 단계엔 추상으로 충분하지만 plan은 구현 청사진이라 정밀도가 필요.
+
+### 효율화 관찰
+
+- 단순 task (Task 0, 7~12)는 dual review (spec + code)가 over-engineering — combined single review로 충분
+- Reviewer가 over-engineering 권고 (type hints, defensive code, speculative caching)를 자주 raise → controller가 User CLAUDE.md Rule 2 근거로 reject 결정 필요
+- 백엔드 task는 TDD가 자연스럽고, 프론트엔드 task는 수동/Playwright 검증이 본질 — 두 사이클을 다르게 운영해야 함
 
 ---
 

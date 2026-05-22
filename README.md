@@ -176,6 +176,24 @@ Claude: wiki/ 내용 기반으로만 답변
 query 시 접근한 페이지의 `access_count`가 올라가
 다음 `curate --distill`에서 자동 우선 처리된다.
 
+### 🌐 wiki-web — HTML 검색·페이지뷰 인터페이스 *Local HTML Search UI*
+
+CLI `/query`의 시각화 버전. 브라우저에서 검색·페이지 탐색·wikilink 클릭.
+
+```bash
+uv run python -m wiki_app
+# → http://localhost:8000
+```
+
+- **검색**: 제목 + description + tags + page_title 점수 매칭, 결과 < 3개일 때 본문 grep 자동 확장
+- **페이지뷰**: 마크다운 렌더링 + `[[wikilink]]` 클릭 SPA 네비게이션, 좌측 결과 리스트 유지
+- **AI 답변 토글**: 결과 부족도에 비례해 CTA 강조 차등 (작은 버튼 / 노란 박스 / 큰 검정 버튼)
+- **URL hash**: `#q=...&page=...` 형태로 검색·페이지 상태 보존, 새로고침 시 복원
+
+스크린샷: `docs/screenshots/dod-*.png`
+
+> 1차 MVP는 AI 답변이 stub (`🚧 다음 버전`). 2차에서 `claude -p` CLI 연결 예정.
+
 ---
 
 ## LLM 엔진 선택 *LLM Engine*
@@ -248,6 +266,13 @@ llm-brain/
 │   ├── ingest.py              # 파일 파싱 + 상태 관리
 │   ├── curate.py              # 감사·압축·lifecycle·graph
 │   └── express.py             # wiki → 창작물 출력
+├── wiki_app/                  # 🌐 HTML 검색·페이지뷰 (FastAPI)
+│   ├── api.py                 # 4 endpoints
+│   ├── search.py              # 검색 인덱스 + B/C 알고리즘
+│   ├── pages.py               # 페이지 로더
+│   ├── render.py              # markdown + wikilink 변환
+│   ├── access.py              # access_count wrapper
+│   └── static/                # vanilla JS + CSS + HTML
 ├── tools/
 │   └── intro-video/           # Remotion 소개 영상
 ├── raw/                       # 원본 소스 (.gitignore)
