@@ -83,57 +83,139 @@ def sync_source(source_cfg: dict, state: dict) -> tuple[int, int]:
     return copied, skipped
 
 
-def sync_git_repo(repo_cfg: dict) -> tuple[int, int]:
-    """git 레포를 로컬에 clone/pull 후 raw/로 복사."""
+def _git_clone_or_pull(repo_url: str, local_path: Path, repo_id: str) -> bool:
+    """레포를 clone 또는 pull. 성공 시 True."""
     import subprocess
+    if local_path.exists():
+        r = subprocess.run(
+            ["git", "-C", str(local_path), "pull", "--quiet"],
+            capture_output=True, text=True,
+        )
+        if r.returncode != 0:
+            print(f"  [{repo_id}] git pull 실패: {r.stderr.strip()}")
+            return False
+    else:
+        local_path.parent.mkdir(parents=True, exist_ok=True)
+        r = subprocess.run(
+            ["git", "clone", "--quiet", repo_url, str(local_path)],
+            capture_output=True, text=True,
+        )
+        if r.returncode != 0:
+            print(f"  [{repo_id}] git clone 실패: {r.stderr.strip()}")
+            return False
+    return True
 
+
+def _inject_frontmatter(src_file: Path, dst_file: Path, extra: dict) -> None:
+    """dst_file이 frontmatter를 갖고 있지 않으면 extra를 앞에 추가해 저장."""
+    content = src_file.read_text(encoding="utf-8", errors="replace")
+    if not content.startswith("---"):
+        fm_lines = ["---"] + [f"{k}: {v}" for k, v in extra.items()] + ["---", ""]
+        content = "\n".join(fm_lines) + content
+    dst_file.parent.mkdir(parents=True, exist_ok=True)
+    dst_file.write_text(content, encoding="utf-8")
+
+
+def sync_git_repo(repo_cfg: dict) -> tuple[int, int]:
+    """git 레포를 로컬에 clone/pull 후 raw/로 복사.
+
+    paths 키가 없으면 레포 내 raw/ 서브디렉토리를 통째로 복사.
+    paths 키가 있으면 각 path 설정에 따라 선택적으로 복사.
+
+    paths 항목 형식:
+      - src: papers          # 레포 내 경로
+        target: raw/clippings/  # 로컬 대상 (없으면 repo cfg의 target 사용)
+        include: ["README.md"]  # 이 이름의 파일만 (없으면 전체)
+        rename: "paper-{parent}-{topic}.md"  # 파일명 패턴 (없으면 원본명)
+        frontmatter:           # 자동 주입할 frontmatter
+          type: paper
+          resonance: high
+    """
     repo_url = repo_cfg["url"]
     repo_id = repo_cfg["id"]
     local_path = Path(repo_cfg.get("local_path", f"~/.llm-brain-cache/{repo_id}")).expanduser()
 
-    # clone 또는 pull
-    if local_path.exists():
-        result = subprocess.run(
-            ["git", "-C", str(local_path), "pull", "--quiet"],
-            capture_output=True, text=True
-        )
-        if result.returncode != 0:
-            print(f"  [{repo_id}] git pull 실패: {result.stderr.strip()}")
-            return 0, 0
-    else:
-        local_path.parent.mkdir(parents=True, exist_ok=True)
-        result = subprocess.run(
-            ["git", "clone", "--quiet", repo_url, str(local_path)],
-            capture_output=True, text=True
-        )
-        if result.returncode != 0:
-            print(f"  [{repo_id}] git clone 실패: {result.stderr.strip()}")
-            return 0, 0
-
-    # clone된 raw/ → 로컬 raw/ 복사
-    src_raw = local_path / "raw"
-    if not src_raw.exists():
+    if not _git_clone_or_pull(repo_url, local_path, repo_id):
         return 0, 0
 
-    copied = skipped = 0
     SUPPORTED = {".md", ".txt", ".pdf", ".docx", ".pptx"}
-    for src_file in sorted(src_raw.rglob("*")):
-        if not src_file.is_file():
+    copied = skipped = 0
+
+    path_rules = repo_cfg.get("paths")
+
+    if not path_rules:
+        # 기존 방식: raw/ 서브디렉토리 전체 복사
+        src_raw = local_path / "raw"
+        if not src_raw.exists():
+            return 0, 0
+        for src_file in sorted(src_raw.rglob("*")):
+            if not src_file.is_file() or src_file.name == ".gitkeep":
+                skipped += 1
+                continue
+            if src_file.suffix.lower() not in SUPPORTED:
+                skipped += 1
+                continue
+            dst_file = WIKI_ROOT / "raw" / src_file.relative_to(src_raw)
+            if dst_file.exists() and dst_file.stat().st_mtime >= src_file.stat().st_mtime:
+                skipped += 1
+                continue
+            dst_file.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(src_file, dst_file)
+            copied += 1
+        return copied, skipped
+
+    # paths 규칙 기반 복사
+    default_target = repo_cfg.get("target", "raw/clippings/")
+    for rule in path_rules:
+        src_dir = local_path / rule["src"]
+        if not src_dir.exists():
             continue
-        if src_file.name == ".gitkeep":
-            skipped += 1
-            continue
-        if src_file.suffix.lower() not in SUPPORTED:
-            skipped += 1
-            continue
-        rel = src_file.relative_to(local_path / "raw")
-        dst_file = WIKI_ROOT / "raw" / rel
-        if dst_file.exists() and dst_file.stat().st_mtime >= src_file.stat().st_mtime:
-            skipped += 1
-            continue
-        dst_file.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(src_file, dst_file)
-        copied += 1
+        target_dir = WIKI_ROOT / rule.get("target", default_target)
+        target_dir.mkdir(parents=True, exist_ok=True)
+        include_names = set(rule.get("include", []))
+        fm_extra = rule.get("frontmatter", {})
+
+        for src_file in sorted(src_dir.rglob("*")):
+            if not src_file.is_file():
+                continue
+            if include_names and src_file.name not in include_names:
+                skipped += 1
+                continue
+            if src_file.suffix.lower() not in SUPPORTED:
+                skipped += 1
+                continue
+            if src_file.name == ".gitkeep":
+                skipped += 1
+                continue
+
+            # 파일명 결정
+            rename_pattern = rule.get("rename")
+            if rename_pattern:
+                # {slug}: 날짜-포함 폴더명, {topic}: 상위 topic 폴더명
+                slug = src_file.parent.name
+                # topic = src_dir 바로 아래 첫 번째 디렉토리 이름
+                try:
+                    rel_parts = src_file.relative_to(src_dir).parts
+                    topic = rel_parts[0] if len(rel_parts) > 2 else ""
+                except ValueError:
+                    topic = ""
+                dst_name = (rename_pattern
+                            .replace("{slug}", slug)
+                            .replace("{topic}", topic)
+                            .replace("{name}", src_file.stem))
+            else:
+                dst_name = src_file.name
+
+            dst_file = target_dir / dst_name
+            if dst_file.exists():
+                skipped += 1
+                continue
+
+            if fm_extra:
+                _inject_frontmatter(src_file, dst_file, fm_extra)
+            else:
+                shutil.copy2(src_file, dst_file)
+            copied += 1
 
     return copied, skipped
 
