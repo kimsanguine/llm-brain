@@ -83,6 +83,61 @@ def sync_source(source_cfg: dict, state: dict) -> tuple[int, int]:
     return copied, skipped
 
 
+def sync_git_repo(repo_cfg: dict) -> tuple[int, int]:
+    """git 레포를 로컬에 clone/pull 후 raw/로 복사."""
+    import subprocess
+
+    repo_url = repo_cfg["url"]
+    repo_id = repo_cfg["id"]
+    local_path = Path(repo_cfg.get("local_path", f"~/.llm-brain-cache/{repo_id}")).expanduser()
+
+    # clone 또는 pull
+    if local_path.exists():
+        result = subprocess.run(
+            ["git", "-C", str(local_path), "pull", "--quiet"],
+            capture_output=True, text=True
+        )
+        if result.returncode != 0:
+            print(f"  [{repo_id}] git pull 실패: {result.stderr.strip()}")
+            return 0, 0
+    else:
+        local_path.parent.mkdir(parents=True, exist_ok=True)
+        result = subprocess.run(
+            ["git", "clone", "--quiet", repo_url, str(local_path)],
+            capture_output=True, text=True
+        )
+        if result.returncode != 0:
+            print(f"  [{repo_id}] git clone 실패: {result.stderr.strip()}")
+            return 0, 0
+
+    # clone된 raw/ → 로컬 raw/ 복사
+    src_raw = local_path / "raw"
+    if not src_raw.exists():
+        return 0, 0
+
+    copied = skipped = 0
+    SUPPORTED = {".md", ".txt", ".pdf", ".docx", ".pptx"}
+    for src_file in sorted(src_raw.rglob("*")):
+        if not src_file.is_file():
+            continue
+        if src_file.name == ".gitkeep":
+            skipped += 1
+            continue
+        if src_file.suffix.lower() not in SUPPORTED:
+            skipped += 1
+            continue
+        rel = src_file.relative_to(local_path / "raw")
+        dst_file = WIKI_ROOT / "raw" / rel
+        if dst_file.exists() and dst_file.stat().st_mtime >= src_file.stat().st_mtime:
+            skipped += 1
+            continue
+        dst_file.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(src_file, dst_file)
+        copied += 1
+
+    return copied, skipped
+
+
 def main() -> None:
     config = yaml.safe_load(SOURCES_FILE.read_text())
     state = load_state()
@@ -90,11 +145,20 @@ def main() -> None:
     print(f"[sync_raw] {datetime.now().strftime('%Y-%m-%d %H:%M')}")
     total_copied = 0
 
+    # 일반 로컬 소스 동기화
     for source in config.get("sources", []):
         if source.get("disabled"):
             continue
         copied, skipped = sync_source(source, state)
         print(f"  [{source['id']}] 복사 {copied}개, 건너뜀 {skipped}개")
+        total_copied += copied
+
+    # git 레포 소스 동기화 (llm-brain-private 등)
+    for repo in config.get("git_repos", []):
+        if repo.get("disabled"):
+            continue
+        copied, skipped = sync_git_repo(repo)
+        print(f"  [{repo['id']}] git 복사 {copied}개, 건너뜀 {skipped}개")
         total_copied += copied
 
     save_state(state)
