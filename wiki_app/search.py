@@ -1,0 +1,114 @@
+"""검색 인덱스 + B 알고리즘 (Task 3) + C 확장 (Task 4)."""
+from __future__ import annotations
+
+import json
+import re
+from dataclasses import dataclass, field
+from pathlib import Path
+
+import frontmatter
+
+
+@dataclass
+class _Entry:
+    slug: str
+    category: str
+    description: str  # index.md의 한 줄 설명
+    page_title: str = ""  # frontmatter title (한국어 포함)
+    tags: list[str] = field(default_factory=list)
+    degree: int = 0  # inbound + outbound (정렬 tiebreaker)
+
+
+# index.md 라인 예: "- [[habix-profile]] — 이든(김생근) 비즈니스 프로파일..."
+_INDEX_LINE_RE = re.compile(r"^\s*-\s+\[\[([^\]]+)\]\]\s*—\s*(.*)$")
+# 카테고리 헤더: "## concepts/ (20개)"
+_INDEX_CAT_RE = re.compile(r"^##\s+(\w+)/")
+
+
+class Index:
+    def __init__(self, wiki_root: Path, by_slug: dict[str, _Entry]):
+        self.wiki_root = wiki_root
+        self.by_slug = by_slug
+        self.total_pages = len(by_slug)
+
+    @classmethod
+    def build(cls, wiki_root: Path) -> "Index":
+        """index.md + 각 페이지 frontmatter + graph.json 로드."""
+        by_slug: dict[str, _Entry] = {}
+
+        # 1. index.md에서 slug + category + description
+        # index.md는 wiki_root의 부모(프로젝트 루트)에 위치
+        index_path = wiki_root.parent / "index.md"
+        current_cat = "concepts"
+        for line in index_path.read_text().splitlines():
+            mcat = _INDEX_CAT_RE.match(line)
+            if mcat:
+                current_cat = mcat.group(1)
+                continue
+            m = _INDEX_LINE_RE.match(line)
+            if m:
+                slug = m.group(1).strip()
+                desc = m.group(2).strip()
+                by_slug[slug] = _Entry(slug=slug, category=current_cat, description=desc)
+
+        # 2. 각 페이지 frontmatter에서 tags + title 채움
+        for entry in by_slug.values():
+            # 슬러그에 '/' 포함 시 (예: 260515_llm_wiki/prd) 그대로 경로로 사용
+            md_path = wiki_root / entry.category / f"{entry.slug}.md"
+            if md_path.exists():
+                post = frontmatter.load(md_path)
+                tags = post.metadata.get("tags") or []
+                entry.tags = [str(t).lower() for t in tags]
+                entry.page_title = str(post.metadata.get("title") or "")
+
+        # 3. graph.json에서 degree
+        graph_path = wiki_root / "graph.json"
+        if graph_path.exists():
+            graph = json.loads(graph_path.read_text())
+            for n in graph["nodes"]:
+                if n.get("kind") == "page" and n["id"] in by_slug:
+                    by_slug[n["id"]].degree = n.get("inbound", 0) + n.get("outbound", 0)
+
+        return cls(wiki_root=wiki_root, by_slug=by_slug)
+
+    def search(self, query: str) -> dict:
+        """B 알고리즘: 제목+desc+tags 점수 매칭."""
+        q = query.strip().lower()
+        if not q:
+            return {"query": query, "results": [], "expanded": False, "total": 0}
+
+        scored: list[tuple[int, str, _Entry]] = []
+        for entry in self.by_slug.values():
+            score = 0
+            matched = []
+            if q in entry.slug.lower():
+                score += 3
+                matched.append("title")
+            if entry.page_title and q in entry.page_title.lower():
+                score += 3
+                matched.append("page_title")
+            if any(q in t for t in entry.tags):
+                score += 2
+                matched.append("tags")
+            if q in entry.description.lower():
+                score += 1
+                matched.append("desc")
+            if score > 0:
+                scored.append((score, "+".join(matched), entry))
+
+        # 점수 내림차순, 동점은 degree 내림차순
+        scored.sort(key=lambda x: (-x[0], -x[2].degree, x[2].slug))
+
+        results = [
+            {
+                "slug": e.slug,
+                "category": e.category,
+                "description": e.description,
+                "score": score,
+                "degree": e.degree,
+                "match_type": match_type,
+                "snippet": None,
+            }
+            for score, match_type, e in scored
+        ]
+        return {"query": query, "results": results, "expanded": False, "total": len(results)}
