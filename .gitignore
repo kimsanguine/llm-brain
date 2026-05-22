@@ -30,3 +30,5 @@ tools/intro-video/out/
 wiki_stats.json
 .obsidian/community-plugins.json
 .obsidian/plugins/
+.superpowers/
+.worktrees/
