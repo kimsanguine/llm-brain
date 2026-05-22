@@ -5,7 +5,13 @@ import pytest
 
 
 _WIKI_ROOT = Path(__file__).parent.parent / "wiki"
-_HAS_USER_WIKI = (_WIKI_ROOT / "index.md").exists()
+# wiki 데이터 존재 체크: wiki/concepts/ 안에 .md 페이지가 1개 이상 있어야 사용자 환경
+# (index.md는 프로젝트 루트에 위치하므로 wiki/ 안엔 없음)
+_HAS_USER_WIKI = (
+    _WIKI_ROOT.exists()
+    and (_WIKI_ROOT / "concepts").exists()
+    and any((_WIKI_ROOT / "concepts").glob("*.md"))
+)
 
 
 def pytest_collection_modifyitems(config, items):
