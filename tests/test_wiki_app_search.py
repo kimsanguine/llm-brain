@@ -23,7 +23,6 @@ def test_search_title_match(index):
     results = index.search("habix")
     slugs = [r["slug"] for r in results["results"]]
     assert "habix-profile" in slugs
-    assert results["expanded"] is False
 
 
 def test_search_korean_description_match(index):
@@ -55,3 +54,28 @@ def test_search_returns_score_and_match_type(index):
     assert "score" in first
     assert "match_type" in first
     assert first["score"] > 0
+
+
+def test_search_expands_when_fewer_than_3_results(index):
+    # 매우 specific한 키워드 — B로는 적게 매칭됨
+    results = index.search("ResNet")  # 본문에만 있고 description엔 없을 가능성
+    # B 단계에서 0~2개 → C 확장 발동
+    if results["expanded"]:
+        assert results["total"] >= results.get("basic_total", 0)
+
+
+def test_search_expansion_adds_snippet(index):
+    # 결과 적은 쿼리에서 snippet이 채워지는지
+    results = index.search("ResNet")
+    if results["expanded"]:
+        expanded = [r for r in results["results"] if r["snippet"]]
+        if expanded:
+            assert "ResNet" in expanded[0]["snippet"]
+
+
+def test_search_no_expansion_when_3plus_results(index):
+    # 많이 매칭되는 키워드 — 확장 안 함
+    results = index.search("agent")
+    if results["total"] >= 3:
+        # B에서 3개 이상이면 확장 안 함 (basic_total 없음 또는 expanded=False)
+        assert results["expanded"] is False

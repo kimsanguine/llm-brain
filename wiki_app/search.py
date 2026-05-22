@@ -111,4 +111,49 @@ class Index:
             }
             for score, match_type, e in scored
         ]
+        # B 결과가 3개 미만이면 C 확장 발동
+        if len(results) < 3:
+            existing_slugs = {r["slug"] for r in results}
+            expanded_results = self._body_grep(q, existing_slugs)
+            if expanded_results:
+                basic_total = len(results)
+                results.extend(expanded_results)
+                return {
+                    "query": query,
+                    "results": results,
+                    "expanded": True,
+                    "basic_total": basic_total,
+                    "total": len(results),
+                }
+
         return {"query": query, "results": results, "expanded": False, "total": len(results)}
+
+    def _body_grep(self, q: str, exclude: set[str]) -> list[dict]:
+        """본문 grep으로 추가 매칭. snippet 포함."""
+        out: list[dict] = []
+        for entry in self.by_slug.values():
+            if entry.slug in exclude:
+                continue
+            md_path = self.wiki_root / entry.category / f"{entry.slug}.md"
+            if not md_path.exists():
+                continue
+            text = md_path.read_text().lower()
+            idx = text.find(q)
+            if idx < 0:
+                continue
+            # 80자 snippet 추출
+            start = max(0, idx - 30)
+            end = min(len(text), idx + 50)
+            snippet_raw = md_path.read_text()[start:end].replace("\n", " ")
+            out.append({
+                "slug": entry.slug,
+                "category": entry.category,
+                "description": entry.description,
+                "score": 0,  # 본문 매칭은 점수 시스템 외
+                "degree": entry.degree,
+                "match_type": "body",
+                "snippet": snippet_raw,
+            })
+        # degree 내림차순으로 일부 정렬
+        out.sort(key=lambda r: -r["degree"])
+        return out[:10]  # 최대 10개
