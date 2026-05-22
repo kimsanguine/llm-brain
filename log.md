@@ -18,6 +18,36 @@
 
 <!-- 로그 항목은 아래에 최신순으로 추가 -->
 
+## 2026-05-22 14:32 [daily-cron sync_raw + ingest]
+- sync_raw: llm-brain-private git 22개 복사 (til/meetings/newsletters/context/blog 모두 unchanged)
+- 처리 raw: 21개
+  - newsletters 19개: 2026-05-21 (chatdaeri-claude-memory, cooldeepai-claude-connectors, cooldeepai-cowork-setup, diamantai-claude-code-vs-codex-cli, eoeoeo-startup-vs-bigcorp, lenny-you-will-lose-job-2027, maily-ai-era-designer, mitkr-china-ai-short-drama, newcomer-spacex-ipo-orbital, newneek-chatgpt-vs-claude, pragmaticengineer-fde, retn-ai-server-security, secondbrush-gemini-omni-flash-vs-seedance, thehiddenrich-newsletter-media, bytebytego-async-patterns), 2026-05-22 (coffeepot-ai-video, tability-agentic-okr, themiilk-kakao-founder-chatgpt)
+  - notes 2개: ece7115-multimodal-vlm, nexu-io-open-design
+- 신규 wiki (3개):
+  - wiki/tools/gemini-omni-flash.md (Google I/O 2026-05-19 omnimodal 모델)
+  - wiki/concepts/forward-deployed-engineering.md (Google/OpenAI/Anthropic FDE 산업화)
+  - wiki/insights/claude-code-vs-codex-economics.md (10× 비용 격차 + MCP planner-reviewer 표준)
+- 갱신 wiki (4개):
+  - wiki/concepts/omnimodality.md — Gemini Omni Flash 후속 사례 섹션 + sources 2개 추가
+  - wiki/insights/claude-code-workflow.md — Claude 메모리 점검 워크플로우, Connectors 7개, Cowork 진입 패턴, Agentic OKR (Tability MCP) 4 섹션 추가 + sources 4개 추가
+  - wiki/insights/til-patterns-2026-05.md — 보안 7체크/AI 영상 표준/구글 광고 변곡점/FDE 산업화/카카오 ChatGPT 이탈/단발성 5건/도구 노트 2건 산업 신호 섹션 추가 + sources 11개 추가
+  - index.md — 페이지 카운트 51→54, ghost 5→9
+- Ghost 신규 4개: seedance-2.0, chatgpt-image-2.0, nexu-io-open-design, tability-mcp
+- 클러스터링 결정:
+  - 5건 Claude 워크플로우 → 기존 claude-code-workflow.md 갱신 (신규 페이지 분리 안 함; raw 출처 부족한 단발성)
+  - 4건 FDE/잡 변화 → 신규 forward-deployed-engineering.md (Lenny/Maily/eoeoeo는 보조 source로 인용)
+  - 2건 AI 영상 → 신규 gemini-omni-flash.md (Seedance 2.0은 ghost) + til-patterns 보조 섹션
+  - 단발성 5건 (카카오/중국숏드라마/SpaceX/Tangle/ByteByteGo)은 til-patterns "산업 신호" 섹션에 짧은 라인으로 통합
+- 게이트: G-1 (1차 raw 출처 기재 완료), TK-014 patterns
+- 후속: monday curate --lifecycle 시 til-patterns-2026-05의 산업 신호 섹션 lifecycle 압축 후보
+
+## 2026-05-22 09:11 [daily-cron sync_raw]
+- 처리 raw: 0개 (til 55 / meetings 20 / newsletters 8 / context 7 / blog 15 모두 unchanged)
+- 신규 wiki: 0개
+- 갱신 wiki: 0개
+- ingest 스킵 (새 파일 없음)
+- lifecycle/audit 스킵 (오늘 금요일 — 월요일 trigger 아님)
+
 ## 2026-05-22 [curate --graph]
 - 분석 대상: 46개 페이지 (이전 그래프: 41개, delta +5)
 - 신규 허브 진입: agent-build-harness (4→7), single-vs-multi-agent (3→6)
@@ -165,4 +195,16 @@
 - orphan: 0개
 - stale_links: 11개
 - distill 큐: 0개
+- archive 후보: 0개
+
+## 2026-05-22 09:11 [curate]
+- orphan: 0개
+- stale_links: 12개
+- distill 큐: 0개
+- archive 후보: 0개
+
+## 2026-05-22 15:44 [curate]
+- orphan: 0개
+- stale_links: 12개
+- distill 큐: 1개
 - archive 후보: 0개
