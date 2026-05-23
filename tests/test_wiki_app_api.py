@@ -57,12 +57,19 @@ def test_api_page_unknown_slug_404(client):
     assert r.status_code == 404
 
 
-def test_api_ai_answer_stub(client):
+def test_api_ai_answer_contract(client):
+    """AI endpoint의 응답 contract만 검증 (실제 LLM 응답은 환경별).
+
+    Local (claude CLI 있음) → status=done + answer 비어있지 않음 (10-30s)
+    CI    (claude CLI 없음) → status=unavailable (즉시)
+    """
     r = client.post("/api/ai-answer", json={
-        "question": "test?",
-        "context_slugs": ["habix-profile"],
+        "question": "ping",
+        "context_slugs": [],
     })
     assert r.status_code == 200
     data = r.json()
-    assert data["status"] == "pending"
-    assert "🚧" in data["message"]
+    assert data["status"] in ("done", "unavailable", "timeout", "error")
+    assert "answer" in data
+    assert "sources" in data
+    assert data["question"] == "ping"
