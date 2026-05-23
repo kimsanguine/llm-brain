@@ -10,8 +10,10 @@ _SEED_WIKI = Path(__file__).parent.parent / "examples" / "seed-wiki"
 def _has_wiki_data(root: Path) -> bool:
     return root.exists() and (root / "concepts").exists() and any((root / "concepts").glob("*.md"))
 
-# 사용자 wiki 또는 seed-wiki 어느 쪽이든 데이터 있으면 wiki-dependent test 실행
-_HAS_USER_WIKI = _has_wiki_data(_WIKI_ROOT) or _has_wiki_data(_SEED_WIKI)
+# wiki/ 데이터가 있을 때만 wiki-dependent test 실행.
+# seed-wiki 존재로 skip 해제하려면 fixture redirect(별도 작업) 필요.
+# tests/test_wiki_app_*.py가 wiki/ 경로를 하드코딩하므로 seed-wiki만 있으면 깨짐.
+_HAS_USER_WIKI = _has_wiki_data(_WIKI_ROOT)
 
 
 def pytest_collection_modifyitems(config, items):
