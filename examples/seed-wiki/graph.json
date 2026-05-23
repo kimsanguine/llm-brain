@@ -1,0 +1,24 @@
+{
+  "nodes": [
+    {"id": "llm-wiki-pattern", "kind": "page", "title": "LLM Wiki 패턴", "type": "concept", "category": "concepts", "domain": [], "tags": ["llm-wiki", "karpathy", "knowledge-management"], "inbound": 2, "outbound": 3},
+    {"id": "second-brain-code", "kind": "page", "title": "Second Brain & CODE 프레임워크", "type": "concept", "category": "concepts", "domain": [], "tags": ["second-brain", "code-framework"], "inbound": 2, "outbound": 2},
+    {"id": "distill-progressive", "kind": "page", "title": "Progressive Summarization", "type": "concept", "category": "concepts", "domain": [], "tags": ["progressive-summarization", "distill"], "inbound": 3, "outbound": 3},
+    {"id": "claude-code", "kind": "page", "title": "Claude Code CLI", "type": "tool", "category": "tools", "domain": [], "tags": ["claude-code", "anthropic"], "inbound": 2, "outbound": 2},
+    {"id": "obsidian", "kind": "page", "title": "Obsidian", "type": "tool", "category": "tools", "domain": [], "tags": ["obsidian", "note-taking"], "inbound": 1, "outbound": 3}
+  ],
+  "links": [
+    {"source": "llm-wiki-pattern", "target": "second-brain-code", "kind": "wikilink"},
+    {"source": "llm-wiki-pattern", "target": "distill-progressive", "kind": "wikilink"},
+    {"source": "llm-wiki-pattern", "target": "claude-code", "kind": "wikilink"},
+    {"source": "second-brain-code", "target": "llm-wiki-pattern", "kind": "wikilink"},
+    {"source": "second-brain-code", "target": "distill-progressive", "kind": "wikilink"},
+    {"source": "distill-progressive", "target": "second-brain-code", "kind": "wikilink"},
+    {"source": "distill-progressive", "target": "llm-wiki-pattern", "kind": "wikilink"},
+    {"source": "distill-progressive", "target": "obsidian", "kind": "wikilink"},
+    {"source": "claude-code", "target": "llm-wiki-pattern", "kind": "wikilink"},
+    {"source": "claude-code", "target": "obsidian", "kind": "wikilink"},
+    {"source": "obsidian", "target": "llm-wiki-pattern", "kind": "wikilink"},
+    {"source": "obsidian", "target": "distill-progressive", "kind": "wikilink"},
+    {"source": "obsidian", "target": "claude-code", "kind": "wikilink"}
+  ]
+}

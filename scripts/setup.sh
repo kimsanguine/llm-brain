@@ -69,3 +69,17 @@ echo "     $PYTHON scripts/ingest.py"
 echo ""
 echo "Obsidian 열기:"
 echo "  이 폴더($WIKI_ROOT)를 Obsidian에서 'Open folder as vault'로 열기"
+
+# ── seed-wiki 데모 안내 ──────────────────────────────────────────
+if [ ! -f "wiki/concepts/$(ls wiki/concepts/ 2>/dev/null | head -1)" ] 2>/dev/null && [ -d "examples/seed-wiki" ]; then
+  echo ""
+  echo "📚 wiki/concepts/가 비어있어요. examples/seed-wiki를 복사해 즉시 데모 보시겠어요? (y/n)"
+  read -r answer
+  if [ "$answer" = "y" ] || [ "$answer" = "Y" ]; then
+    cp -r examples/seed-wiki/concepts examples/seed-wiki/tools wiki/
+    cp examples/seed-wiki/graph.json wiki/graph.json
+    cp examples/seed-wiki/index.md index.md
+    echo "  ✓ seed-wiki 5개 페이지 복사 완료"
+    echo "  → uv run python -m wiki_app 으로 데모 확인"
+  fi
+fi
