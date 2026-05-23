@@ -171,3 +171,14 @@ html, body {
 .ai-modal-context { font-size: 11px; color: #666; }
 .ai-modal-context code { background: #f5f5f5; padding: 1px 5px; border-radius: 3px; }
 .ai-modal-loading { text-align: center; padding: 16px; color: #888; font-size: 13px; }
+
+/* AI modal — answer mode */
+.ai-modal-answer {
+  background: #f8f9fb; border: 1px solid #e5e7eb; border-radius: 8px;
+  padding: 14px 16px; font-size: 13.5px; line-height: 1.75; color: #1a1a1a;
+  margin-bottom: 12px; max-height: 60vh; overflow-y: auto;
+  white-space: pre-wrap; word-break: keep-all;
+}
+.ai-modal-answer strong { font-weight: 600; }
+.ai-modal-context a code { cursor: pointer; }
+.ai-modal-context a:hover code { background: #e8f4fd; color: #2563eb; }

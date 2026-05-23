@@ -263,11 +263,10 @@ function maybeAiCtaBox() {
 
 // --- AI 호출 ---
 async function callAI(question, contextSlugs) {
-  // 모달 또는 페이지 영역에 응답 표시
   const modal = ensureAiModal();
   modal.classList.remove("hidden");
   modal.querySelector(".ai-modal-body").innerHTML =
-    '<div class="ai-modal-loading">AI 답변 요청 중...</div>';
+    '<div class="ai-modal-loading">AI 답변 생성 중... (최대 90초)</div>';
 
   try {
     const r = await fetch("/api/ai-answer", {
@@ -276,14 +275,26 @@ async function callAI(question, contextSlugs) {
       body: JSON.stringify({ question, context_slugs: contextSlugs }),
     });
     const data = await r.json();
-    modal.querySelector(".ai-modal-body").innerHTML = `
-      <div class="ai-modal-question">Q: ${escapeHtml(data.question)}</div>
-      <div class="ai-modal-status">${escapeHtml(data.message)}</div>
-      <div class="ai-modal-context">컨텍스트: ${(data.context_slugs || []).map(s => `<code>${s}</code>`).join(", ") || "(없음)"}</div>
-    `;
+
+    if (data.status === "done" && data.answer) {
+      modal.querySelector(".ai-modal-body").innerHTML = `
+        <div class="ai-modal-question">Q: ${escapeHtml(data.question)}</div>
+        <div class="ai-modal-answer">${escapeHtml(data.answer).replace(/\n/g, '<br>')}</div>
+        <div class="ai-modal-context">
+          <strong>참고한 wiki 페이지:</strong>
+          ${(data.sources || []).map(s => `<a href="#page=${encodeURIComponent(s)}" onclick="document.getElementById('ai-modal').classList.add('hidden')"><code>${s}</code></a>`).join(", ") || "(없음)"}
+        </div>
+      `;
+    } else {
+      // unavailable / timeout / error 분기는 message 표시
+      modal.querySelector(".ai-modal-body").innerHTML = `
+        <div class="ai-modal-question">Q: ${escapeHtml(data.question || question)}</div>
+        <div class="ai-modal-status">${escapeHtml(data.message || "응답을 받지 못했습니다.")}</div>
+      `;
+    }
   } catch (e) {
     modal.querySelector(".ai-modal-body").innerHTML =
-      `<div class="ai-modal-status">오류: ${e.message}</div>`;
+      `<div class="ai-modal-status">네트워크 오류: ${escapeHtml(e.message)}</div>`;
   }
 }
 
@@ -304,6 +315,7 @@ function ensureAiModal() {
     if (e.target === modal) modal.classList.add("hidden");
   });
   modal.querySelector(".ai-modal-close").addEventListener("click", () => modal.classList.add("hidden"));
+  window.addEventListener("hashchange", () => modal.classList.add("hidden"));
   document.body.appendChild(modal);
   return modal;
 }

@@ -62,12 +62,79 @@ def create_app(wiki_root: Path | None = None) -> FastAPI:
         }
 
     @app.post("/api/ai-answer")
-    def api_ai_answer(req: AIAnswerRequest):
+    async def api_ai_answer(req: AIAnswerRequest):
+        """`claude -p` CLI를 호출해 wiki 페이지 컨텍스트 기반으로 답변 생성.
+
+        context_slugs 비어있으면 결과 없음 시나리오 → 사용자 질문만 그대로 전달.
+        """
+        import asyncio
+        import shutil
+
+        # CLI 부재 시 graceful fallback
+        if shutil.which("claude") is None:
+            return {
+                "status": "unavailable",
+                "message": "Claude Code CLI를 찾을 수 없습니다. `claude` 명령을 PATH에 추가해주세요.",
+                "question": req.question,
+                "context_slugs": req.context_slugs,
+                "answer": "",
+                "sources": [],
+            }
+
+        # 컨텍스트 페이지 본문 수집
+        context_chunks = []
+        valid_slugs = []
+        for slug in req.context_slugs[:5]:  # 최대 5개 (토큰 제어)
+            try:
+                page = pages.load_page(slug, wiki_root=wiki_root)
+                context_chunks.append(f"## {slug}\n\n{page['body_md']}")
+                valid_slugs.append(slug)
+            except pages.PageNotFound:
+                continue
+
+        context = "\n\n---\n\n".join(context_chunks) if context_chunks else "(컨텍스트 페이지 없음)"
+        prompt = (
+            "다음 wiki 페이지 컨텍스트만 사용해 사용자 질문에 답변해주세요. "
+            "컨텍스트에 없는 사실은 추측하지 말고 '관련 정보 없음'으로 답하세요.\n\n"
+            f"# 사용자 질문\n{req.question}\n\n"
+            f"# 컨텍스트\n{context}"
+        )
+
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                "claude", "-p", prompt,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            # 90초 timeout (큰 컨텍스트 + 추론 여유)
+            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=90)
+        except asyncio.TimeoutError:
+            return {
+                "status": "timeout",
+                "message": "AI 답변 생성이 90초를 초과해 중단됐어요.",
+                "question": req.question,
+                "context_slugs": valid_slugs,
+                "answer": "",
+                "sources": valid_slugs,
+            }
+        except Exception as e:
+            return {
+                "status": "error",
+                "message": f"claude CLI 호출 중 오류: {type(e).__name__}",
+                "question": req.question,
+                "context_slugs": valid_slugs,
+                "answer": "",
+                "sources": [],
+            }
+
+        answer = stdout.decode("utf-8", errors="replace").strip()
         return {
-            "status": "pending",
-            "message": "🚧 AI 답변은 다음 버전에서 활성화됩니다. CLI `/query`를 사용해주세요.",
+            "status": "done",
+            "message": "",
             "question": req.question,
-            "context_slugs": req.context_slugs,
+            "context_slugs": valid_slugs,
+            "answer": answer,
+            "sources": valid_slugs,
         }
 
     # 정적 파일 마운트 (Task 7~12에서 추가될 static/index.html 등)
