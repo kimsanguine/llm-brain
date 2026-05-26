@@ -245,6 +245,96 @@ function renderPage() {
       callAI(state.query, slugs);
     });
   }
+
+  // mini-graph fetch + render
+  fetchAndRenderMiniGraph(p.slug);
+}
+
+async function fetchAndRenderMiniGraph(slug) {
+  try {
+    const r = await fetch(`/api/page/${slug}/graph`);
+    if (!r.ok) return;
+    const data = await r.json();
+    renderMiniGraph(data);
+  } catch (e) {
+    console.warn("mini-graph 로드 실패:", e);
+  }
+}
+
+function renderMiniGraph(data) {
+  const view = els.pageView;
+  // 기존 mini-graph가 있다면 제거
+  const old = view.querySelector(".mini-graph-section");
+  if (old) old.remove();
+
+  const { center, neighbors, edges } = data;
+  if (!neighbors || neighbors.length === 0) return;
+
+  // SVG 크기 + center
+  const W = 320, H = 280, cx = W / 2, cy = H / 2;
+  const R = Math.min(W, H) * 0.38;
+  const N = neighbors.length;
+
+  // category color
+  const CAT_COLOR = {
+    concepts: "#2563eb", tools: "#10b981", people: "#a855f7",
+    business: "#f59e0b", insights: "#ec4899", projects: "#0ea5e9",
+    lecture: "#6b7280", papers: "#dc2626"
+  };
+
+  // 노드 위치: center + circle around
+  const positions = { [center.slug]: { x: cx, y: cy } };
+  neighbors.forEach((n, i) => {
+    const angle = (2 * Math.PI * i) / N - Math.PI / 2;
+    positions[n.slug] = {
+      x: cx + R * Math.cos(angle),
+      y: cy + R * Math.sin(angle),
+    };
+  });
+
+  // SVG 빌드
+  const lines = edges.map(e => {
+    const a = positions[e.source], b = positions[e.target];
+    if (!a || !b) return "";
+    return `<line x1="${a.x}" y1="${a.y}" x2="${b.x}" y2="${b.y}" stroke="#d1d5db" stroke-width="1"/>`;
+  }).join("");
+
+  const centerColor = CAT_COLOR[center.category] || "#374151";
+  const centerCircle = `<circle cx="${cx}" cy="${cy}" r="8" fill="${centerColor}" stroke="white" stroke-width="2"/>`;
+  const centerLabel = `<text x="${cx}" y="${cy - 14}" text-anchor="middle" font-size="11" font-weight="600" fill="#0d0d0d">${escapeHtml(center.slug)}</text>`;
+
+  const neighborMarkup = neighbors.map(n => {
+    const p = positions[n.slug];
+    const color = CAT_COLOR[n.category] || "#9ca3af";
+    const arrow = n.direction === "both" ? "↔" : n.direction === "out" ? "→" : "←";
+    return `
+      <g class="mini-graph-node" data-slug="${escapeHtml(n.slug)}" style="cursor:pointer">
+        <circle cx="${p.x}" cy="${p.y}" r="5" fill="${color}"/>
+        <title>${escapeHtml(n.slug)} (${n.category}, ${arrow})</title>
+      </g>
+    `;
+  }).join("");
+
+  const section = document.createElement("div");
+  section.className = "mini-graph-section";
+  section.innerHTML = `
+    <h3 class="mini-graph-title">📊 이 페이지의 1-depth 그래프 (degree ${center.degree})</h3>
+    <svg class="mini-graph-svg" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}">
+      ${lines}
+      ${neighborMarkup}
+      ${centerCircle}
+      ${centerLabel}
+    </svg>
+    <div class="mini-graph-legend">
+      ${Object.entries(CAT_COLOR).filter(([cat]) => neighbors.some(n => n.category === cat) || center.category === cat).map(([cat, color]) => `<span><span class="dot" style="background:${color}"></span>${cat}</span>`).join("")}
+    </div>
+  `;
+  view.appendChild(section);
+
+  // 클릭 시 페이지 이동
+  section.querySelectorAll(".mini-graph-node").forEach(g => {
+    g.addEventListener("click", () => selectPage(g.dataset.slug));
+  });
 }
 
 function maybeAiCtaBox() {
