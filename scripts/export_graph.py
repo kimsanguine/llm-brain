@@ -95,9 +95,14 @@ def main() -> int:
         if not fm or "title" not in fm:
             continue
 
-        slug = md.stem
         rel = md.relative_to(WIKI_DIR)
         category = rel.parts[0] if len(rel.parts) > 1 else "root"
+        # subpath slug 지원: wiki/projects/260515_llm_wiki/prd.md → "260515_llm_wiki/prd"
+        # (그렇지 않으면 wikilink [[260515_llm_wiki/prd]]가 ghost로 잡힘)
+        if len(rel.parts) > 2:
+            slug = "/".join(list(rel.parts[1:-1]) + [md.stem])
+        else:
+            slug = md.stem
         domain = fm.get("domain", [])
         if isinstance(domain, str):
             domain = [domain] if domain else []
