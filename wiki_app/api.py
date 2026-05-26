@@ -41,6 +41,66 @@ def create_app(wiki_root: Path | None = None) -> FastAPI:
     def api_search(q: str = ""):
         return index.search(q)
 
+    @app.get("/api/page/{slug:path}/graph")
+    def api_page_graph(slug: str):
+        """페이지의 1-depth neighborhood graph (mini-graph 용).
+
+        응답: {
+          "center": {slug, title, category, degree},
+          "neighbors": [{slug, title, category, direction: "in"|"out"|"both"}],
+          "edges": [{source, target}]
+        }
+        """
+        import json as _json
+
+        graph_path = wiki_root / "graph.json"
+        if not graph_path.exists():
+            raise HTTPException(status_code=503, detail="graph.json 없음 — export_graph 먼저")
+        g = _json.loads(graph_path.read_text())
+        pages_map = {n["id"]: n for n in g["nodes"] if n["kind"] == "page"}
+        if slug not in pages_map:
+            raise HTTPException(status_code=404, detail=f"page not found: {slug}")
+
+        center = pages_map[slug]
+        wikilinks = [l for l in g["links"] if l["kind"] == "wikilink"]
+
+        # 1-depth in/out 이웃
+        out_targets = {l["target"] for l in wikilinks if l["source"] == slug and l["target"] in pages_map}
+        in_sources = {l["source"] for l in wikilinks if l["target"] == slug and l["source"] in pages_map}
+        both = out_targets & in_sources
+        only_out = out_targets - in_sources
+        only_in = in_sources - out_targets
+
+        neighbors = []
+        for s in sorted(both):
+            neighbors.append({"slug": s, "title": pages_map[s].get("title", s),
+                              "category": pages_map[s]["category"], "direction": "both"})
+        for s in sorted(only_out):
+            neighbors.append({"slug": s, "title": pages_map[s].get("title", s),
+                              "category": pages_map[s]["category"], "direction": "out"})
+        for s in sorted(only_in):
+            neighbors.append({"slug": s, "title": pages_map[s].get("title", s),
+                              "category": pages_map[s]["category"], "direction": "in"})
+
+        # edges: center↔neighbor만 (depth 1)
+        related_slugs = {slug} | out_targets | in_sources
+        edges = [
+            {"source": l["source"], "target": l["target"]}
+            for l in wikilinks
+            if l["source"] in related_slugs and l["target"] in related_slugs
+        ]
+
+        return {
+            "center": {
+                "slug": slug,
+                "title": center.get("title", slug),
+                "category": center["category"],
+                "degree": len(out_targets | in_sources),
+            },
+            "neighbors": neighbors,
+            "edges": edges,
+        }
+
     @app.get("/api/page/{slug:path}")
     def api_page(slug: str):
         try:
