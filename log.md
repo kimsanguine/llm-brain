@@ -18,6 +18,79 @@
 
 <!-- 로그 항목은 아래에 최신순으로 추가 -->
 
+## 2026-05-26 07:01 [daily-cron sync_raw + ingest]
+- sync_raw: 실행 완료
+- 처리 raw: 3개
+  - raw/clippings/news-2026-05-25.md
+  - raw/clippings/paper-2026-05-25-advanced-rag-self-rag-corrective-rag-rag.md
+  - raw/meetings/clients/T3-TEACH/weekly_summary_2026-05-25.md
+- 신규 wiki: 없음 (0개)
+- 갱신 wiki: 4개
+  - wiki/insights/ai-human-daily-brief-curriculum-signals.md — Ch05 음성 AI의 액션·검증·저지연 검색 신호 보강
+  - wiki/insights/ai-paper-learning-path.md — Advanced RAG 세트(HyDE/IRCoT/GraphRAG) 추가
+  - wiki/projects/t3-teach-lecture-operations.md — 2026-05-25 신규 회의 없음 상태와 기존 데모 보강 처방 유지
+  - index.md — 마지막 갱신일 및 관련 설명 갱신
+- Ghost 추가: 없음
+- 클러스터링 결정: 3개 raw 모두 기존 압축 노드에 귀속. 개별 신규 페이지 생성 기준보다 기존 커리큘럼/프로젝트 노드 보강 가치가 큼.
+
+## 2026-05-25 07:09 [CCR daily sync_raw + curate(월요일)]
+- sync_raw: 총 0개 파일 복사 (til 0, meetings 0, newsletters 0, context 0, blog 0, llm-brain-private git 0, ai_human 0)
+- ingest: 새 파일 없음 → 건너뜀
+- curate --audit --lifecycle: 56개 페이지 분석, 리포트 `wiki/curate_report.md` 갱신
+  - Orphan: 0개
+  - Stale 링크: 12개 (사용자 확인 필요 — `wiki/insights/til-patterns-2026-05.md` 외 5개 페이지에 끊긴 wikilink)
+  - Distill 큐 추가: 0개
+  - Lifecycle archive/delete 후보: 0개
+
+## 2026-05-25 07:00 [daily-cron sync_raw + ingest]
+- sync_raw: 총 14개 파일 복사 (til 1, meetings 1, newsletters 1, context 0, blog 7, llm-brain-private git 4, ai_human 0)
+- 처리 raw: 10개
+  - raw/blog/2026-05-19-agentic-model-default-routing.md
+  - raw/blog/2026-05-20-observation-memory-agent-design.md
+  - raw/blog/2026-05-21-ai-compound-growth-principles.md
+  - raw/blog/2026-05-22-ai-acceleration-team-type-gap.md
+  - raw/blog/2026-05-22-best-agent-worst-orchestrator.md
+  - raw/blog/2026-05-23-sovereign-edge-ai-beyond-cloud.md
+  - raw/blog/2026-05-25-multi-ai-pm-workflow.md
+  - raw/clippings/2026-05-24.md
+  - raw/clippings/news-2026-05-24.md
+  - raw/clippings/paper-2026-05-24-rag-architecture-optimization-rag.md
+- 신규 wiki: 없음 (0개)
+- 갱신 wiki: 8개
+  - wiki/concepts/model-routing-cost.md — 비용/성능 기준을 비용/에이전틱 점수와 task completion rate로 확장
+  - wiki/concepts/context-first-agent-orchestration.md — 관찰/작업/승격 메모리와 컨텍스트 승격 기준 추가
+  - wiki/concepts/ai-pm-role.md — AI 복리 워크플로우, 팀별 가속 격차, 멀티 AI PM 운영 추가
+  - wiki/concepts/team-decision-structure-agent-era.md — 잘하는 에이전트 vs 좋은 오케스트레이터 구분 및 영역별 자율화 기준 추가
+  - wiki/concepts/vertical-agent-domain-depth.md — 소버린/엣지 AI와 Where-to-Run 설계 변수 추가
+  - wiki/insights/claude-code-vs-codex-economics.md — Codex+Claude 멀티 AI PM workflow 보강
+  - wiki/insights/ai-human-daily-brief-curriculum-signals.md — Ch05 음성 AI 제품화 사례(구삐/Gemini/SynthID/Airbnb/Exa) 추가
+  - wiki/insights/ai-paper-learning-path.md — RAG architecture optimization 세트(RETRO/Atlas/Gupta survey) 추가
+- Ghost 추가: 없음
+- 클러스터링 결정: blog 7개와 AI Human 3개는 기존 압축 노드에 귀속. 개별 신규 페이지 생성 기준(동일 개념 3회 이상 독립 등장)보다 기존 노드 보강 가치가 큼.
+
+## 2026-05-24 07:08 [daily-cron sync_raw + ingest]
+- sync_raw: 총 0개 파일 복사 (til 0/57, meetings 0/20, newsletters 0/8, context 0/7, blog 0/15, llm-brain-private 0/54, ai_human 0/263) — 새 파일 없음
+- 처리 raw: 0개 (미처리 파일 없음)
+- 신규 wiki: 없음
+- 갱신 wiki: 없음
+- 비고: 일요일이라 curate 단계 건너뜀 (월요일에만 실행)
+
+## 2026-05-24 07:00 [daily-cron sync_raw + ingest]
+- sync_raw: 총 9개 파일 복사 (til 3, meetings 1, newsletters 1, llm-brain-private git 4)
+- 처리 raw: 4개
+  - raw/clippings/2026-05-23.md
+  - raw/clippings/news-2026-05-23.md
+  - raw/clippings/paper-2026-05-23-dense-retrieval-embedding-search-rag.md
+  - raw/til/2026-05-24.md
+- 신규 wiki: 없음 (0개)
+- 갱신 wiki: 4개
+  - wiki/insights/ai-human-daily-brief-curriculum-signals.md — Ch05 음성 AI 제품화 지표(구삐/Gemini/SynthID/Exa/Airbnb) 추가 + sources 2개
+  - wiki/insights/ai-paper-learning-path.md — Dense Retrieval / Embedding Search 세트(BEIR/ColBERT/NV-Embed) 추가 + sources 1개
+  - wiki/insights/til-patterns-2026-05.md — habix-legal production 100%, Vercel webhook drift, Next.js 16 Suspense, pydantic-settings 빈 env, 멀티에이전트 fix 통합 패턴 추가
+  - index.md — 마지막 갱신일 및 관련 설명 갱신
+- Ghost 추가: 없음
+- 클러스터링 결정: 새 raw 4개는 기존 압축 노드 3개에 귀속. 개별 신규 페이지 생성 기준(동일 개념 3회 이상 독립 등장) 미충족.
+
 ## 2026-05-22 14:32 [daily-cron sync_raw + ingest]
 - sync_raw: llm-brain-private git 22개 복사 (til/meetings/newsletters/context/blog 모두 unchanged)
 - 처리 raw: 21개
@@ -207,4 +280,25 @@
 - orphan: 0개
 - stale_links: 12개
 - distill 큐: 1개
+- archive 후보: 0개
+
+## 2026-05-23 07:00 [ingest — 일일 sync: AI Human 백로그 압축 + TIL 2026-05-23 반영]
+- 처리 raw: raw/clippings/ AI Human Daily Brief 62개 + news duplicate/index 2개, raw/clippings/paper-* 48개, raw/til/2026-05-23.md (총 113개)
+- 신규 wiki: wiki/insights/ai-human-daily-brief-curriculum-signals.md, wiki/insights/ai-paper-learning-path.md (2개)
+- 갱신 wiki: wiki/insights/til-patterns-2026-05.md, index.md (2개)
+- 반영 내용: AI Human Daily Brief의 "진도 → 산업 뉴스 → 학습 연결 → 토론 질문" 강의 맥락 공급 패턴, AI 논문 추천의 Classic + Recent + Practical Lens 로드맵, habix Legal GraphRAG PII 설계 검증, sentinel count 테스트, VC 계약 SaaS PRD dual-form/dogfooding 신호
+- 참고: 대량 raw 백로그는 개별 페이지 100개+로 만들지 않고 교육/논문 로드맵 2개 노드로 압축 처리
+- Ghost 추가: sentinel-count-test, prd-dual-form
+
+## 2026-05-23 07:08 [daily sync — CCR 보조 실행, 07:00 cron 직후]
+- sync_raw: llm-brain-private 1개 신규 미러 (다른 소스 변경 없음)
+- ingest: 07:00 cron이 이미 본 사이클 처리 완료(log 212~218 참조) → 신규 wiki 편집 없음
+- state 보정: raw/til/2026-05-23.md를 .ingest_state.json processed에 마킹 (cron이 til-patterns 본문은 반영했으나 개별 state 마킹은 누락)
+- 잔여 113개 paper clippings 미마킹은 의도적 — 07:00 cron이 개별 페이지 대신 ai-paper-learning-path.md 압축 노드로 처리한 결과, 개별 state는 다음 manual review 때까지 보존
+- curate: 토요일이라 스킵 (월요일만 --audit --lifecycle 실행 룰)
+
+## 2026-05-25 07:09 [curate]
+- orphan: 0개
+- stale_links: 12개
+- distill 큐: 0개
 - archive 후보: 0개
