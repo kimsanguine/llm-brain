@@ -347,6 +347,159 @@ def write_report(audit: dict, distilled: list, lifecycle: dict) -> None:
     LOG_FILE.open("a").write(log_entry)
 
 
+# ── Graph Health ──────────────────────────────────────────────────────
+
+def graph_health() -> None:
+    """
+    wiki/graph.json을 읽어 그래프 건강 지표를 출력한다.
+    - pages, wikilink edges, avg degree, components, diameter, avg shortest
+    - low-degree (≤2) 페이지 수, ghost 수
+    - 카테고리별 내부/외부 연결 응집도
+    - Betweenness Centrality TOP 5
+    """
+    import json
+    import networkx as nx
+    from collections import defaultdict, Counter
+
+    graph_path = WIKI_ROOT / "wiki" / "graph.json"
+    if not graph_path.exists():
+        print("[health] graph.json 없음 — export_graph 먼저 실행")
+        return
+
+    g = json.loads(graph_path.read_text())
+    pages = {n["id"]: n for n in g["nodes"] if n["kind"] == "page"}
+    ghosts = [n for n in g["nodes"] if n["kind"] == "ghost"]
+
+    G = nx.Graph()
+    for p in pages:
+        G.add_node(p)
+    for l in g["links"]:
+        if l["kind"] == "wikilink" and l["source"] in pages and l["target"] in pages:
+            G.add_edge(l["source"], l["target"])
+
+    n_pages = G.number_of_nodes()
+    n_edges = G.number_of_edges()
+    avg_degree = (2 * n_edges / n_pages) if n_pages > 0 else 0
+    low_degree = sum(1 for _, d in G.degree() if d <= 2)
+    components = nx.number_connected_components(G)
+
+    # 연결 그래프의 지름 / 평균 최단거리 (가장 큰 컴포넌트 기준)
+    largest_cc = max(nx.connected_components(G), key=len)
+    sub = G.subgraph(largest_cc)
+    diameter = nx.diameter(sub)
+    avg_shortest = nx.average_shortest_path_length(sub)
+
+    today = datetime.now().strftime("%Y-%m-%d")
+    print(f"[health] {today}")
+    print(f"  pages           = {n_pages}")
+    print(f"  wikilink edges  = {n_edges}")
+    print(f"  avg degree      = {avg_degree:.2f}")
+    print(f"  components      = {components}")
+    print(f"  diameter        = {diameter}")
+    print(f"  avg shortest    = {avg_shortest:.2f}")
+    print(f"  low-degree (≤2) = {low_degree}개")
+    print(f"  ghost           = {len(ghosts)}개")
+
+    # 카테고리별 응집도
+    print(f"\n[health] 카테고리별 응집도")
+    cat_nodes: dict[str, list[str]] = defaultdict(list)
+    for pid, pdata in pages.items():
+        cat = pdata.get("category", "기타")
+        cat_nodes[cat].append(pid)
+
+    cat_node_set: dict[str, set[str]] = {c: set(ns) for c, ns in cat_nodes.items()}
+    for cat in sorted(cat_nodes.keys()):
+        members = cat_node_set[cat]
+        internal = 0
+        external = 0
+        for u, v in G.edges():
+            u_in = u in members
+            v_in = v in members
+            if u_in and v_in:
+                internal += 1
+            elif u_in or v_in:
+                external += 1
+        total = internal + external
+        ratio = int(internal / total * 100) if total > 0 else 0
+        print(f"  {cat:<12} {len(members):>2}p  internal={internal} external={external}  내부={ratio}%")
+
+    # Betweenness Centrality TOP 5
+    print(f"\n[health] Betweenness centrality TOP 5")
+    bc = nx.betweenness_centrality(G, normalized=True)
+    top5 = sorted(bc.items(), key=lambda x: x[1], reverse=True)[:5]
+    for slug, score in top5:
+        print(f"  {slug:<40} BC={score:.4f}")
+
+
+# ── Suggest Bridges ────────────────────────────────────────────────────
+
+def suggest_bridges(n: int) -> None:
+    """
+    betweenness centrality + structural hole 기반으로 missing link N개를 추천한다.
+    - 같은 카테고리 페이지 쌍은 제외
+    - 두 페이지 사이 hop이 2 이상 (직접 연결 안 됨)
+    - inbound 합 + betweenness 합 기준으로 상위 N개 선정
+    """
+    import json
+    import networkx as nx
+    from itertools import combinations
+
+    graph_path = WIKI_ROOT / "wiki" / "graph.json"
+    if not graph_path.exists():
+        print("[suggest-bridges] graph.json 없음 — export_graph 먼저 실행")
+        return
+
+    g = json.loads(graph_path.read_text())
+    pages = {n["id"]: n for n in g["nodes"] if n["kind"] == "page"}
+
+    G = nx.Graph()
+    for p in pages:
+        G.add_node(p)
+    for l in g["links"]:
+        if l["kind"] == "wikilink" and l["source"] in pages and l["target"] in pages:
+            G.add_edge(l["source"], l["target"])
+
+    bc = nx.betweenness_centrality(G, normalized=True)
+
+    # 연결된 페이지 쌍만 대상으로 경로 계산 (가장 큰 컴포넌트)
+    largest_cc = max(nx.connected_components(G), key=len)
+    sub = G.subgraph(largest_cc)
+    sub_pages = list(largest_cc)
+
+    candidates = []
+    for a, b in combinations(sub_pages, 2):
+        # 같은 카테고리 제외
+        if pages[a].get("category") == pages[b].get("category"):
+            continue
+        # 이미 직접 연결된 쌍 제외
+        if sub.has_edge(a, b):
+            continue
+        # hop distance 계산
+        try:
+            hop = nx.shortest_path_length(sub, a, b)
+        except nx.NetworkXNoPath:
+            continue
+        if hop < 2:
+            continue
+
+        inbound_a = pages[a].get("inbound", 0)
+        inbound_b = pages[b].get("inbound", 0)
+        hub_score = inbound_a + inbound_b
+        bc_score = bc.get(a, 0) + bc.get(b, 0)
+        # 정렬 기준: hub_score 우선, bc_score 보조
+        candidates.append((a, b, hop, hub_score, bc_score))
+
+    # hub_score 내림차순, bc_score 내림차순 정렬
+    candidates.sort(key=lambda x: (x[3], x[4]), reverse=True)
+    top = candidates[:n]
+
+    print(f"[suggest-bridges] 추천 missing link {len(top)}개")
+    for i, (a, b, hop, hub_score, bc_score) in enumerate(top, 1):
+        print(f"  {i}. [[{a}]] ↔ [[{b}]]  hop={hop}, hub-score={hub_score}")
+
+
+# ── Purge ──────────────────────────────────────────────────────────────
+
 def do_purge() -> None:
     """curate_report.md의 Archive 후보를 wiki/archive/로 이동."""
     if not REPORT_FILE.exists():
@@ -374,6 +527,10 @@ def main() -> None:
     parser.add_argument("--lifecycle", action="store_true")
     parser.add_argument("--purge", action="store_true", help="archive 후보 실제 이동")
     parser.add_argument("--record-access", metavar="PAGE_SLUG", help="access_count 기록 (query 모드용)")
+    parser.add_argument("--health", action="store_true",
+                        help="graph health 지표 출력 (avg degree, components, BC top, low-degree count)")
+    parser.add_argument("--suggest-bridges", type=int, default=0, metavar="N",
+                        help="betweenness/structural-hole 기반 missing link 추천 N개")
     args = parser.parse_args()
 
     if args.purge:
@@ -382,6 +539,14 @@ def main() -> None:
 
     if args.record_access:
         record_access(args.record_access)
+        return
+
+    if args.health:
+        graph_health()
+        return
+
+    if args.suggest_bridges > 0:
+        suggest_bridges(args.suggest_bridges)
         return
 
     run_all = args.all or not any([args.audit, args.distill, args.lifecycle])
