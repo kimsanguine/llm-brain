@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
+from fastapi.responses import StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
@@ -136,6 +137,67 @@ def create_app(wiki_root: Path | None = None) -> FastAPI:
             "answer": answer,
             "sources": valid_slugs,
         }
+
+    @app.post("/api/ai-answer/stream")
+    async def api_ai_answer_stream(req: AIAnswerRequest):
+        """SSE streaming version of /api/ai-answer.
+
+        Event types:
+          - meta:   {context_slugs}    # 한 번
+          - chunk:  {text}              # 여러 번 (claude stdout 라인 단위)
+          - done:   {}                  # 마지막
+          - error:  {message}           # 실패 시
+        """
+        import asyncio
+        import json as _json
+        import shutil
+
+        async def event_gen():
+            if shutil.which("claude") is None:
+                yield f"event: error\ndata: {_json.dumps({'message': 'Claude Code CLI 없음'}, ensure_ascii=False)}\n\n"
+                return
+
+            # context 수집 (기존 로직과 동일)
+            context_chunks = []
+            valid_slugs = []
+            for slug in req.context_slugs[:5]:
+                try:
+                    page = pages.load_page(slug, wiki_root=wiki_root)
+                    context_chunks.append(f"## {slug}\n\n{page['body_md']}")
+                    valid_slugs.append(slug)
+                except pages.PageNotFound:
+                    continue
+
+            yield f"event: meta\ndata: {_json.dumps({'context_slugs': valid_slugs}, ensure_ascii=False)}\n\n"
+
+            context = "\n\n---\n\n".join(context_chunks) if context_chunks else "(컨텍스트 페이지 없음)"
+            prompt = (
+                "다음 wiki 페이지 컨텍스트만 사용해 사용자 질문에 답변해주세요. "
+                "컨텍스트에 없는 사실은 추측하지 말고 '관련 정보 없음'으로 답하세요.\n\n"
+                f"# 사용자 질문\n{req.question}\n\n"
+                f"# 컨텍스트\n{context}"
+            )
+
+            try:
+                proc = await asyncio.create_subprocess_exec(
+                    "claude", "-p", prompt,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                )
+                # stdout을 라인 단위로 streaming
+                assert proc.stdout is not None
+                while True:
+                    line = await proc.stdout.readline()
+                    if not line:
+                        break
+                    text = line.decode("utf-8", errors="replace")
+                    yield f"event: chunk\ndata: {_json.dumps({'text': text}, ensure_ascii=False)}\n\n"
+                await proc.wait()
+                yield "event: done\ndata: {}\n\n"
+            except Exception as e:
+                yield f"event: error\ndata: {_json.dumps({'message': f'{type(e).__name__}: {e}'}, ensure_ascii=False)}\n\n"
+
+        return StreamingResponse(event_gen(), media_type="text/event-stream")
 
     # 정적 파일 마운트 (Task 7~12에서 추가될 static/index.html 등)
     # API 라우트를 모두 등록한 뒤 마지막에 마운트해야 catch-all이 되지 않음

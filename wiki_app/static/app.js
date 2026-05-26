@@ -265,37 +265,88 @@ function maybeAiCtaBox() {
 async function callAI(question, contextSlugs) {
   const modal = ensureAiModal();
   modal.classList.remove("hidden");
-  modal.querySelector(".ai-modal-body").innerHTML =
-    '<div class="ai-modal-loading">AI 답변 생성 중... (최대 90초)</div>';
+  modal.querySelector(".ai-modal-body").innerHTML = `
+    <div class="ai-modal-question">Q: ${escapeHtml(question)}</div>
+    <div class="ai-modal-loading">
+      AI 답변 생성 중<span class="dot">.</span><span class="dot">.</span><span class="dot">.</span>
+    </div>
+    <div class="ai-modal-answer" id="ai-stream-output" style="display:none"></div>
+    <div class="ai-modal-context" id="ai-stream-sources" style="display:none"></div>
+  `;
 
   try {
-    const r = await fetch("/api/ai-answer", {
+    const r = await fetch("/api/ai-answer/stream", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ question, context_slugs: contextSlugs }),
     });
-    const data = await r.json();
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
 
-    if (data.status === "done" && data.answer) {
-      modal.querySelector(".ai-modal-body").innerHTML = `
-        <div class="ai-modal-question">Q: ${escapeHtml(data.question)}</div>
-        <div class="ai-modal-answer">${escapeHtml(data.answer).replace(/\n/g, '<br>')}</div>
-        <div class="ai-modal-context">
-          <strong>참고한 wiki 페이지:</strong>
-          ${(data.sources || []).map(s => `<a href="#page=${encodeURIComponent(s)}" onclick="document.getElementById('ai-modal').classList.add('hidden')"><code>${s}</code></a>`).join(", ") || "(없음)"}
-        </div>
-      `;
-    } else {
-      // unavailable / timeout / error 분기는 message 표시
-      modal.querySelector(".ai-modal-body").innerHTML = `
-        <div class="ai-modal-question">Q: ${escapeHtml(data.question || question)}</div>
-        <div class="ai-modal-status">${escapeHtml(data.message || "응답을 받지 못했습니다.")}</div>
-      `;
+    const reader = r.body.getReader();
+    const decoder = new TextDecoder("utf-8");
+    let buffer = "";
+    const out = modal.querySelector("#ai-stream-output");
+    const sourcesEl = modal.querySelector("#ai-stream-sources");
+    let answerSoFar = "";
+    let gotFirstChunk = false;
+
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+
+      // SSE events parsed by `\n\n` separator
+      const events = buffer.split("\n\n");
+      buffer = events.pop() || "";
+      for (const evt of events) {
+        const ev = parseSseEvent(evt);
+        if (!ev) continue;
+        if (ev.event === "meta") {
+          const slugs = ev.data.context_slugs || [];
+          if (slugs.length) {
+            sourcesEl.style.display = "block";
+            sourcesEl.innerHTML = `<strong>참고한 wiki 페이지:</strong> ${slugs.map(s => `<a href="#page=${encodeURIComponent(s)}" onclick="document.getElementById('ai-modal').classList.add('hidden')"><code>${s}</code></a>`).join(", ")}`;
+          }
+        } else if (ev.event === "chunk") {
+          if (!gotFirstChunk) {
+            modal.querySelector(".ai-modal-loading").style.display = "none";
+            out.style.display = "block";
+            gotFirstChunk = true;
+          }
+          answerSoFar += ev.data.text || "";
+          out.innerHTML = escapeHtml(answerSoFar).replace(/\n/g, "<br>");
+          out.scrollTop = out.scrollHeight;
+        } else if (ev.event === "done") {
+          modal.querySelector(".ai-modal-loading").style.display = "none";
+          if (!gotFirstChunk) {
+            out.style.display = "block";
+            out.innerHTML = "<em>(빈 응답)</em>";
+          }
+        } else if (ev.event === "error") {
+          modal.querySelector(".ai-modal-loading").style.display = "none";
+          out.style.display = "block";
+          out.innerHTML = `<span style="color:#dc2626">오류: ${escapeHtml(ev.data.message || "unknown")}</span>`;
+        }
+      }
     }
   } catch (e) {
     modal.querySelector(".ai-modal-body").innerHTML =
       `<div class="ai-modal-status">네트워크 오류: ${escapeHtml(e.message)}</div>`;
   }
+}
+
+function parseSseEvent(raw) {
+  const lines = raw.split("\n").filter(l => l.trim());
+  if (!lines.length) return null;
+  const out = { event: "message", data: null };
+  for (const line of lines) {
+    if (line.startsWith("event:")) out.event = line.slice(6).trim();
+    else if (line.startsWith("data:")) {
+      try { out.data = JSON.parse(line.slice(5).trim()); }
+      catch { out.data = line.slice(5).trim(); }
+    }
+  }
+  return out;
 }
 
 function ensureAiModal() {
@@ -316,6 +367,12 @@ function ensureAiModal() {
   });
   modal.querySelector(".ai-modal-close").addEventListener("click", () => modal.classList.add("hidden"));
   window.addEventListener("hashchange", () => modal.classList.add("hidden"));
+  // ESC key support
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && !modal.classList.contains("hidden")) {
+      modal.classList.add("hidden");
+    }
+  });
   document.body.appendChild(modal);
   return modal;
 }

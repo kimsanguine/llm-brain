@@ -182,3 +182,38 @@ html, body {
 .ai-modal-answer strong { font-weight: 600; }
 .ai-modal-context a code { cursor: pointer; }
 .ai-modal-context a:hover code { background: #e8f4fd; color: #2563eb; }
+
+/* Loading dot animation */
+.ai-modal-loading {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  color: #888;
+  font-size: 13px;
+}
+.ai-modal-loading .dot {
+  animation: ai-dot-pulse 1.4s infinite;
+  display: inline-block;
+}
+.ai-modal-loading .dot:nth-child(2) { animation-delay: 0.2s; }
+.ai-modal-loading .dot:nth-child(3) { animation-delay: 0.4s; }
+@keyframes ai-dot-pulse {
+  0%, 80%, 100% { opacity: 0.3; }
+  40% { opacity: 1; }
+}
+
+/* Sources hover */
+.ai-modal-context a code {
+  transition: background 0.15s, color 0.15s;
+}
+
+/* ESC hint */
+.ai-modal-card::after {
+  content: "ESC to close";
+  position: absolute;
+  bottom: 10px;
+  right: 18px;
+  font-size: 10px;
+  color: #aaa;
+  pointer-events: none;
+}
