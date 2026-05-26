@@ -139,9 +139,24 @@ def main() -> int:
                 "tags": [],
             })
 
+    def resolve_link(tgt: str) -> str | None:
+        """wikilink target → 실제 페이지 slug. Obsidian 스타일 basename fallback 지원.
+
+        예: [[prd]] 단축형 → 유일한 subpath page "260515_llm_wiki/prd" 매칭.
+        모호한 매칭(2개 이상)은 ghost로 fall through.
+        """
+        if tgt in pages:
+            return tgt
+        matches = [p for p in pages if p.endswith("/" + tgt)]
+        if len(matches) == 1:
+            return matches[0]
+        return None
+
     for slug, targets in raw_out_links.items():
         for tgt in targets:
-            if tgt in pages or tgt == slug:
+            if tgt == slug:
+                continue
+            if resolve_link(tgt) is not None:
                 continue
             gid = f"{GHOST_PREFIX}{tgt}"
             ghost_nodes.setdefault(gid, {
@@ -175,11 +190,12 @@ def main() -> int:
         inbound[tgt] += 1
         outbound[src] += 1
 
-    # page → page / page → ghost
+    # page → page / page → ghost (basename fallback 적용)
     for src, targets in raw_out_links.items():
         for tgt in targets:
-            if tgt in pages:
-                add_edge(src, tgt, "wikilink")
+            resolved = resolve_link(tgt)
+            if resolved is not None:
+                add_edge(src, resolved, "wikilink")
             else:
                 add_edge(src, f"{GHOST_PREFIX}{tgt}", "ghost")
 
