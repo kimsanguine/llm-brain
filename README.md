@@ -1,3 +1,5 @@
+![llm-brain AI-native second brain OS banner](./assets/banner.svg)
+
 # llm-brain — 당신의 두 번째 뇌를 만드세요
 
 > **LLM을 컴파일러로 쓰는 Second Brain 시스템**
