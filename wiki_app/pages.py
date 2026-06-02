@@ -2,9 +2,13 @@
 from __future__ import annotations
 
 import json
+import logging
 from pathlib import Path
 
 import frontmatter
+
+
+logger = logging.getLogger(__name__)
 
 
 class PageNotFound(Exception):
@@ -41,9 +45,17 @@ def _load_graph(wiki_root: Path) -> dict:
 
 
 def load_page(slug: str, wiki_root: Path) -> dict:
-    """페이지 데이터를 dict로 반환한다."""
+    """페이지 데이터를 dict로 반환한다.
+
+    frontmatter(YAML) 파싱 실패는 PageNotFound로 격리한다 — 깨진 한 페이지가
+    API를 HTTP 500으로 떨어뜨리지 않고 404로 graceful 처리되도록.
+    """
     path = find_page_path(slug, wiki_root)
-    post = frontmatter.load(path)
+    try:
+        post = frontmatter.load(path)
+    except Exception as e:
+        logger.warning("frontmatter parse failed for %s (%s): %s", slug, path, e)
+        raise PageNotFound(f"invalid page (frontmatter parse error): {slug}") from e
     graph_nodes = _load_graph(wiki_root)
     node = graph_nodes.get(slug, {})
     return {

@@ -2,11 +2,15 @@
 from __future__ import annotations
 
 import json
+import logging
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
 import frontmatter
+
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -56,7 +60,17 @@ class Index:
             # 슬러그에 '/' 포함 시 (예: 260515_llm_wiki/prd) 그대로 경로로 사용
             md_path = wiki_root / entry.category / f"{entry.slug}.md"
             if md_path.exists():
-                post = frontmatter.load(md_path)
+                # 한 페이지의 frontmatter(YAML) 파싱 실패가 전체 인덱스 빌드를
+                # 크래시시키지 않도록 격리: 깨진 페이지는 tags/title 없이 skip,
+                # index.md 기반 slug/category/description 은 유지된다.
+                try:
+                    post = frontmatter.load(md_path)
+                except Exception as e:
+                    logger.warning(
+                        "skip page in index build — frontmatter parse failed for %s (%s): %s",
+                        entry.slug, md_path, e,
+                    )
+                    continue
                 tags = post.metadata.get("tags") or []
                 entry.tags = [str(t).lower() for t in tags]
                 entry.page_title = str(post.metadata.get("title") or "")

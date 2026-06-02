@@ -6,33 +6,69 @@ import pytest
 from wiki_app.pages import load_page, find_page_path, PageNotFound
 
 
-WIKI_ROOT = Path(__file__).parent.parent / "wiki"
+def test_load_known_page_returns_frontmatter_and_body(tmp_path):
+    # WHY: load_page 는 frontmatter(메타) 와 body_md(본문) 를 분리해 반환하고,
+    # 카테고리 폴더명을 category 로 노출해야 한다. 특정 slug/본문 텍스트가 아니라
+    # 이 분리·매핑 계약을 검증 — 작성자 실제 wiki 부재(fresh clone/CI)에도 통과.
+    wiki_root = tmp_path / "wiki"
+    (wiki_root / "business").mkdir(parents=True)
+    (wiki_root / "business" / "sample-profile.md").write_text(
+        "---\n"
+        "title: 샘플 프로파일\n"
+        "tags: [sample, profile]\n"
+        "---\n"
+        "# 본문 제목\n\n본문 단락.\n"
+    )
+
+    page = load_page("sample-profile", wiki_root=wiki_root)
+
+    assert page["slug"] == "sample-profile"
+    assert page["category"] == "business"  # 카테고리 폴더명이 그대로 매핑
+    assert page["frontmatter"]["title"] == "샘플 프로파일"
+    assert "sample" in page["frontmatter"]["tags"]  # 메타 분리 반환
+    # body_md 는 frontmatter 블록을 제외한 본문만 — 메타 키가 섞여선 안 됨
+    assert page["body_md"].startswith("# 본문 제목")
+    assert "title:" not in page["body_md"]
 
 
-def test_load_known_page_returns_frontmatter_and_body():
-    page = load_page("habix-profile", wiki_root=WIKI_ROOT)
-    assert page["slug"] == "habix-profile"
-    assert page["category"] == "business"
-    assert "habix" in page["frontmatter"]["tags"]
-    assert page["body_md"].startswith("# habix 비즈니스 프로파일")
+def test_load_page_includes_graph_metadata(tmp_path):
+    # WHY: load_page 는 graph.json 의 inbound/outbound degree 를 페이지 dict 에
+    # 합쳐 반환한다. 특정 작성자 slug 가 아니라 "graph 메타가 정수로 병합된다"는
+    # 계약을 self-contained 로 검증.
+    import json
+    wiki_root = tmp_path / "wiki"
+    (wiki_root / "concepts").mkdir(parents=True)
+    (wiki_root / "concepts" / "node-a.md").write_text("---\ntitle: A\n---\n# A\n")
+    (wiki_root / "graph.json").write_text(json.dumps({
+        "nodes": [{"id": "node-a", "kind": "page", "inbound": 3, "outbound": 2}],
+        "links": [],
+    }))
 
+    page = load_page("node-a", wiki_root=wiki_root)
 
-def test_load_page_includes_graph_metadata():
-    page = load_page("habix-profile", wiki_root=WIKI_ROOT)
-    assert "inbound" in page
-    assert "outbound" in page
     assert isinstance(page["inbound"], int)
+    assert isinstance(page["outbound"], int)
+    assert page["inbound"] == 3
+    assert page["outbound"] == 2
 
 
-def test_load_missing_page_raises():
+def test_load_missing_page_raises(tmp_path):
+    wiki_root = tmp_path / "wiki"
+    (wiki_root / "concepts").mkdir(parents=True)
     with pytest.raises(PageNotFound):
-        load_page("nonexistent-slug", wiki_root=WIKI_ROOT)
+        load_page("nonexistent-slug", wiki_root=wiki_root)
 
 
-def test_find_page_path_searches_all_categories():
-    p = find_page_path("habix-profile", wiki_root=WIKI_ROOT)
-    assert p.name == "habix-profile.md"
-    assert p.parent.name == "business"
+def test_find_page_path_searches_all_categories(tmp_path):
+    # WHY: find_page_path 는 카테고리 폴더들을 순회해 slug 를 찾고, 발견한 파일의
+    # 부모 폴더명이 그 카테고리여야 한다. 특정 slug 가 아니라 탐색 로직을 검증.
+    wiki_root = tmp_path / "wiki"
+    (wiki_root / "people").mkdir(parents=True)
+    (wiki_root / "people" / "some-person.md").write_text("---\ntitle: P\n---\n# P\n")
+
+    p = find_page_path("some-person", wiki_root=wiki_root)
+    assert p.name == "some-person.md"
+    assert p.parent.name == "people"
 
 
 # --- path traversal 회귀 (Codex [high]): wiki_root 밖 파일 접근 차단 ---
@@ -85,3 +121,61 @@ def test_find_page_path_allows_legit_nested_slug(isolated_wiki):
     p = find_page_path("260515_llm_wiki/prd", wiki_root=isolated_wiki)
     assert p.name == "prd.md"
     assert p.parent.name == "260515_llm_wiki"
+
+
+# --- 버그 3 회귀: invalid YAML frontmatter 페이지가 HTTP 500 대신 graceful 처리 ---
+# WHY: frontmatter.load 가 깨진 YAML 에서 예외를 던지면 API 가 500 으로 떨어진다.
+# load_page 는 이를 PageNotFound 로 격리해야 하고, /api/page 는 404 로 응답해야 한다.
+
+
+@pytest.fixture
+def wiki_with_broken_page(tmp_path):
+    """정상 페이지 1 + invalid YAML frontmatter 페이지 1 을 둔 격리 wiki.
+
+    create_app/Index.build 가 wiki_root.parent/index.md 를 읽으므로 그 레이아웃을
+    재현 — 부모에 index.md 를 둬 API 엔드투엔드 테스트도 self-contained 하게 한다.
+    """
+    project_root = tmp_path / "proj"
+    wiki_root = project_root / "wiki"
+    (wiki_root / "concepts").mkdir(parents=True)
+    (wiki_root / "concepts" / "good.md").write_text(
+        "---\ntitle: Good\ntags: [ok]\n---\n# Good\n"
+    )
+    # 닫히지 않은 따옴표 + 잘못된 들여쓰기로 YAML 파서를 깨뜨린다.
+    (wiki_root / "concepts" / "broken.md").write_text(
+        "---\n"
+        "title: \"unterminated\n"
+        "tags: [a, b\n"
+        "  bad-indent: : :\n"
+        "---\n"
+        "# Broken body\n"
+    )
+    (project_root / "index.md").write_text(
+        "## concepts/ (2개)\n"
+        "- [[good]] — 정상 페이지\n"
+        "- [[broken]] — 깨진 YAML 페이지\n"
+    )
+    return wiki_root
+
+
+def test_load_page_invalid_yaml_raises_page_not_found(wiki_with_broken_page):
+    # 깨진 YAML 은 예외를 그대로 전파하는 대신 PageNotFound 로 변환돼야 한다.
+    with pytest.raises(PageNotFound):
+        load_page("broken", wiki_root=wiki_with_broken_page)
+
+
+def test_load_page_good_page_still_loads_alongside_broken(wiki_with_broken_page):
+    # 깨진 페이지 존재가 정상 페이지 로드를 방해하지 않는다.
+    page = load_page("good", wiki_root=wiki_with_broken_page)
+    assert page["slug"] == "good"
+    assert page["frontmatter"]["title"] == "Good"
+
+
+def test_api_page_invalid_yaml_returns_404_not_500(wiki_with_broken_page):
+    # 엔드투엔드: /api/page/{slug} 가 깨진 페이지에 500 이 아니라 404 를 준다.
+    from fastapi.testclient import TestClient
+    from wiki_app.api import create_app
+
+    client = TestClient(create_app(wiki_root=wiki_with_broken_page))
+    resp = client.get("/api/page/broken")
+    assert resp.status_code == 404  # NOT 500
