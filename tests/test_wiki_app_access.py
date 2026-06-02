@@ -1,4 +1,5 @@
 import json
+import multiprocessing as mp
 import sys
 import threading
 from pathlib import Path
@@ -144,3 +145,78 @@ def test_track_logs_failure_without_raising(tmp_path, caplog):
     assert any(
         record.levelno >= logging.WARNING for record in caplog.records
     ), "실패가 로그로 남아야 한다"
+
+
+# ── 프로세스 간(cross-process) flock 검증 ──
+# threading.Lock은 같은 프로세스 내만 직렬화한다. 멀티워커 uvicorn / 별도 CLI 처럼
+# 별도 OS 프로세스가 같은 wiki를 동시에 track하면 read-modify-write lost update가
+# 발생한다. fcntl.flock(OS 파일락)으로 프로세스 경계를 넘어 직렬화되는지 검증.
+
+
+def _mp_worker(wiki_root_str: str, slug: str, count: int) -> None:
+    """별도 프로세스(spawn)에서 import하여 track을 count회 호출한다.
+
+    spawn 시작 방식에서 picklable해야 하므로 모듈 최상위 함수여야 하고
+    인자는 모두 직렬화 가능한 str/int여야 한다.
+    """
+    import sys as _sys
+    from pathlib import Path as _Path
+
+    root = _Path(__file__).parent.parent
+    _sys.path.insert(0, str(root))
+    _sys.path.insert(0, str(root / "scripts"))
+    from wiki_app.access import track as _track
+
+    for _ in range(count):
+        _track(slug, wiki_root=_Path(wiki_root_str))
+
+
+def test_track_no_lost_update_cross_process(tmp_path):
+    """cross-process no-lost-update: N개 프로세스가 동일 slug를 동시 track →
+    frontmatter / stats 양쪽 최종 카운트 == 총 호출 수 (lost update 없음).
+
+    threading.Lock만으로는 별도 OS 프로세스를 직렬화하지 못해 실패(lost update)한다.
+    fcntl.flock(wiki_root/.access.lock) 으로 프로세스 간 read-modify-write가
+    직렬화되어야 통과한다.
+    """
+    slug = "delta"
+    procs = 4
+    per_proc = 15
+    total = procs * per_proc
+
+    wiki_root = _make_wiki(tmp_path, slug, access_count=0)
+    page = wiki_root / "concepts" / f"{slug}.md"
+
+    ctx = mp.get_context("spawn")
+    workers = [
+        ctx.Process(target=_mp_worker, args=(str(wiki_root), slug, per_proc))
+        for _ in range(procs)
+    ]
+    for w in workers:
+        w.start()
+    for w in workers:
+        w.join(timeout=60)
+        assert w.exitcode == 0, f"worker 비정상 종료 exitcode={w.exitcode}"
+
+    assert frontmatter.load(page).metadata["access_count"] == total, (
+        "frontmatter access_count에 cross-process lost update가 발생했다"
+    )
+
+    stats_file = wiki_root.parent / "wiki_stats.json"
+    stats = json.loads(stats_file.read_text())
+    assert stats[slug]["access_count"] == total, (
+        "wiki_stats.json access_count에 cross-process lost update가 발생했다"
+    )
+
+
+def test_track_creates_lockfile_in_wiki_root(tmp_path):
+    """lockfile 위치: lockfile은 wiki_root 아래(.access.lock)에 생성되어
+    wiki_root.parent의 stats_file/리포지토리 루트를 오염시키지 않는다.
+    """
+    slug = "epsilon"
+    wiki_root = _make_wiki(tmp_path, slug, access_count=0)
+
+    track(slug, wiki_root=wiki_root)
+
+    lock_path = wiki_root / ".access.lock"
+    assert lock_path.exists(), "lockfile은 wiki_root/.access.lock 이어야 한다"
