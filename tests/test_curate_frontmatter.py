@@ -151,6 +151,59 @@ def test_nondict_yaml_page_preserved_on_distill(monkeypatch, tmp_path, caplog, p
                for rec in caplog.records), "non-dict frontmatter 경고가 없음 (fail-silent)"
 
 
+def test_parse_failed_page_excluded_from_distill_queue(monkeypatch, tmp_path):
+    """RED→GREEN (C5): parse 실패 페이지는 access_count가 아무리 높아도 distill
+    후보/큐에 들어가면 안 된다.
+
+    WHY: ensure_distill_fields가 parse 실패 시 {}를 반환하면 run_distill이 이를
+    "정상 빈 frontmatter"로 보고 wiki_stats.json의 access_count(>=10)를 적용해
+    urgent 후보에 추가한다. 그러면 fail-loud로 보호한 페이지가 다시 Claude distill
+    대상(rewrite)이 되어 데이터 손실 경로가 재개방된다. parse 실패 페이지는 완전히
+    skip되어야 한다.
+
+    수정 전: distill_queue.md에 second-brain 등장 + run_distill 반환에 포함.
+    수정 후: 큐/반환 모두에서 제외.
+    """
+    wiki = _make_wiki(tmp_path, INVALID_YAML_PAGE)
+    _patch_module_paths(monkeypatch, tmp_path, wiki)
+
+    # wiki_stats.json에 access_count=10을 심어 urgent 후보 조건을 만족시킨다.
+    (tmp_path / "wiki_stats.json").write_text(
+        '{"second-brain": {"access_count": 10, "last_accessed": "2026-01-01"}}',
+        encoding="utf-8",
+    )
+
+    candidates = curate.run_distill(curate.find_all_wiki_pages())
+
+    # 반환된 후보 목록에 parse 실패 페이지가 없어야 한다.
+    assert not any("second-brain" in c for c in candidates), (
+        "parse 실패 페이지가 distill 후보로 재유입됨 (데이터 손실 경로 재개방)"
+    )
+
+    # distill_queue.md에도 등장하면 안 된다.
+    queue_text = (wiki / "distill_queue.md").read_text(encoding="utf-8")
+    assert "second-brain" not in queue_text, (
+        "parse 실패 페이지가 distill_queue.md에 등장 (Claude distill 대상)"
+    )
+
+
+def test_nondict_page_excluded_from_distill_queue(monkeypatch, tmp_path):
+    """RED→GREEN (C5): non-dict(list) frontmatter 페이지도 access_count 높아도 큐 제외."""
+    wiki = _make_wiki(tmp_path, LIST_FM_PAGE)
+    _patch_module_paths(monkeypatch, tmp_path, wiki)
+
+    (tmp_path / "wiki_stats.json").write_text(
+        '{"second-brain": {"access_count": 99, "last_accessed": "2026-01-01"}}',
+        encoding="utf-8",
+    )
+
+    candidates = curate.run_distill(curate.find_all_wiki_pages())
+
+    assert not any("second-brain" in c for c in candidates)
+    queue_text = (wiki / "distill_queue.md").read_text(encoding="utf-8")
+    assert "second-brain" not in queue_text
+
+
 def test_empty_block_frontmatter_is_normal(monkeypatch, tmp_path):
     """회귀 방지: 내용 없는 frontmatter 블록(`---\\n\\n---`)은 safe_load → None →
     정상 {}로 취급되어 distill 필드가 추가되고, 본문이 보존되어야 한다.

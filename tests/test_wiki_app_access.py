@@ -209,14 +209,136 @@ def test_track_no_lost_update_cross_process(tmp_path):
     )
 
 
-def test_track_creates_lockfile_in_wiki_root(tmp_path):
-    """lockfile 위치: lockfile은 wiki_root 아래(.access.lock)에 생성되어
-    wiki_root.parent의 stats_file/리포지토리 루트를 오염시키지 않는다.
+def test_track_creates_lockfile_next_to_stats(tmp_path):
+    """lockfile 위치: lockfile은 wiki_stats.json과 같은 디렉토리(.access.lock)에
+    생성된다.
+
+    WHY: web(access.track)와 CLI(curate.record_access)가 같은 stats 파일을
+    경쟁하므로, 둘이 같은 lockfile을 잡지 못하면 flock이 무의미해진다(서로 다른
+    파일을 잠그면 직렬화 0). stats_file 위치를 단일 기준으로 통일한다.
     """
     slug = "epsilon"
     wiki_root = _make_wiki(tmp_path, slug, access_count=0)
+    stats_file = wiki_root.parent / "wiki_stats.json"
 
     track(slug, wiki_root=wiki_root)
 
-    lock_path = wiki_root / ".access.lock"
-    assert lock_path.exists(), "lockfile은 wiki_root/.access.lock 이어야 한다"
+    lock_path = stats_file.parent / ".access.lock"
+    assert lock_path.exists(), "lockfile은 wiki_stats.json과 같은 디렉토리에 있어야 한다"
+
+
+# ── web(access.track)와 CLI(curate.record_access)의 동일 lockfile 검증 (C2) ──
+# 둘이 서로 다른 lockfile을 잡으면 flock 직렬화가 무의미해진다. shared helper로
+# 통합해 양쪽이 stats_file 기준 같은 경로(.access.lock)를 잡는지 직접 단언한다.
+
+
+def test_web_and_cli_use_same_lockfile_path(tmp_path):
+    """same-lockfile: access.track의 lock 경로와 curate.record_access의 lock 경로가
+    동일해야 한다 (stats_file 디렉토리 기준 .access.lock).
+
+    수정 전: access.py는 wiki_root/.access.lock, curate는 무잠금 →
+    같은 stats 파일을 다른(또는 없는) lock으로 만져 lost update.
+    수정 후: shared helper가 stats_file.parent/.access.lock 단일 경로를 잡는다.
+    """
+    import curate as _curate
+    from wiki_app import access as _access
+
+    wiki_root = tmp_path / "wiki"
+    (wiki_root / "concepts").mkdir(parents=True)
+    stats_file = wiki_root.parent / "wiki_stats.json"
+
+    # web 경로가 계산하는 lockfile
+    web_lock = _access._stats_lock_path(stats_file)
+    # CLI(curate) 경로가 계산하는 lockfile
+    cli_lock = _curate.stats_lock_path(stats_file)
+
+    assert web_lock == cli_lock, (
+        f"web({web_lock})와 CLI({cli_lock})가 다른 lockfile을 잡으면 직렬화 무의미"
+    )
+    assert web_lock == stats_file.parent / ".access.lock"
+
+
+def _mp_cli_worker(stats_file_str: str, slug: str, count: int) -> None:
+    """별도 프로세스(spawn)에서 curate.record_access를 count회 호출.
+
+    web(access.track)이 아니라 CLI 경로를 검증한다. picklable해야 하므로 모듈
+    최상위 함수 + str/int 인자.
+    """
+    import sys as _sys
+    from pathlib import Path as _Path
+
+    root = _Path(__file__).parent.parent
+    _sys.path.insert(0, str(root))
+    _sys.path.insert(0, str(root / "scripts"))
+    import curate as _curate
+
+    # curate 모듈의 stats 경로를 이 프로세스에서 tmp로 치환.
+    _curate.WIKI_STATS_FILE = _Path(stats_file_str)
+    for _ in range(count):
+        _curate.record_access(slug)
+
+
+def test_cli_record_access_no_lost_update_cross_process(tmp_path):
+    """cross-process(CLI): N개 프로세스가 curate.record_access를 동시 호출 →
+    wiki_stats.json 최종 카운트 == 총 호출 수 (lost update 없음).
+
+    수정 전: record_access는 무잠금 read-modify-write → lost update.
+    수정 후: shared flock'd helper로 직렬화되어 손실 없음.
+    """
+    slug = "cli-zeta"
+    procs = 4
+    per_proc = 15
+    total = procs * per_proc
+    stats_file = tmp_path / "wiki_stats.json"
+
+    ctx = mp.get_context("spawn")
+    workers = [
+        ctx.Process(target=_mp_cli_worker, args=(str(stats_file), slug, per_proc))
+        for _ in range(procs)
+    ]
+    for w in workers:
+        w.start()
+    for w in workers:
+        w.join(timeout=60)
+        assert w.exitcode == 0, f"worker 비정상 종료 exitcode={w.exitcode}"
+
+    stats = json.loads(stats_file.read_text())
+    assert stats[slug]["access_count"] == total, (
+        "curate.record_access에 cross-process lost update가 발생했다"
+    )
+
+
+def test_web_and_cli_interleave_no_lost_update(tmp_path):
+    """mixed cross-process: web(track)과 CLI(record_access) 프로세스가 동일 slug를
+    동시에 갱신 → wiki_stats.json 최종 == web증분 + CLI증분 (둘 다 같은 lock).
+
+    수정 전: 서로 다른(또는 없는) lock → web/CLI 증분이 서로를 덮어씀.
+    수정 후: 같은 stats_file 기준 같은 lockfile을 잡아 손실 없음.
+    """
+    slug = "mixed"
+    web_procs = 2
+    cli_procs = 2
+    per_proc = 12
+    total = (web_procs + cli_procs) * per_proc
+
+    wiki_root = _make_wiki(tmp_path, slug, access_count=0)
+    stats_file = wiki_root.parent / "wiki_stats.json"
+
+    ctx = mp.get_context("spawn")
+    workers = [
+        ctx.Process(target=_mp_worker, args=(str(wiki_root), slug, per_proc))
+        for _ in range(web_procs)
+    ] + [
+        ctx.Process(target=_mp_cli_worker, args=(str(stats_file), slug, per_proc))
+        for _ in range(cli_procs)
+    ]
+    for w in workers:
+        w.start()
+    for w in workers:
+        w.join(timeout=60)
+        assert w.exitcode == 0, f"worker 비정상 종료 exitcode={w.exitcode}"
+
+    stats = json.loads(stats_file.read_text())
+    assert stats[slug]["access_count"] == total, (
+        "web/CLI 혼합 동시 갱신에 lost update가 발생했다 — 같은 lockfile 미사용"
+    )

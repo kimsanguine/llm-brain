@@ -10,9 +10,12 @@ curate.py — wiki 감사(audit) + 압축(distill) + 수명 관리(lifecycle) + 
   python scripts/curate.py --graph
 """
 import argparse
+import fcntl
 import json
 import logging
+import os
 import re
+import tempfile
 from collections import defaultdict
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -33,6 +36,28 @@ LIFECYCLE_EXEMPT = {"concepts", "tools", "people", "projects", "business", "lect
 
 
 # ── Stats (access tracking) ────────────────────────────────────────────
+#
+# wiki_stats.json 갱신은 web(wiki_app.access.track)과 CLI(record_access) 두
+# 프로세스가 동시에 read-modify-write할 수 있다. 무잠금이면 lost update가
+# 발생하고, 한쪽이 write_text 도중일 때 다른 쪽이 json.loads하면 partial-read로
+# 파싱 실패한다. 그래서 두 경로가 **같은 lockfile**을 flock으로 잡은 상태에서
+# atomic replace(temp + os.replace)로 저장하는 단일 shared helper로 통합한다.
+#
+# lockfile은 stats 파일과 같은 디렉토리에 둔다 (stats_lock_path). web/CLI가
+# stats 파일 위치를 단일 기준으로 공유하므로 lockfile도 같은 경로로 수렴한다.
+# 둘이 다른 파일을 잠그면 flock 직렬화가 무의미해지기 때문이다.
+
+_STATS_LOCKFILE_NAME = ".access.lock"
+
+
+def stats_lock_path(stats_file: Path) -> Path:
+    """stats_file과 동일 디렉토리의 lockfile 경로.
+
+    web(access.py)과 CLI(여기)가 같은 stats_file을 경쟁하므로 둘 다 이 함수가
+    돌려주는 단일 경로를 flock 대상으로 써야 직렬화가 성립한다.
+    """
+    return stats_file.parent / _STATS_LOCKFILE_NAME
+
 
 def load_wiki_stats() -> dict:
     """wiki_stats.json 로드. 없으면 빈 dict 반환."""
@@ -41,19 +66,75 @@ def load_wiki_stats() -> dict:
     return {}
 
 
-def save_wiki_stats(stats: dict) -> None:
-    WIKI_STATS_FILE.write_text(json.dumps(stats, ensure_ascii=False, indent=2))
+def _atomic_write_text(path: Path, text: str) -> None:
+    """임시 파일에 쓴 뒤 os.replace로 원자적 교체.
+
+    flock을 잡은 상태에서도 write_text는 truncate→write의 비원자적 구간이 생겨
+    별도 프로세스가 그 사이 partial-read로 깨진 JSON을 읽을 수 있다. temp +
+    os.replace는 reader에게 항상 old 또는 new 완전본만 보이도록 보장한다.
+    """
+    fd, tmp_name = tempfile.mkstemp(dir=str(path.parent), suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(text)
+        os.replace(tmp_name, path)
+    except Exception:
+        if os.path.exists(tmp_name):
+            os.unlink(tmp_name)
+        raise
+
+
+def write_stats_access(slug: str, stats_file: Path) -> int:
+    """slug의 access_count를 1 증가시켜 stats_file에 atomic replace로 기록 (lock 없음).
+
+    **호출자는 반드시 stats_lock_path(stats_file)에 flock을 잡은 상태여야 한다.**
+    이 함수 자체는 lock을 잡지 않는다 — web(access.track)은 frontmatter 갱신과
+    함께 하나의 flock 안에서 이 core를 호출하고, CLI(update_stats_access)는 lock을
+    잡은 뒤 이 core를 호출한다. 동일 프로세스에서 같은 lockfile을 두 fd로 중첩
+    flock하면 self-deadlock하므로 lock 획득은 단일 지점(호출자)에 둔다.
+
+    엔트리 형태:
+        {"access_count": int, "last_accessed": "YYYY-MM-DD"}
+    """
+    stats: dict = {}
+    if stats_file.exists():
+        stats = json.loads(stats_file.read_text(encoding="utf-8"))
+    entry = stats.get(slug, {"access_count": 0, "last_accessed": None})
+    entry["access_count"] = int(entry.get("access_count") or 0) + 1
+    entry["last_accessed"] = datetime.now().strftime("%Y-%m-%d")
+    stats[slug] = entry
+    _atomic_write_text(
+        stats_file, json.dumps(stats, ensure_ascii=False, indent=2)
+    )
+    return entry["access_count"]
+
+
+def update_stats_access(slug: str, stats_file: Path) -> int:
+    """slug의 access_count를 1 증가시켜 stats_file(wiki_stats.json)에 기록한다.
+
+    web(access.track)과 CLI(record_access)가 공유하는 단일 helper. stats_file
+    기준 같은 lockfile을 flock(LOCK_EX)으로 잡은 상태에서 read-modify-write를
+    수행하고 atomic replace로 저장해 cross-process lost update / partial-read를
+    막는다. 갱신된 access_count를 반환한다.
+    """
+    lock_path = stats_lock_path(stats_file)
+    fd = os.open(lock_path, os.O_CREAT | os.O_RDWR, 0o644)
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX)
+        return write_stats_access(slug, stats_file)
+    finally:
+        fcntl.flock(fd, fcntl.LOCK_UN)
+        os.close(fd)
 
 
 def record_access(page_slug: str) -> None:
-    """query 모드에서 호출. page_slug에 대한 access_count를 wiki_stats.json에 기록."""
-    stats = load_wiki_stats()
-    entry = stats.get(page_slug, {"access_count": 0, "last_accessed": None})
-    entry["access_count"] += 1
-    entry["last_accessed"] = datetime.now().strftime("%Y-%m-%d")
-    stats[page_slug] = entry
-    save_wiki_stats(stats)
-    print(f"  [stats] {page_slug} access_count={entry['access_count']}")
+    """query 모드(CLI)에서 호출. page_slug의 access_count를 wiki_stats.json에 기록.
+
+    web(access.track)과 동일한 shared helper(update_stats_access)를 써서 같은
+    lockfile을 flock으로 잡은 상태에서 atomic replace한다.
+    """
+    new_count = update_stats_access(page_slug, WIKI_STATS_FILE)
+    print(f"  [stats] {page_slug} access_count={new_count}")
 
 
 # ── Frontmatter helpers ────────────────────────────────────────────────
@@ -108,14 +189,19 @@ def serialize_frontmatter(fm: dict, body: str) -> str:
     return f"---\n{dumped}---{body}"
 
 
-def ensure_distill_fields(page: Path) -> dict:
+def ensure_distill_fields(page: Path) -> dict | None:
     """
     distill_level / access_count / last_accessed / last_distilled 필드가
     없으면 기본값으로 추가하고 파일을 갱신한다. 갱신된 frontmatter 반환.
 
     frontmatter YAML 파싱에 실패한 페이지는 절대 rewrite하지 않는다
-    (skip + warning). 빈 fm을 다시 써버리면 기존 필드가 영구 삭제되므로,
-    원본을 그대로 보존하고 빈 dict를 반환한다.
+    (skip + warning) → 원본을 그대로 보존하고 None을 반환한다.
+
+    None 반환은 호출부(run_distill)가 "parse 실패"를 "정상 빈 frontmatter({})"와
+    구별하기 위한 sentinel이다. {}를 반환하면 run_distill이 정상 빈 페이지로 보고
+    wiki_stats의 access_count를 적용해 distill 후보(rewrite 대상)에 추가하는데,
+    이는 fail-loud로 보호한 페이지를 다시 Claude distill 대상으로 만들어 데이터
+    손실 경로를 재개방한다. parse 실패 페이지는 후보 산정에서 완전히 제외해야 한다.
     """
     content = page.read_text()
     try:
@@ -125,7 +211,7 @@ def ensure_distill_fields(page: Path) -> dict:
             "frontmatter 파싱 실패 — 원본 보존하고 건너뜀: %s (%s)",
             page, exc,
         )
-        return {}
+        return None
     changed = False
     for field, default in [
         ("distill_level", 0),
@@ -226,6 +312,13 @@ def run_distill(pages: list[Path]) -> list[str]:
     for page in pages:
         # frontmatter 필드 보장
         fm = ensure_distill_fields(page)
+
+        # parse 실패 페이지(None)는 distill 후보 산정에서 완전히 skip한다.
+        # fail-loud로 원본을 보존한 페이지를 다시 distill(rewrite) 대상으로 만들면
+        # 데이터 손실 경로가 재개방되므로, urgent/priority/lifecycle 어디에도
+        # 넣지 않는다 (access_count가 아무리 높아도).
+        if fm is None:
+            continue
 
         # wiki_stats.json의 access_count를 frontmatter와 동기
         slug = page.stem
