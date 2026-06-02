@@ -88,6 +88,32 @@ def _get_resonance(file: Path) -> str | None:
         return None
 
 
+def _merge_resonance_frontmatter(content: str, resonance: str) -> str:
+    """md/txt 본문 frontmatter에 resonance를 주입·머지해 반환한다.
+
+    _get_resonance()가 frontmatter의 `resonance:` 라인을 읽으므로,
+    기록도 동일하게 frontmatter로 통일한다.
+    - frontmatter 블록이 있으면: 기존 resonance 라인 교체, 없으면 닫는 --- 앞에 삽입.
+    - frontmatter 블록이 없으면: 최소 frontmatter 블록을 본문 앞에 추가.
+    """
+    fm_match = re.match(r"^---\n(.*?)\n---\n?", content, re.DOTALL)
+    if fm_match:
+        fm_body = fm_match.group(1)
+        if re.search(r"^resonance:\s*\S+", fm_body, re.MULTILINE):
+            new_fm_body = re.sub(
+                r"^resonance:\s*\S+.*$",
+                f"resonance: {resonance}",
+                fm_body,
+                count=1,
+                flags=re.MULTILINE,
+            )
+        else:
+            new_fm_body = f"{fm_body}\nresonance: {resonance}"
+        return f"---\n{new_fm_body}\n---\n" + content[fm_match.end():]
+
+    return f"---\nresonance: {resonance}\n---\n\n{content}"
+
+
 def find_unprocessed(priority_only: bool = False) -> list[Path]:
     """
     미처리 raw/ 파일 목록을 반환한다.
@@ -167,10 +193,17 @@ def ingest_file(src: Path, resonance: str | None = None) -> Path:
 
     # 원본 파일 복사
     dst = docs_dir / f"{date_str}-{src.name}"
-    shutil.copy2(src, dst)
+    is_md_txt = src.suffix.lower() in {".md", ".txt"}
+    if is_md_txt and resonance:
+        # md/txt는 사이드카가 없으므로 복사본 frontmatter에 resonance를 주입한다.
+        # (비-md/txt는 아래 .extracted.md 사이드카에 기록.)
+        merged = _merge_resonance_frontmatter(src.read_text(errors="replace"), resonance)
+        dst.write_text(merged)
+    else:
+        shutil.copy2(src, dst)
 
     # MD·TXT가 아닌 경우 텍스트 추출 MD도 저장
-    if src.suffix.lower() not in {".md", ".txt"}:
+    if not is_md_txt:
         text = extract_text(src)
         if text:
             resonance_line = f"resonance: {resonance}\n" if resonance else ""
