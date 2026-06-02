@@ -94,6 +94,95 @@ def test_invalid_yaml_page_preserved_on_distill(monkeypatch, tmp_path, caplog):
                for rec in caplog.records), "parse 실패에 대한 경고가 없음 (fail-silent)"
 
 
+# valid YAML이지만 frontmatter가 dict가 아닌 경우(C5).
+# safe_load가 list/scalar를 반환하면 ensure_distill_fields가 dict로 가정해 키를
+# 대입하다 TypeError로 크래시(또는 access 경로에선 예외가 삼켜져 카운트 누락)한다.
+LIST_FM_PAGE = """---
+- a
+- b
+---
+
+본문 내용은 보존되어야 한다.
+"""
+
+SCALAR_FM_PAGE = """---
+just a bare string
+---
+
+본문 내용은 보존되어야 한다.
+"""
+
+
+@pytest.mark.parametrize(
+    "page_body, marker",
+    [
+        (LIST_FM_PAGE, "- a"),       # list frontmatter
+        (SCALAR_FM_PAGE, "just a bare string"),  # scalar frontmatter
+    ],
+)
+def test_nondict_yaml_page_preserved_on_distill(monkeypatch, tmp_path, caplog, page_body, marker):
+    """RED→GREEN: valid YAML이지만 non-dict(list/scalar) frontmatter 페이지에
+    distill rewrite 경로 실행 → 크래시/클로버 없이 원본 보존 + 경고.
+
+    수정 전: parse_frontmatter가 list/scalar를 그대로 반환 → ensure_distill_fields가
+    `fm[field] = default` 에서 TypeError로 크래시(run_distill 전체 중단).
+    수정 후: non-dict는 FrontmatterParseError로 분류되어 skip + warning, 원본 보존.
+    """
+    wiki = _make_wiki(tmp_path, page_body)
+    _patch_module_paths(monkeypatch, tmp_path, wiki)
+
+    page = wiki / "concepts" / "second-brain.md"
+    before = page.read_text(encoding="utf-8")
+
+    import logging
+    with caplog.at_level(logging.WARNING):
+        # 크래시하지 않아야 한다 (TypeError 전파 금지).
+        curate.run_distill(curate.find_all_wiki_pages())
+
+    after = page.read_text(encoding="utf-8")
+
+    # 원본 내용(frontmatter + 본문) 보존 — 클로버 금지.
+    assert marker in after, "non-dict frontmatter 원문이 소실됨 (클로버)"
+    assert "본문 내용은 보존되어야 한다." in after, "본문 소실됨"
+    assert after == before, "parse 실패 페이지가 변형됨 — 원본 보존 위반"
+
+    # fail-loud: 조용히 넘어가지 말고 경고를 남겨야 한다.
+    assert any("second-brain" in rec.getMessage() or "second-brain" in str(rec.args)
+               for rec in caplog.records), "non-dict frontmatter 경고가 없음 (fail-silent)"
+
+
+def test_empty_block_frontmatter_is_normal(monkeypatch, tmp_path):
+    """회귀 방지: 내용 없는 frontmatter 블록(`---\\n\\n---`)은 safe_load → None →
+    정상 {}로 취급되어 distill 필드가 추가되고, 본문이 보존되어야 한다.
+
+    빈 블록은 데이터 손실 위험이 없으므로 FrontmatterParseError로 막지 않는다.
+    """
+    empty_block_page = "---\n\n---\n\n본문.\n"
+    wiki = _make_wiki(tmp_path, empty_block_page)
+    _patch_module_paths(monkeypatch, tmp_path, wiki)
+
+    page = wiki / "concepts" / "second-brain.md"
+    curate.run_distill(curate.find_all_wiki_pages())
+    after = page.read_text(encoding="utf-8")
+
+    assert "distill_level:" in after  # 정상 페이지로 처리되어 distill 필드 추가
+    assert "본문." in after  # 본문 보존
+
+
+def test_no_frontmatter_block_unchanged(monkeypatch, tmp_path):
+    """회귀 방지: frontmatter 블록 자체가 없는 페이지는 ({}, content)로 처리되어
+    distill 필드가 추가되며(빈 dict 기반), 본문은 보존된다."""
+    no_fm_page = "프론트매터 없는 본문만 있는 페이지.\n"
+    wiki = _make_wiki(tmp_path, no_fm_page)
+    _patch_module_paths(monkeypatch, tmp_path, wiki)
+
+    page = wiki / "concepts" / "second-brain.md"
+    curate.run_distill(curate.find_all_wiki_pages())
+    after = page.read_text(encoding="utf-8")
+
+    assert "프론트매터 없는 본문만 있는 페이지." in after  # 본문 보존
+
+
 def test_valid_yaml_page_still_gets_distill_fields(monkeypatch, tmp_path):
     """대조군: 정상 YAML 페이지는 distill 필드가 정상 추가되어야 한다 (기존 기능 회귀 방지)."""
     valid_page = (

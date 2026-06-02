@@ -62,27 +62,43 @@ _FM_PATTERN = re.compile(r"^---\n(.*?)\n---", re.DOTALL)
 
 
 class FrontmatterParseError(ValueError):
-    """frontmatter 블록은 있으나 YAML 파싱에 실패했을 때 raise.
+    """frontmatter 블록은 있으나 YAML 파싱에 실패했거나 dict가 아닐 때 raise.
 
     fail-loud: 조용히 ({}, body)를 반환하면 호출부가 "frontmatter 없음"으로 오인해
     기존 필드(title·type·tags·created·sources 등)를 덮어써 영구 삭제하는
     silent data-loss가 발생한다. 그래서 파싱 실패를 명확히 신호한다.
+
+    invalid YAML뿐 아니라 valid YAML이지만 non-dict(list/scalar 등)인 경우도
+    포함한다. 호출부(ensure_distill_fields·access tracking)는 frontmatter를
+    dict로 가정해 키를 대입하는데, list/scalar면 TypeError로 크래시하거나
+    (access 경로처럼 예외가 삼켜지면) 카운트 누락이 발생하기 때문이다.
     """
 
 
 def parse_frontmatter(content: str) -> tuple[dict, str]:
     """(frontmatter_dict, body) 반환. frontmatter 없으면 ({}, content).
 
-    frontmatter 블록은 존재하나 YAML이 invalid면 FrontmatterParseError를 raise한다
-    (조용한 {} 반환 금지 — 호출부의 덮어쓰기로 인한 데이터 손실 방지).
+    frontmatter 블록은 존재하나 YAML이 invalid거나 dict가 아니면
+    FrontmatterParseError를 raise한다 (조용한 {} 반환 금지 — 호출부의
+    덮어쓰기로 인한 데이터 손실 방지). 빈 블록(safe_load → None)은 정상으로
+    보고 ({}, body)를 반환한다.
     """
     m = _FM_PATTERN.match(content)
     if not m:
         return {}, content
     try:
-        fm = yaml.safe_load(m.group(1)) or {}
+        loaded = yaml.safe_load(m.group(1))
     except yaml.YAMLError as exc:
         raise FrontmatterParseError(str(exc)) from exc
+    # 빈 블록(None)은 정상 — {}로 취급. list/scalar 등 non-dict는 fail-loud.
+    if loaded is None:
+        fm: dict = {}
+    elif isinstance(loaded, dict):
+        fm = loaded
+    else:
+        raise FrontmatterParseError(
+            f"frontmatter는 dict여야 하나 {type(loaded).__name__}을 받음: {loaded!r}"
+        )
     body = content[m.end():]
     return fm, body
 
