@@ -33,4 +33,5 @@ wiki_stats.json
 .superpowers/
 .worktrees/
 .obsidian/graph.json
+*.canvas
 express/
