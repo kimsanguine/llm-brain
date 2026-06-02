@@ -6,7 +6,7 @@ created: 2026-05-23
 updated: 2026-05-23
 sources:
   - https://fortelabs.com/blog/basboverview/ (Tiago Forte BASB Overview)
-  - "Building a Second Brain" (Tiago Forte, 2022)
+  - "Building a Second Brain (Tiago Forte, 2022)"
 distill_level: 0
 access_count: 0
 ---
