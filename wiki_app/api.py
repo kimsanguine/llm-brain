@@ -1,8 +1,10 @@
 """FastAPI app — 4 endpoints + static mount."""
 from __future__ import annotations
 
+import asyncio
 import datetime as _dt
 import json
+import shutil
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
@@ -16,6 +18,29 @@ from wiki_app import access, pages, render, search
 class AIAnswerRequest(BaseModel):
     question: str
     context_slugs: list[str] = []
+
+
+# claude -p subprocess timeout (초)
+_AI_ANSWER_TIMEOUT = 90
+# stream: 한 줄 사이 idle timeout (초) — claude hang 방지
+_AI_STREAM_IDLE_TIMEOUT = 90
+
+
+async def _terminate_proc(proc) -> None:
+    """proc 이 아직 살아있으면 kill 후 wait — 좀비/누적 방지.
+
+    timeout·error·disconnect·정상 종료 어디서 호출돼도 안전(idempotent):
+    이미 종료된 proc(returncode 설정됨)은 건드리지 않는다.
+    """
+    if proc is None:
+        return
+    if proc.returncode is None:
+        try:
+            proc.kill()
+        except ProcessLookupError:
+            # 이미 사라진 child — 무시
+            pass
+        await proc.wait()
 
 
 def create_app(wiki_root: Path | None = None) -> FastAPI:
@@ -128,9 +153,6 @@ def create_app(wiki_root: Path | None = None) -> FastAPI:
 
         context_slugs 비어있으면 결과 없음 시나리오 → 사용자 질문만 그대로 전달.
         """
-        import asyncio
-        import shutil
-
         # CLI 부재 시 graceful fallback
         if shutil.which("claude") is None:
             return {
@@ -161,6 +183,7 @@ def create_app(wiki_root: Path | None = None) -> FastAPI:
             f"# 컨텍스트\n{context}"
         )
 
+        proc = None
         try:
             proc = await asyncio.create_subprocess_exec(
                 "claude", "-p", prompt,
@@ -168,11 +191,13 @@ def create_app(wiki_root: Path | None = None) -> FastAPI:
                 stderr=asyncio.subprocess.PIPE,
             )
             # 90초 timeout (큰 컨텍스트 + 추론 여유)
-            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=90)
+            stdout, _stderr = await asyncio.wait_for(
+                proc.communicate(), timeout=_AI_ANSWER_TIMEOUT
+            )
         except asyncio.TimeoutError:
             return {
                 "status": "timeout",
-                "message": "AI 답변 생성이 90초를 초과해 중단됐어요.",
+                "message": f"AI 답변 생성이 {_AI_ANSWER_TIMEOUT}초를 초과해 중단됐어요.",
                 "question": req.question,
                 "context_slugs": valid_slugs,
                 "answer": "",
@@ -187,6 +212,9 @@ def create_app(wiki_root: Path | None = None) -> FastAPI:
                 "answer": "",
                 "sources": [],
             }
+        finally:
+            # timeout·error·정상 어디서든 살아있는 child 는 반드시 정리
+            await _terminate_proc(proc)
 
         answer = stdout.decode("utf-8", errors="replace").strip()
         return {
@@ -208,9 +236,7 @@ def create_app(wiki_root: Path | None = None) -> FastAPI:
           - done:   {}                  # 마지막
           - error:  {message}           # 실패 시
         """
-        import asyncio
         import json as _json
-        import shutil
 
         async def event_gen():
             if shutil.which("claude") is None:
@@ -238,6 +264,7 @@ def create_app(wiki_root: Path | None = None) -> FastAPI:
                 f"# 컨텍스트\n{context}"
             )
 
+            proc = None
             try:
                 proc = await asyncio.create_subprocess_exec(
                     "claude", "-p", prompt,
@@ -247,15 +274,36 @@ def create_app(wiki_root: Path | None = None) -> FastAPI:
                 # stdout을 라인 단위로 streaming
                 assert proc.stdout is not None
                 while True:
-                    line = await proc.stdout.readline()
+                    # readline 에 idle timeout — claude hang 시 영원히 대기 방지
+                    line = await asyncio.wait_for(
+                        proc.stdout.readline(), timeout=_AI_STREAM_IDLE_TIMEOUT
+                    )
                     if not line:
                         break
                     text = line.decode("utf-8", errors="replace")
                     yield f"event: chunk\ndata: {_json.dumps({'text': text}, ensure_ascii=False)}\n\n"
+                # stdout EOF — 종료 대기 후 returncode 확인
                 await proc.wait()
-                yield "event: done\ndata: {}\n\n"
+                stderr_bytes = b""
+                if proc.stderr is not None:
+                    stderr_bytes = await proc.stderr.read()
+                if proc.returncode not in (0, None):
+                    msg = stderr_bytes.decode("utf-8", errors="replace").strip() \
+                        or f"claude exited with code {proc.returncode}"
+                    yield f"event: error\ndata: {_json.dumps({'message': msg}, ensure_ascii=False)}\n\n"
+                else:
+                    yield "event: done\ndata: {}\n\n"
+            except asyncio.TimeoutError:
+                yield f"event: error\ndata: {_json.dumps({'message': 'AI 답변 생성이 지연돼 중단됐어요.'}, ensure_ascii=False)}\n\n"
+            except asyncio.CancelledError:
+                # 클라이언트 disconnect — proc 정리 후 전파
+                await _terminate_proc(proc)
+                raise
             except Exception as e:
                 yield f"event: error\ndata: {_json.dumps({'message': f'{type(e).__name__}: {e}'}, ensure_ascii=False)}\n\n"
+            finally:
+                # timeout·error·정상·disconnect 어디서든 살아있는 child 정리
+                await _terminate_proc(proc)
 
         return StreamingResponse(event_gen(), media_type="text/event-stream")
 
