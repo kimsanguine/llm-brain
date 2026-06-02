@@ -18,6 +18,168 @@
 
 <!-- 로그 항목은 아래에 최신순으로 추가 -->
 
+## 2026-06-02 07:00 [daily-cron sync_raw + ingest]
+- sync_raw: quiet 모드 완료
+- 처리 raw: 15개
+  - raw/clippings/news-2026-06-01.md
+  - raw/clippings/paper-2026-06-01-transfer-learning-foundation-models-ml-deep-learning.md
+  - raw/meetings/clients/T3-TEACH/weekly_summary_2026-06-01.md
+  - raw/newsletters/2026-06-01-a16z-drone-swarm-sustainment-bottleneck.md
+  - raw/newsletters/2026-06-01-artificialanalysis-nemotron3-ultra.md
+  - raw/newsletters/2026-06-01-axios-nvidia-cosmos-world-model.md
+  - raw/newsletters/2026-06-01-cerebralvalley-week-june1-events.md
+  - raw/newsletters/2026-06-01-gpters-claude-opus48-dario-oprah.md
+  - raw/newsletters/2026-06-01-hbr-managers-ai-productivity-boom.md
+  - raw/newsletters/2026-06-01-howiai-codex-claude-opus48-iphone-app.md
+  - raw/newsletters/2026-06-01-mckinsey-agentic-ai-workforce.md
+  - raw/newsletters/2026-06-01-newneek-ai-shock-global-youth-jobs.md
+  - raw/newsletters/2026-06-01-rize-slack-agent-mcp-chat.md
+  - raw/newsletters/2026-06-01-rokosbas-next-ai-scarcity-data.md
+  - raw/notes/2026-06-01-fastcampus-seminar-second-brain-claude-code.md
+- 신규 wiki: 2개
+  - wiki/concepts/physical-ai-world-model.md
+  - wiki/concepts/ai-workforce-restructuring.md
+- 갱신 wiki: 9개
+  - wiki/insights/ai-human-daily-brief-curriculum-signals.md
+  - wiki/insights/ai-paper-learning-path.md
+  - wiki/lecture/deep-learning-fundamentals.md
+  - wiki/projects/t3-teach-lecture-operations.md
+  - wiki/business/anthropic.md
+  - wiki/tools/openai-codex.md
+  - wiki/concepts/llm-deployment-patterns.md
+  - wiki/concepts/vertical-agent-domain-depth.md
+  - wiki/concepts/knowledge-management-tools-evolution.md
+- index.md 갱신: 마지막 갱신일 2026-06-02, 총 페이지 수 87→89, concepts 29→31
+- 반영 내용: Nvidia Cosmos 3와 드론 sustainment를 physical AI/world model 노드로 분리, HBR/McKinsey/뉴닉/Anthropic 인력 신호를 AI workforce restructuring 노드로 압축, Ch05 음성 브리프/전이학습 논문/세컨드브레인 세미나/버티컬 운영 데이터/오픈 웨이트·데이터 희소성 신호를 기존 허브에 병합
+- Ghost 추가: 없음
+
+## 2026-06-01 07:00 [daily-cron sync_raw + ingest]
+- sync_raw: quiet 모드 완료, 총 1개 파일 복사
+- 처리 raw: 13개
+  - raw/clippings/2026-05-30.md
+  - raw/clippings/2026-05-31.md
+  - raw/clippings/news-2026-05-31.md
+  - raw/clippings/paper-2026-05-31-optimization-and-regularization-ml-deep-learning.md
+  - raw/newsletters/2026-05-31-byte-korean-economy-semiconductor.md
+  - raw/newsletters/2026-05-31-cooldeepai-claude-cowork-tips.md
+  - raw/newsletters/2026-05-31-cooldeepai-learn-99pct-claude-15min.md
+  - raw/newsletters/2026-05-31-delightpath-not-behind-with-ai.md
+  - raw/newsletters/2026-05-31-lenny-benedict-evans-rational-ai.md
+  - raw/newsletters/2026-05-31-nlpnews-top-ai-papers-of-the-week.md
+  - raw/newsletters/2026-05-31-peteryang-ai-skills-solo-founder.md
+  - raw/newsletters/2026-05-31-producttalk-ai-security-mom-pop-tech.md
+  - raw/newsletters/2026-05-31-starterstory-boring-niche-1m-year.md
+- 신규 wiki: 1개
+  - wiki/insights/agent-skill-optimization.md
+- 갱신 wiki: 14개
+  - wiki/insights/agent-build-harness.md
+  - wiki/insights/claude-code-workflow.md
+  - wiki/concepts/agent-evaluation-frameworks.md
+  - wiki/concepts/agent-harness-pattern.md
+  - wiki/concepts/model-routing-cost.md
+  - wiki/concepts/ai-governance-verification.md
+  - wiki/concepts/ai-pm-role.md
+  - wiki/concepts/vertical-agent-domain-depth.md
+  - wiki/lecture/deep-learning-fundamentals.md
+  - wiki/insights/ai-paper-learning-path.md
+  - wiki/insights/ai-human-daily-brief-curriculum-signals.md
+  - wiki/concepts/realtime-voice-ai-patterns.md
+  - wiki/concepts/voice-ai-stack.md
+  - wiki/business/anthropic.md
+- index.md 갱신: 마지막 갱신일, 총 페이지 수 86→87, insights 11→12, 신규 스킬 최적화 노드 추가
+- Ghost 추가: 없음
+- 클러스터링 결정: AI Human 중복 브리프는 기존 voice/curriculum/Anthropic 노드에 source만 보강. Optimization paper는 deep-learning/ai-paper 노드에 흡수. Claude/Cowork/SkillOpt/Josh Pigford는 반복 신호 3회 이상으로 agent-skill-optimization 신규 노드 생성. AI 보안, PM 불안, boring niche/Mom and Pop Tech, 반도체/AI 인프라 신호는 기존 governance/PM/vertical/model-routing 노드에 귀속.
+
+## 2026-05-31 07:00 [daily-cron sync_raw + ingest]
+- sync_raw: quiet 모드 완료
+- 처리 raw: 3개
+  - raw/clippings/2026-05-29.md
+  - raw/clippings/news-2026-05-30.md
+  - raw/clippings/paper-2026-05-30-rnn-lstm-sequence-models-ml-deep-learning.md
+- 신규 wiki: 없음
+- 갱신 wiki: 7개
+  - wiki/concepts/voice-ai-stack.md
+  - wiki/concepts/realtime-voice-ai-patterns.md
+  - wiki/insights/ai-human-daily-brief-curriculum-signals.md
+  - wiki/insights/ai-paper-learning-path.md
+  - wiki/lecture/deep-learning-fundamentals.md
+  - wiki/business/anthropic.md
+  - wiki/concepts/llm-deployment-patterns.md
+- index.md 갱신: 마지막 갱신일, 관련 노드 설명 보강
+- Ghost 추가: 없음
+
+## 2026-05-30 07:00 [daily-cron sync_raw + ingest]
+- sync_raw: quiet 모드 완료
+- 처리 raw: 3개
+  - raw/clippings/2026-05-28.md
+  - raw/clippings/news-2026-05-29.md
+  - raw/clippings/paper-2026-05-29-cnn-architectures-and-computer-vision-ml-deep-learning.md
+- 신규 wiki: 없음
+- 갱신 wiki: 5개
+  - wiki/concepts/realtime-voice-ai-patterns.md
+  - wiki/concepts/voice-ai-stack.md
+  - wiki/insights/ai-human-daily-brief-curriculum-signals.md
+  - wiki/insights/ai-paper-learning-path.md
+  - wiki/lecture/deep-learning-fundamentals.md
+- index.md 갱신: 마지막 갱신일, 관련 노드 설명 보강
+- Ghost 추가: 없음
+
+## 2026-05-29 07:00 [daily-cron sync_raw + ingest]
+- sync_raw: 총 9개 파일 복사
+- 처리 raw: 5개
+  - raw/blog/2026-05-28-ai-제품철학-context-dealer.md
+  - raw/clippings/news-2026-05-28.md
+  - raw/clippings/paper-2026-05-28-neural-network-fundamentals-training-ml-deep-learning.md
+  - raw/meetings/clients/T3-TEACH/weekly_summary_2026-05-28.md
+  - raw/til/2026-05-28.md
+- 신규 wiki: 없음
+- 갱신 wiki: 12개
+  - wiki/concepts/context-dealer-pattern.md
+  - wiki/concepts/ai-pm-role.md
+  - wiki/concepts/realtime-voice-ai-patterns.md
+  - wiki/concepts/voice-ai-stack.md
+  - wiki/tools/whisper-ecosystem.md
+  - wiki/business/anthropic.md
+  - wiki/insights/ai-human-daily-brief-curriculum-signals.md
+  - wiki/insights/ai-paper-learning-path.md
+  - wiki/lecture/deep-learning-fundamentals.md
+  - wiki/projects/t3-teach-lecture-operations.md
+  - wiki/insights/til-patterns-2026-05.md
+  - wiki/insights/teaching-lecture-patterns.md
+- Ghost 추가: 없음
+
+## 2026-05-27 14:57 [curate --all]
+- orphan: 0개
+- stale_links: 9개 (확인 필요 — 목록은 wiki/curate_report.md)
+- distill 큐: 긴급 1개 → 즉시 실행 완료
+  - wiki/business/habix-profile.md level 1→2 (access=25, 77줄 → 20줄 압축)
+- lifecycle archive 후보: 0개
+
+## 2026-05-27 07:00 [daily-cron sync_raw + ingest]
+- sync_raw: 총 12개 파일 복사
+- 처리 raw: 7개
+  - raw/blog/2026-05-24-agent-production-guardrails.md
+  - raw/blog/2026-05-26-anthropic-q2-profitable-agent-era.md
+  - raw/clippings/2026-05-25.md
+  - raw/clippings/2026-05-26.md
+  - raw/clippings/news-2026-05-26.md
+  - raw/clippings/paper-2026-05-26-vector-databases-and-indexing-rag.md
+  - raw/til/2026-05-27.md
+- 신규 wiki: 없음 (0개)
+- 갱신 wiki: 10개
+  - wiki/concepts/ai-governance-verification.md — 프로덕션 에이전트 Review Gate/책임 소유권/구조적 실행 경계 보강
+  - wiki/concepts/agent-pricing-model.md — PoC 예산 → 반복 운영 패키지 전환 보강
+  - wiki/concepts/vertical-agent-domain-depth.md — 도메인 신뢰와 반복 KPI를 운영 매출 전제조건으로 추가
+  - wiki/concepts/model-routing-cost.md — Perplexity Computer 20모델 오케스트레이션 신호 source 반영
+  - wiki/business/anthropic.md — 2026 Q2 흑자·대형 펀딩·운영 매출 신호 보강
+  - wiki/insights/ai-human-daily-brief-curriculum-signals.md — Ch05 한국어 음성 AI/Kanana/라이선스 오디오/모델 라우팅 브리프 추가
+  - wiki/insights/ai-paper-learning-path.md — ScaNN/DiskANN/SOGAIC vector indexing 세트 추가
+  - wiki/insights/agent-build-harness.md — hplan v0.13.0 gate 강화와 UI assertion 패턴 추가
+  - wiki/insights/til-patterns-2026-05.md — habix Legal QA 병렬 수정, GNB 통일, hplan v0.13.0 운영 패턴 추가
+  - index.md — 마지막 갱신일 및 관련 설명 갱신
+- Ghost 추가: 없음
+- 클러스터링 결정: 7개 raw 모두 기존 압축 노드에 귀속. agent production guardrails는 ai-governance, Anthropic 시장 신호는 agent-pricing/vertical/anthropic, AI Human 브리프는 curriculum/paper 노드, TIL은 til/harness 노드로 흡수.
+
 ## 2026-05-26 07:01 [daily-cron sync_raw + ingest]
 - sync_raw: 실행 완료
 - 처리 raw: 3개
@@ -297,8 +459,58 @@
 - 잔여 113개 paper clippings 미마킹은 의도적 — 07:00 cron이 개별 페이지 대신 ai-paper-learning-path.md 압축 노드로 처리한 결과, 개별 state는 다음 manual review 때까지 보존
 - curate: 토요일이라 스킵 (월요일만 --audit --lifecycle 실행 룰)
 
+## 2026-05-27 [ingest]
+- 처리 raw: raw/clippings/2026-05-27-developers-openai-com-codex-use-cases.md (1개)
+- 신규 wiki: wiki/tools/openai-codex.md (1개)
+- 갱신 wiki: wiki/business/openai.md, wiki/insights/claude-code-vs-codex-economics.md, index.md (3개)
+- Ghost 추가: 없음
+
 ## 2026-05-25 07:09 [curate]
 - orphan: 0개
 - stale_links: 12개
 - distill 큐: 0개
+- archive 후보: 0개
+
+## 2026-05-27 14:57 [curate]
+- orphan: 0개
+- stale_links: 9개
+- distill 큐: 1개
+- archive 후보: 0개
+
+## 2026-05-27 15:00 [curate]
+- orphan: 0개
+- stale_links: 5개
+- distill 큐: 0개
+- archive 후보: 0개
+
+## 2026-05-27 15:01 [curate]
+- orphan: 0개
+- stale_links: 5개
+- distill 큐: 0개
+- archive 후보: 0개
+
+## 2026-05-27 15:01 [curate]
+- orphan: 0개
+- stale_links: 5개
+- distill 큐: 0개
+- archive 후보: 0개
+
+## 2026-05-27 15:01 [curate]
+- orphan: 0개
+- stale_links: 4개
+- distill 큐: 0개
+- archive 후보: 0개
+
+## 2026-05-28 07:00 [ingest — 일일 sync: OpenAI 플랫폼 흐름 + Ch05 음성 브리프 + classical ML 논문 세트 반영]
+- 처리 raw: raw/blog/2026-05-27-openai-최근-소식.md, raw/clippings/2026-05-27.md, raw/clippings/news-2026-05-27.md, raw/clippings/paper-2026-05-27-classical-ml-algorithms-ml-deep-learning.md (4개)
+- 신규 wiki: 없음 (0개)
+- 갱신 wiki: wiki/business/openai.md, wiki/tools/openai-codex.md, wiki/concepts/realtime-voice-ai-patterns.md, wiki/concepts/forward-deployed-engineering.md, wiki/insights/ai-human-daily-brief-curriculum-signals.md, wiki/insights/ai-paper-learning-path.md, index.md (7개)
+- 반영 내용: OpenAI 2026 상반기 전략을 Codex·Realtime API·FDE 분사 기반 platform-first/product-first 흐름으로 압축, Spotify Studio·ElevenLabs ALS 음성 복원·Intuit 감원 신호를 Ch05 voice cloning 가드레일 토론으로 추가, Bagging/AdaBoost/TabICL을 classical ML→tabular foundation model 계보로 추가
+- 참고: raw/blog/2026-05-27-openai-최근-소식.md는 기존 wiki 기반 발행 글이라 신규 사실보다 provenance와 연결 구조 보강 중심으로 처리
+- Ghost 추가: 없음
+
+## 2026-05-28 11:15 [curate]
+- orphan: 0개
+- stale_links: 5개
+- distill 큐: 1개
 - archive 후보: 0개
