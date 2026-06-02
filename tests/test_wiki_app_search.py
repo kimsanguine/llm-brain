@@ -32,6 +32,7 @@ def _build_wiki(tmp_path, pages, index_body):
     return wiki_root
 
 
+@pytest.mark.requires_user_wiki
 def test_index_loads_all_pages(index):
     assert index.total_pages >= 40
     assert "habix-profile" in index.by_slug
@@ -161,3 +162,142 @@ def test_index_build_skips_broken_page_and_indexes_rest(tmp_path):
     # 정상 페이지 검색은 정상 작동.
     good_slugs = [r["slug"] for r in idx.search("Good One")["results"]]
     assert "good-one" in good_slugs
+
+
+# --- 잠재/MED 회귀: index.md 부재가 부팅을 크래시시키지 않는다 ---
+# WHY: Index.build 는 wiki_root.parent/index.md 를 무조건 read_text() 한다.
+# index.md 가 없으면 (fresh project / 아직 ingest 전) FileNotFoundError 로
+# 부팅이 죽는다. 부재 시 빈 인덱스(0 페이지)로 graceful 부팅해야 한다.
+
+
+def _build_wiki_without_index(tmp_path, pages):
+    """tmp_path 안에 wiki_root 와 페이지만 만들고 index.md 는 만들지 않는다."""
+    project_root = tmp_path / "proj"
+    wiki_root = project_root / "wiki"
+    for category, slug_map in pages.items():
+        cat_dir = wiki_root / category
+        cat_dir.mkdir(parents=True, exist_ok=True)
+        for slug, content in slug_map.items():
+            (cat_dir / f"{slug}.md").write_text(content)
+    project_root.mkdir(parents=True, exist_ok=True)
+    assert not (project_root / "index.md").exists()
+    return wiki_root
+
+
+def test_index_build_missing_index_md_returns_empty_index(tmp_path):
+    # index.md 가 없는 wiki_root 로도 Index.build 가 예외 없이 끝나야 한다.
+    pages = {"concepts": {"orphan": "---\ntitle: Orphan\n---\n# Orphan\n"}}
+    wiki_root = _build_wiki_without_index(tmp_path, pages)
+
+    idx = Index.build(wiki_root=wiki_root)  # FileNotFoundError 나면 안 됨
+
+    # index.md 가 없으면 slug 목록을 만들 소스가 없으므로 0 페이지.
+    assert idx.total_pages == 0
+    assert idx.by_slug == {}
+
+
+def test_index_build_missing_index_md_logs_warning(tmp_path, caplog):
+    # 크래시 대신 logging 으로 부재를 표면화해야 한다 (silent 금지).
+    import logging
+
+    pages = {"concepts": {"orphan": "---\ntitle: Orphan\n---\n# Orphan\n"}}
+    wiki_root = _build_wiki_without_index(tmp_path, pages)
+
+    with caplog.at_level(logging.WARNING, logger="wiki_app.search"):
+        Index.build(wiki_root=wiki_root)
+
+    assert any(
+        record.levelno >= logging.WARNING for record in caplog.records
+    ), "index.md 부재가 로그로 남아야 한다"
+
+
+def test_search_on_empty_index_returns_no_results(tmp_path):
+    # 빈 인덱스에서 검색해도 크래시 없이 빈 결과를 돌려준다.
+    wiki_root = _build_wiki_without_index(
+        tmp_path, {"concepts": {"orphan": "---\ntitle: Orphan\n---\n# Orphan\n"}}
+    )
+    idx = Index.build(wiki_root=wiki_root)
+
+    result = idx.search("anything")
+    assert result["results"] == []
+    assert result["total"] == 0
+
+
+# --- 과제 2(b): C 확장(_body_grep) expanded=True 경로 강제 커버 ---
+# WHY: 기존 test_search_expands_* 들은 `if results["expanded"]:` 가드로 감싸져
+# 있어 실제 위키 본문에 따라 dead-path 가 된다. 여기선 제어된 본문으로
+# B 단계 < 3개 + 본문에만 존재하는 토큰을 만들어 C 확장을 *반드시* 발동시킨다.
+
+
+def test_search_forces_body_grep_expansion(tmp_path):
+    # index.md description/title/tags 어디에도 없고 *본문에만* 있는 토큰을 쿼리하면
+    # B 단계는 0개 → C(_body_grep) 확장이 발동해 expanded=True 가 돼야 한다.
+    index_body = (
+        "## concepts/ (2개)\n"
+        "- [[hidden-body]] — 표지에는 없는 설명\n"
+        "- [[unrelated]] — 완전히 무관한 주제\n"
+    )
+    pages = {
+        "concepts": {
+            # 본문에만 'quokkasaurus' 토큰 존재 (slug/title/tags/desc 어디에도 없음)
+            "hidden-body": (
+                "---\ntitle: 숨은 본문\ntags: [misc]\n---\n"
+                "# 제목\n\n이 페이지 본문에는 quokkasaurus 라는 토큰이 들어있다.\n"
+            ),
+            "unrelated": (
+                "---\ntitle: 무관\ntags: [misc]\n---\n# 무관\n\n전혀 다른 내용.\n"
+            ),
+        },
+    }
+    idx = Index.build(wiki_root=_build_wiki(tmp_path, pages, index_body))
+
+    result = idx.search("quokkasaurus")
+
+    # B 단계로는 매칭 0 → C 확장 발동
+    assert result["expanded"] is True
+    assert result["basic_total"] == 0
+    slugs = [r["slug"] for r in result["results"]]
+    assert "hidden-body" in slugs
+    # 본문 매칭은 match_type="body" + snippet 채움
+    hit = next(r for r in result["results"] if r["slug"] == "hidden-body")
+    assert hit["match_type"] == "body"
+    assert hit["snippet"] is not None
+    assert "quokkasaurus" in hit["snippet"]
+    # 본문에 토큰 없는 페이지는 확장 결과에도 안 들어옴.
+    assert "unrelated" not in slugs
+
+
+def test_search_body_grep_expansion_supplements_basic_results(tmp_path):
+    # B 단계로 1~2개만 매칭되는 쿼리에서도 C 확장이 *다른* 페이지의 본문 매칭을
+    # 추가로 붙여 basic_total 보다 total 이 커지는 경로를 커버한다.
+    # 토큰은 slug 어디에도 없게 해 B 매칭과 C 매칭을 서로 다른 페이지로 분리한다.
+    index_body = (
+        "## concepts/ (3개)\n"
+        "- [[cover-hit]] — zebratoken 이 description 에 있는 표지 매칭 페이지\n"
+        "- [[body-hit]] — 표지엔 토큰 없음\n"
+        "- [[noise]] — 무관\n"
+    )
+    pages = {
+        "concepts": {
+            # description 에만 토큰 → B 단계 매칭 (desc score +1)
+            "cover-hit": "---\ntitle: T\ntags: [misc]\n---\n# T\n\n표지 매칭 페이지.\n",
+            # 본문에만 토큰 (slug/desc/title/tags 어디에도 없음) → C 확장에서만 매칭
+            "body-hit": (
+                "---\ntitle: B\ntags: [misc]\n---\n# B\n\n본문에 zebratoken 등장.\n"
+            ),
+            "noise": "---\ntitle: N\ntags: [misc]\n---\n# N\n\n무관.\n",
+        },
+    }
+    idx = Index.build(wiki_root=_build_wiki(tmp_path, pages, index_body))
+
+    result = idx.search("zebratoken")
+
+    # B 단계 매칭 1개(cover-hit) < 3 → 확장 발동, body-hit 본문 매칭이 추가됨.
+    assert result["expanded"] is True
+    assert result["basic_total"] == 1
+    assert result["total"] > result["basic_total"]
+    slugs = [r["slug"] for r in result["results"]]
+    assert "cover-hit" in slugs  # B 매칭 (description)
+    assert "body-hit" in slugs   # C 본문 매칭 (추가)
+    body_hit = next(r for r in result["results"] if r["slug"] == "body-hit")
+    assert body_hit["match_type"] == "body"

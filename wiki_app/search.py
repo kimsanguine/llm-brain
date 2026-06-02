@@ -41,8 +41,17 @@ class Index:
         by_slug: dict[str, _Entry] = {}
 
         # 1. index.md에서 slug + category + description
-        # index.md는 wiki_root의 부모(프로젝트 루트)에 위치
+        # index.md는 wiki_root의 부모(프로젝트 루트)에 위치.
+        # index.md 부재 시(아직 ingest 전 / fresh project) FileNotFoundError 로
+        # 부팅이 죽지 않도록 빈 인덱스(0 페이지)로 graceful 처리한다.
         index_path = wiki_root.parent / "index.md"
+        if not index_path.exists():
+            logger.warning(
+                "index.md not found at %s — building empty index (0 pages)",
+                index_path,
+            )
+            return cls(wiki_root=wiki_root, by_slug=by_slug)
+
         current_cat = "concepts"
         for line in index_path.read_text().splitlines():
             mcat = _INDEX_CAT_RE.match(line)

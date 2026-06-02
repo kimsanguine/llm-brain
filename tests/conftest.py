@@ -5,37 +5,44 @@ import pytest
 
 
 _WIKI_ROOT = Path(__file__).parent.parent / "wiki"
-_SEED_WIKI = Path(__file__).parent.parent / "examples" / "seed-wiki"
+
 
 def _has_wiki_data(root: Path) -> bool:
     return root.exists() and (root / "concepts").exists() and any((root / "concepts").glob("*.md"))
 
-# wiki/ 데이터가 있을 때만 wiki-dependent test 실행.
-# seed-wiki 존재로 skip 해제하려면 fixture redirect(별도 작업) 필요.
-# tests/test_wiki_app_*.py가 wiki/ 경로를 하드코딩하므로 seed-wiki만 있으면 깨짐.
+
+# 사용자(작성자)의 실제 wiki/ 데이터 존재 여부. wiki/ 는 .gitignore 되어 있어
+# CI 러너 또는 fresh clone 환경엔 없다.
 _HAS_USER_WIKI = _has_wiki_data(_WIKI_ROOT)
 
 
-def pytest_collection_modifyitems(config, items):
-    """wiki-dependent tests를 사용자 wiki 데이터 없을 때 자동 skip (CI/공개 레포 호환).
+def pytest_configure(config):
+    """`requires_user_wiki` 마커 등록 — PytestUnknownMarkWarning 방지.
 
-    wiki/ 는 .gitignore 되어 있어 CI 러너 또는 fresh clone 환경엔 wiki 데이터가 없다.
-    `tests/test_wiki_app_{access,api,pages,search}.py` 들은 wiki/index.md +
-    실제 마크다운 페이지를 직접 읽어 검증하므로, 데이터 없으면 skip.
-    `test_wiki_app_render` 는 wiki 데이터 의존이 없어 항상 실행.
+    pyproject.toml 에 [tool.pytest.ini_options] 섹션이 없으므로 마커를
+    여기서 코드로 등록한다 (마커 등록의 정식 메커니즘).
+    """
+    config.addinivalue_line(
+        "markers",
+        "requires_user_wiki: 작성자의 실제 wiki/ 데이터(real index.md + 페이지)에 "
+        "의존하는 테스트. wiki/ 부재(fresh clone/CI) 시 자동 skip.",
+    )
+
+
+def pytest_collection_modifyitems(config, items):
+    """`requires_user_wiki` 마커가 달린 테스트만 사용자 wiki 부재 시 skip.
+
+    기존 구현은 `test_wiki_app_*` 파일을 *파일명 기준*으로 통째 skip 해서,
+    같은 파일 안의 self-contained(tmp_path) 테스트까지 fresh clone/CI 에서
+    돌지 않는 문제가 있었다. 이제는 실제 사용자 wiki 데이터를 가정하는
+    개별 테스트만 마커를 달고, 마커 없는 self-contained 테스트는 wiki 유무와
+    무관하게 항상 실행한다.
     """
     if _HAS_USER_WIKI:
         return
     skip = pytest.mark.skip(reason="requires user wiki data (wiki/ is gitignored)")
-    wiki_dependent = (
-        "test_wiki_app_access",
-        "test_wiki_app_api",
-        "test_wiki_app_pages",
-        "test_wiki_app_search",
-    )
     for item in items:
-        fname = Path(str(item.fspath)).name
-        if any(fname.startswith(m) for m in wiki_dependent):
+        if item.get_closest_marker("requires_user_wiki") is not None:
             item.add_marker(skip)
 
 

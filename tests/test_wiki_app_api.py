@@ -19,6 +19,7 @@ def client():
     return TestClient(app)
 
 
+@pytest.mark.requires_user_wiki
 def test_api_index_returns_metadata(client):
     r = client.get("/api/index")
     assert r.status_code == 200
@@ -27,6 +28,7 @@ def test_api_index_returns_metadata(client):
     assert "categories" in data
 
 
+@pytest.mark.requires_user_wiki
 def test_api_search_returns_results(client):
     r = client.get("/api/search", params={"q": "habix"})
     assert r.status_code == 200
@@ -43,6 +45,7 @@ def test_api_search_empty_query(client):
     assert r.json()["total"] == 0
 
 
+@pytest.mark.requires_user_wiki
 def test_api_page_returns_html_and_metadata(client):
     r = client.get("/api/page/habix-profile")
     assert r.status_code == 200
@@ -75,6 +78,92 @@ def test_api_ai_answer_contract(client):
     assert "answer" in data
     assert "sources" in data
     assert data["question"] == "ping"
+
+
+# ---------------------------------------------------------------------------
+# self-contained 엔드포인트 회귀 (tmp_path — 사용자 wiki 무의존)
+# ---------------------------------------------------------------------------
+
+
+def _build_project(tmp_path, *, with_index: bool, with_graph: bool):
+    """tmp_path 안에 wiki_root + (옵션) index.md + (옵션) graph.json 구조.
+
+    create_app/Index.build 가 wiki_root.parent/index.md 를 읽으므로 그 레이아웃 재현.
+    반환: wiki_root Path.
+    """
+    project_root = tmp_path / "proj"
+    wiki_root = project_root / "wiki"
+    (wiki_root / "concepts").mkdir(parents=True)
+    (wiki_root / "concepts" / "alpha.md").write_text(
+        "---\ntitle: Alpha\ntags: [misc]\n---\n# Alpha\n\n본문.\n"
+    )
+    if with_index:
+        (project_root / "index.md").write_text(
+            "## concepts/ (1개)\n- [[alpha]] — 알파 페이지\n"
+        )
+    if with_graph:
+        import json as _json
+        (wiki_root / "graph.json").write_text(_json.dumps({
+            "nodes": [{"id": "alpha", "kind": "page", "title": "Alpha",
+                       "category": "concepts", "inbound": 0, "outbound": 0}],
+            "links": [],
+        }))
+    return wiki_root
+
+
+# --- 과제 1 회귀: index.md 부재가 create_app 부팅을 크래시시키지 않는다 ---
+# WHY: Index.build 가 wiki_root.parent/index.md 를 무조건 읽어 부재 시
+# FileNotFoundError 로 부팅이 죽었다. 부재 시 빈 인덱스로 graceful 부팅해야 한다.
+
+
+def test_create_app_boots_without_index_md(tmp_path):
+    wiki_root = _build_project(tmp_path, with_index=False, with_graph=False)
+
+    # create_app 가 예외 없이 끝나야 한다 (부팅 크래시 금지).
+    app = create_app(wiki_root=wiki_root)
+    client = TestClient(app)
+
+    r = client.get("/api/index")
+    assert r.status_code == 200
+    # index.md 가 없으면 slug 소스가 없어 0 페이지.
+    assert r.json()["total_pages"] == 0
+
+
+def test_search_endpoint_empty_index_returns_no_results(tmp_path):
+    # index.md 부재 → 빈 인덱스 → 검색은 크래시 없이 빈 결과.
+    wiki_root = _build_project(tmp_path, with_index=False, with_graph=False)
+    client = TestClient(create_app(wiki_root=wiki_root))
+
+    r = client.get("/api/search", params={"q": "alpha"})
+    assert r.status_code == 200
+    assert r.json()["total"] == 0
+
+
+# --- 과제 2(a): /api/page/{slug}/graph 는 graph.json 부재 시 503 (현 분기 고정) ---
+# WHY: api.py 는 graph.json 없으면 HTTPException(503) 를 던진다. 이 분기 동작을
+# 회귀 테스트로 고정해, 의도치 않은 변경(예: 500 으로 떨어짐)을 잡는다.
+
+
+def test_api_page_graph_returns_503_when_graph_json_missing(tmp_path):
+    # graph.json 이 없는 wiki_root — graph 엔드포인트는 503 을 반환해야 한다.
+    wiki_root = _build_project(tmp_path, with_index=True, with_graph=False)
+    client = TestClient(create_app(wiki_root=wiki_root))
+
+    r = client.get("/api/page/alpha/graph")
+    assert r.status_code == 503
+
+
+def test_api_page_graph_returns_neighborhood_when_graph_json_present(tmp_path):
+    # 대비 경로: graph.json 이 있으면 503 이 아니라 center/neighbors/edges 를 준다.
+    wiki_root = _build_project(tmp_path, with_index=True, with_graph=True)
+    client = TestClient(create_app(wiki_root=wiki_root))
+
+    r = client.get("/api/page/alpha/graph")
+    assert r.status_code == 200
+    data = r.json()
+    assert data["center"]["slug"] == "alpha"
+    assert "neighbors" in data
+    assert "edges" in data
 
 
 # ---------------------------------------------------------------------------
