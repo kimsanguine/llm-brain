@@ -11,12 +11,15 @@ curate.py — wiki 감사(audit) + 압축(distill) + 수명 관리(lifecycle) + 
 """
 import argparse
 import json
+import logging
 import re
 from collections import defaultdict
 from datetime import datetime, timedelta
 from pathlib import Path
 
 import yaml
+
+logger = logging.getLogger(__name__)
 
 WIKI_ROOT = Path(__file__).parent.parent
 WIKI_DIR = WIKI_ROOT / "wiki"
@@ -58,15 +61,28 @@ def record_access(page_slug: str) -> None:
 _FM_PATTERN = re.compile(r"^---\n(.*?)\n---", re.DOTALL)
 
 
+class FrontmatterParseError(ValueError):
+    """frontmatter 블록은 있으나 YAML 파싱에 실패했을 때 raise.
+
+    fail-loud: 조용히 ({}, body)를 반환하면 호출부가 "frontmatter 없음"으로 오인해
+    기존 필드(title·type·tags·created·sources 등)를 덮어써 영구 삭제하는
+    silent data-loss가 발생한다. 그래서 파싱 실패를 명확히 신호한다.
+    """
+
+
 def parse_frontmatter(content: str) -> tuple[dict, str]:
-    """(frontmatter_dict, body) 반환. frontmatter 없으면 ({}, content)."""
+    """(frontmatter_dict, body) 반환. frontmatter 없으면 ({}, content).
+
+    frontmatter 블록은 존재하나 YAML이 invalid면 FrontmatterParseError를 raise한다
+    (조용한 {} 반환 금지 — 호출부의 덮어쓰기로 인한 데이터 손실 방지).
+    """
     m = _FM_PATTERN.match(content)
     if not m:
         return {}, content
     try:
         fm = yaml.safe_load(m.group(1)) or {}
-    except yaml.YAMLError:
-        fm = {}
+    except yaml.YAMLError as exc:
+        raise FrontmatterParseError(str(exc)) from exc
     body = content[m.end():]
     return fm, body
 
@@ -80,9 +96,20 @@ def ensure_distill_fields(page: Path) -> dict:
     """
     distill_level / access_count / last_accessed / last_distilled 필드가
     없으면 기본값으로 추가하고 파일을 갱신한다. 갱신된 frontmatter 반환.
+
+    frontmatter YAML 파싱에 실패한 페이지는 절대 rewrite하지 않는다
+    (skip + warning). 빈 fm을 다시 써버리면 기존 필드가 영구 삭제되므로,
+    원본을 그대로 보존하고 빈 dict를 반환한다.
     """
     content = page.read_text()
-    fm, body = parse_frontmatter(content)
+    try:
+        fm, body = parse_frontmatter(content)
+    except FrontmatterParseError as exc:
+        logger.warning(
+            "frontmatter 파싱 실패 — 원본 보존하고 건너뜀: %s (%s)",
+            page, exc,
+        )
+        return {}
     changed = False
     for field, default in [
         ("distill_level", 0),
@@ -258,8 +285,23 @@ def run_distill(pages: list[Path]) -> list[str]:
 
 # ── Lifecycle ──────────────────────────────────────────────────────────
 
+def _load_sources_config() -> dict:
+    """schema/sources.yaml을 읽는다. 없으면 sources.example.yaml로 폴백,
+    둘 다 없으면 빈 config로 graceful 진행 (fresh clone에서 크래시 금지)."""
+    sources_file = SCHEMA_DIR / "sources.yaml"
+    if not sources_file.exists():
+        example = SCHEMA_DIR / "sources.example.yaml"
+        if example.exists():
+            print(f"  [lifecycle] sources.yaml 없음 — {example.name}로 폴백")
+            sources_file = example
+        else:
+            print("  [lifecycle] sources.yaml/sources.example.yaml 모두 없음 — lifecycle 건너뜀")
+            return {}
+    return yaml.safe_load(sources_file.read_text()) or {}
+
+
 def run_lifecycle(pages: list[Path]) -> dict:
-    config = yaml.safe_load((SCHEMA_DIR / "sources.yaml").read_text())
+    config = _load_sources_config()
     lifecycle = config.get("lifecycle", {})
     now = datetime.now()
     _, inbound = build_link_graph(pages)
