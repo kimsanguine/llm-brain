@@ -28,7 +28,8 @@
 ├── scripts/                     # 자동화 스크립트
 │   ├── ingest.py                # raw/ 탐지·스크랩·노트 저장 + 상태 관리
 │   ├── sync_raw.py              # sources.yaml → raw/ 델타 미러링
-│   ├── curate.py                # wiki 감사·압축·lifecycle·그래프 분석
+│   ├── curate.py                # wiki 감사·압축·lifecycle (--health, --suggest-bridges)
+│   ├── export_graph.py          # wikilink 그래프 export → wiki/graph.json
 │   ├── express.py               # wiki → 창작물 초안 컨텍스트 준비
 │   └── setup.sh                 # 초기 설정 (venv·폴더·config 생성)
 │
@@ -61,7 +62,7 @@
 │   ├── archive/                 # lifecycle으로 이동된 만료 페이지
 │   ├── curate_report.md         # curate 실행 결과 보고서
 │   ├── distill_queue.md         # distill 우선순위 큐
-│   └── graph_report.md          # wikilink 인바운드 분석 보고서
+│   └── graph.json               # wikilink 그래프 데이터 (export_graph.py 생성)
 │
 ├── express/                     # 창작물 출력 레이어
 │   ├── blog/                    # 블로그 포스트 초안
@@ -173,19 +174,21 @@ WIKI_ROOT = Path(__file__).parent.parent  # scripts/../ → 프로젝트 루트
 
 ### scripts/curate.py
 
-wiki 전체를 감사(audit) + 압축(distill) + 수명 관리(lifecycle) + 링크 분석(graph)하는 복합 오퍼레이션.
+wiki 전체를 감사(audit) + 압축(distill) + 수명 관리(lifecycle)하는 복합 오퍼레이션.
+그래프 export는 별도 `scripts/export_graph.py`가 담당한다.
 
 #### CLI 인자 전체
 
 | 인자 | 설명 |
 |------|------|
-| `--all` | audit + distill + lifecycle + graph 전체 실행 |
+| `--all` | audit + distill + lifecycle 전체 실행 |
 | `--audit` | orphan 페이지·stale 링크 탐지 |
 | `--distill` | distill 후보 분류 및 `wiki/distill_queue.md` 생성 |
 | `--lifecycle` | lifecycle archive/delete 후보 목록 생성 |
-| `--graph` | wikilink 인바운드 분석 + `wiki/graph_report.md` 생성 |
 | `--purge` | `curate_report.md`의 archive 후보를 `wiki/archive/`로 실제 이동 |
 | `--record-access PAGE_SLUG` | `wiki_stats.json`에 페이지 접근 기록 (query 모드에서 호출) |
+| `--health` | graph health 지표 출력 (avg degree, components, BC top, low-degree count) |
+| `--suggest-bridges N` | betweenness/structural-hole 기반 missing link 추천 N개 |
 
 인자 없이 실행하면 `--all`과 동일하게 동작한다.
 
@@ -200,21 +203,30 @@ wiki 전체를 감사(audit) + 압축(distill) + 수명 관리(lifecycle) + 링�
 | `2` | 2차 압축 완료 |
 | `3` | 최종 압축 (더 이상 압축 불필요) |
 
-#### 허브 점수 계산 방식
-
-`build_link_graph(pages)` 함수가 모든 wiki 페이지의 `[[wikilink]]`를 파싱해 inbound 딕셔너리를 구성한다.
-
-- **허브**: inbound 링크 수 ≥ 5
-- **연결**: inbound 링크 수 1–4
-- **고립**: inbound 링크 수 = 0 AND age > 90일
-
 #### 출력 파일
 
 | 파일 | 생성 조건 |
 |------|----------|
-| `wiki/curate_report.md` | 항상 생성 (audit·distill·lifecycle·graph 결과 통합) |
+| `wiki/curate_report.md` | 항상 생성 (audit·distill·lifecycle 결과 통합) |
 | `wiki/distill_queue.md` | `--distill` 또는 `--all` 실행 시 |
-| `wiki/graph_report.md` | `--graph` 또는 `--all` 실행 시 |
+
+---
+
+### scripts/export_graph.py
+
+`[[wikilink]]`를 파싱해 D3 force-graph용 JSON으로 export하는 독립 스크립트.
+
+#### 출력 파일
+
+| 파일 | 설명 |
+|------|------|
+| `wiki/graph.json` | 노드(페이지)·엣지(wikilink) 데이터. `wiki_app` `/api/page/{slug}/graph` 엔드포인트가 이 파일을 읽는다. |
+
+#### 허브 점수 계산 방식
+
+- **허브**: inbound 링크 수 ≥ 5
+- **연결**: inbound 링크 수 1–4
+- **고립**: inbound 링크 수 = 0 AND age > 90일
 
 #### wiki_stats.json 구조
 
@@ -238,10 +250,10 @@ wiki/ 페이지를 읽어 창작물(블로그, 강의, 요약, 리포트) 초안
 #### CLI 인자 전체 (subcommand 방식)
 
 ```
-python scripts/express.py blog TOPIC
-python scripts/express.py lecture TOPIC [--slides N]
-python scripts/express.py summary (--week | --month)
-python scripts/express.py report TOPIC
+uv run python scripts/express.py blog TOPIC
+uv run python scripts/express.py lecture TOPIC [--slides N]
+uv run python scripts/express.py summary (--week | --month)
+uv run python scripts/express.py report TOPIC
 ```
 
 | subcommand | 인자 | 기본값 | 설명 |
@@ -483,24 +495,24 @@ response = client.messages.create(
 
 | 사용자 발화 | 실행 스크립트 | LLM 액션 |
 |-------------|---------------|----------|
-| `python scripts/ingest.py` | `ingest.py` | 없음 (미처리 파일 목록 출력만) |
-| `python scripts/ingest.py --url URL` | `ingest.py` | 없음 (스크랩 후 raw/ 저장) |
-| `python scripts/ingest.py --file PATH` | `ingest.py` | 없음 (복사 후 raw/ 저장) |
-| `python scripts/ingest.py --note TEXT` | `ingest.py` | 없음 (raw/ 저장) |
-| `python scripts/ingest.py --priority-only` | `ingest.py` | 없음 (high resonance 목록만) |
-| `python scripts/ingest.py --mark-done` | `ingest.py` | 없음 (상태 기록) |
-| `python scripts/sync_raw.py` | `sync_raw.py` | 없음 (파일 복사만) |
-| `python scripts/curate.py --audit` | `curate.py` | 없음 (정적 분석) |
-| `python scripts/curate.py --distill` | `curate.py` | 없음 (`distill_queue.md` 생성만) |
-| `python scripts/curate.py --lifecycle` | `curate.py` | 없음 (후보 목록 출력) |
-| `python scripts/curate.py --graph` | `curate.py` | 없음 (`graph_report.md` 생성) |
-| `python scripts/curate.py --purge` | `curate.py` | 없음 (파일 이동) |
-| `python scripts/curate.py --record-access SLUG` | `curate.py` | 없음 (stats 기록) |
-| `python scripts/express.py blog TOPIC` | `express.py` | Claude가 `express/blog/*.md` 읽고 본문 작성 |
-| `python scripts/express.py lecture TOPIC --slides N` | `express.py` | Claude가 `express/lecture/*.md` 읽고 슬라이드 작성 |
-| `python scripts/express.py summary --week` | `express.py` | Claude가 `express/summary/*.md` 읽고 요약 작성 |
-| `python scripts/express.py summary --month` | `express.py` | Claude가 `express/summary/*.md` 읽고 요약 작성 |
-| `python scripts/express.py report TOPIC` | `express.py` | Claude가 `express/report/*.md` 읽고 리포트 작성 |
+| `uv run python scripts/ingest.py` | `ingest.py` | 없음 (미처리 파일 목록 출력만) |
+| `uv run python scripts/ingest.py --url URL` | `ingest.py` | 없음 (스크랩 후 raw/ 저장) |
+| `uv run python scripts/ingest.py --file PATH` | `ingest.py` | 없음 (복사 후 raw/ 저장) |
+| `uv run python scripts/ingest.py --note TEXT` | `ingest.py` | 없음 (raw/ 저장) |
+| `uv run python scripts/ingest.py --priority-only` | `ingest.py` | 없음 (high resonance 목록만) |
+| `uv run python scripts/ingest.py --mark-done` | `ingest.py` | 없음 (상태 기록) |
+| `uv run python scripts/sync_raw.py` | `sync_raw.py` | 없음 (파일 복사만) |
+| `uv run python scripts/curate.py --audit` | `curate.py` | 없음 (정적 분석) |
+| `uv run python scripts/curate.py --distill` | `curate.py` | 없음 (`distill_queue.md` 생성만) |
+| `uv run python scripts/curate.py --lifecycle` | `curate.py` | 없음 (후보 목록 출력) |
+| `uv run python scripts/export_graph.py` | `export_graph.py` | 없음 (`wiki/graph.json` 생성) |
+| `uv run python scripts/curate.py --purge` | `curate.py` | 없음 (파일 이동) |
+| `uv run python scripts/curate.py --record-access SLUG` | `curate.py` | 없음 (stats 기록) |
+| `uv run python scripts/express.py blog TOPIC` | `express.py` | Claude가 `express/blog/*.md` 읽고 본문 작성 |
+| `uv run python scripts/express.py lecture TOPIC --slides N` | `express.py` | Claude가 `express/lecture/*.md` 읽고 슬라이드 작성 |
+| `uv run python scripts/express.py summary --week` | `express.py` | Claude가 `express/summary/*.md` 읽고 요약 작성 |
+| `uv run python scripts/express.py summary --month` | `express.py` | Claude가 `express/summary/*.md` 읽고 요약 작성 |
+| `uv run python scripts/express.py report TOPIC` | `express.py` | Claude가 `express/report/*.md` 읽고 리포트 작성 |
 | "ingest 해줘" (Claude Code 세션) | `CLAUDE.md` → `ingest.py` | Claude가 raw/ 읽고 wiki/ 컴파일 |
 | "curate 해줘" (Claude Code 세션) | `CLAUDE.md` → `curate.py` | Claude가 wiki/ 감사·distill 수행 |
 | "RAG에 대해 알려줘" (Claude Code 세션) | `CLAUDE.md` query 모드 | Claude가 `index.md` → wiki 페이지 로드 후 답변 |

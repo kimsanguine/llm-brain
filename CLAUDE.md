@@ -23,11 +23,17 @@ Claude는 이 시스템의 **컴파일러**다. `raw/` 소스를 읽어 `wiki/`�
 ### curate
 ```
 "curate --distill"     # distill_level 점진 압축
-"curate --graph"       # wikilink 그래프 분석, 허브 감지
 "curate --lifecycle"   # TTL 초과 페이지 archive 후보
-"curate --all"         # 전체 실행
+"curate --all"         # 전체 실행 (audit + distill + lifecycle)
 ```
 `scripts/curate.py` 실행 → `schema/curate.md` 규칙 적용
+
+### export-graph (wikilink 그래프 export)
+```
+uv run python scripts/export_graph.py
+```
+`[[wikilink]]` 파싱 → `wiki/graph.json` 생성 (D3 force-graph 형식).
+mini-graph는 `wiki_app` `/api/page/{slug}/graph` 엔드포인트로 조회.
 
 ### query
 ```

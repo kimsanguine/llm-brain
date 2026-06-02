@@ -126,7 +126,7 @@ Second Brain의 핵심은 **Distill과 Express**다.
 # 채널 1: 수동 투입 (MD · TXT · PDF · DOCX · PPTX)
 cp paper.pdf raw/docs/
 
-# 채널 2: /ingest 명령어
+# 채널 2: /ingest 슬래시 명령 (Claude Code 세션 내에서만 동작 — 터미널 직접 실행 불가)
 /ingest https://example.com --resonance high
 /ingest ~/Downloads/paper.pdf
 /ingest "오늘 배운 것: ..."
@@ -143,10 +143,11 @@ index.md 기반 중복 검사로 wiki 노이즈 방지.
 ### 🔁 curate — 점진적 압축 + 그래프 분석 *Progressive Summarization + Graph*
 
 ```bash
-python scripts/curate.py --distill    # distill_level 점진 압축
-python scripts/curate.py --graph      # 링크 그래프 분석 → 허브 감지
-python scripts/curate.py --lifecycle  # TTL 초과 페이지 → archive 후보
-python scripts/curate.py --all        # 전체 실행
+uv run python scripts/curate.py --distill    # distill_level 점진 압축
+uv run python scripts/curate.py --lifecycle  # TTL 초과 페이지 → archive 후보
+uv run python scripts/curate.py --all        # 전체 실행
+
+uv run python scripts/export_graph.py       # wikilink 그래프 export → wiki/graph.json
 ```
 
 wiki 페이지는 접근할수록 더 깊이 정제된다.
@@ -157,8 +158,8 @@ distill_level: 2      # 0=원문 → 1=요약 → 2=핵심 → 3=한줄
 access_count: 12
 ```
 
-`--graph`는 [[wikilink]] 인바운드 수를 분석해
-허브 개념은 distill 우선 처리, 고립 페이지는 lifecycle 후보로 자동 분류한다.
+`export_graph.py`는 `[[wikilink]]` 인바운드 수를 분석해 `wiki/graph.json`을 생성한다.
+허브·고립 페이지 판단은 `wiki_app`의 `/api/page/{slug}/graph` 엔드포인트로 조회 가능하다.
 
 ---
 
@@ -169,10 +170,10 @@ Second Brain의 존재 이유. 지식을 꺼내 쓴다.
 *The reason Second Brain exists. Get knowledge out.*
 
 ```bash
-python scripts/express.py blog "AI 에이전트 설계 패턴"
-python scripts/express.py lecture "context-first-orchestration" --slides 5
-python scripts/express.py summary --week
-python scripts/express.py report "경쟁사 현황"
+uv run python scripts/express.py blog "AI 에이전트 설계 패턴"
+uv run python scripts/express.py lecture "context-first-orchestration" --slides 5
+uv run python scripts/express.py summary --week
+uv run python scripts/express.py report "경쟁사 현황"
 ```
 
 blog 출력은 `raw/blog/`에도 자동 복사 → 다음 ingest 사이클에 wiki로 피드백.
@@ -233,6 +234,9 @@ llm:
 ## 빠른 시작 *Quick Start*
 
 ```bash
+# 0. uv 설치 (미설치 시)
+curl -LsSf https://astral.sh/uv/install.sh | sh
+
 # 1. 클론
 git clone https://github.com/kimsanguine/llm-brain.git
 cd llm-brain
@@ -243,10 +247,16 @@ bash scripts/setup.sh
 # 3. 소스 경로 등록
 vi schema/sources.yaml
 
-# 4. 첫 ingest
-python scripts/ingest.py
+# 4. 미처리 raw 파일 확인
+uv run python scripts/ingest.py
+# ※ 이 명령은 raw/ 의 미처리 파일 목록만 출력한다.
+#   실제 wiki 컴파일은 Claude Code 세션에서 "ingest 해줘"로 수행한다.
 
-# 5. Obsidian에서 열기
+# 5. 데모를 즉시 확인하려면 (빈 wiki 상태 우회)
+cp -r examples/seed-wiki/* ./
+uv run python -m wiki_app   # → http://localhost:8000
+
+# 6. Obsidian에서 열기
 # 이 폴더를 Obsidian → "Open folder as vault"
 ```
 
@@ -282,7 +292,8 @@ llm-brain/
 │   ├── setup.sh               # 초기 설정
 │   ├── sync_raw.py            # 소스 미러링
 │   ├── ingest.py              # 파일 파싱 + 상태 관리
-│   ├── curate.py              # 감사·압축·lifecycle·graph
+│   ├── curate.py              # 감사·압축·lifecycle (--health, --suggest-bridges)
+│   ├── export_graph.py        # wikilink 그래프 export → wiki/graph.json
 │   └── express.py             # wiki → 창작물 출력
 ├── wiki_app/                  # 🌐 HTML 검색·페이지뷰 (FastAPI)
 │   ├── api.py                 # 6 endpoints
