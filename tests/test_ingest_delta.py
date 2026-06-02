@@ -10,6 +10,8 @@ from ingest import (
     run_delta_pipeline,
     ingest_file,
     find_unprocessed,
+    mark_done,
+    main,
     _get_resonance,
 )
 
@@ -143,3 +145,118 @@ def test_ingest_md_with_existing_resonance_frontmatter_is_overridden(tmp_raw):
     assert _get_resonance(dst) == "high"
     pending = find_unprocessed(priority_only=True)
     assert dst in pending
+
+
+# ── raw→ingest 파이프라인 계약 테스트 (QA 갭 #5c) ─────────────
+# WHY: raw/ 소스 → ingest 탐지/상태관리/종료코드의 3대 계약이
+# 회귀 없이 고정돼야 한다. run_daily.sh(현 OpenClaw cron)가
+# ingest.py 종료 코드(미처리=1, 없음=0)로 LLM 호출 여부를 결정하므로,
+# 이 계약이 깨지면 데일리 자동화가 조용히 오작동한다.
+# SPEC.md "종료 코드 의미": 0=처리할 새 파일 없음 / 1=미처리 1개+.
+# 이 테스트들은 현 ingest.py 동작을 *고정*하는 계약 테스트다.
+
+
+def _write_raw(wiki_root: Path, rel: str, body: str) -> Path:
+    """raw/ 하위 rel 경로에 샘플 파일을 생성하고 절대 경로를 반환한다."""
+    f = wiki_root / "raw" / rel
+    f.parent.mkdir(parents=True, exist_ok=True)
+    f.write_text(body)
+    return f
+
+
+# (a) 탐지 계약 — 샘플 raw 추가 → 미처리로 보고
+
+
+def test_find_unprocessed_detects_new_raw_file(tmp_raw):
+    """raw/에 새 지원 파일이 생기면 find_unprocessed()가 미처리로 보고한다."""
+    sample = _write_raw(tmp_raw, "notes/sample.md", "# 샘플\n\n새 raw 노트.\n")
+
+    pending = find_unprocessed()
+
+    assert sample in pending
+
+
+def test_find_unprocessed_ignores_unsupported_extension(tmp_raw):
+    """지원 외 확장자(.png 등)는 미처리 목록에 포함하지 않는다 (현 동작 고정)."""
+    _write_raw(tmp_raw, "notes/keep.md", "# 지원 형식\n")
+    unsupported = _write_raw(tmp_raw, "notes/skip.png", "binary-ish")
+
+    pending = find_unprocessed()
+
+    assert unsupported not in pending
+    assert all(p.suffix.lower() in ingest.SUPPORTED_EXTENSIONS for p in pending)
+
+
+# (b) mark-done 계약 — 상태 기록 + 재탐지 시 제외
+
+
+def test_mark_done_records_processed_and_excludes_on_redetect(tmp_raw):
+    """--mark-done 상당 동작 → .ingest_state.json 기록 + 재탐지 제외."""
+    sample = _write_raw(tmp_raw, "notes/done-me.md", "# 처리될 노트\n")
+    rel = str(sample.relative_to(tmp_raw))
+
+    # 처리 전: 미처리로 잡힌다.
+    assert sample in find_unprocessed()
+
+    mark_done()
+
+    # .ingest_state.json에 WIKI_ROOT 상대경로로 기록돼야 한다.
+    state_file = ingest.STATE_FILE
+    assert state_file.exists()
+    state = json.loads(state_file.read_text())
+    assert rel in state["processed"]
+
+    # 재탐지 시 처리완료 파일은 제외된다.
+    assert sample not in find_unprocessed()
+
+
+def test_mark_done_then_new_file_is_still_detected(tmp_raw):
+    """mark-done 이후 추가된 새 raw 파일은 다시 미처리로 잡혀야 한다 (델타 계약)."""
+    first = _write_raw(tmp_raw, "notes/first.md", "# 첫 노트\n")
+    mark_done()
+    assert first not in find_unprocessed()
+
+    second = _write_raw(tmp_raw, "notes/second.md", "# 둘째 노트\n")
+
+    pending = find_unprocessed()
+    assert second in pending
+    assert first not in pending
+
+
+# (c) 종료 코드 계약 — 미처리 있음→exit 1, 없음→exit 0
+# main()의 실제 sys.exit(...) 경로를 in-process로 검증한다.
+# (tmp_raw가 WIKI_ROOT/RAW_DIR/STATE_FILE를 tmp로 격리하므로
+#  subprocess 없이도 self-contained로 동작 고정이 가능하다.)
+
+
+def test_main_exits_1_when_unprocessed_present(tmp_raw, monkeypatch):
+    """미처리 파일이 1개 이상이면 종료 코드 1 (SPEC 종료 코드 계약)."""
+    _write_raw(tmp_raw, "notes/pending.md", "# 미처리\n")
+    monkeypatch.setattr(sys, "argv", ["ingest.py"])
+
+    with pytest.raises(SystemExit) as exc:
+        main()
+
+    assert exc.value.code == 1
+
+
+def test_main_exits_0_when_no_unprocessed(tmp_raw, monkeypatch):
+    """처리할 새 파일이 없으면 종료 코드 0 (SPEC 종료 코드 계약)."""
+    _write_raw(tmp_raw, "notes/handled.md", "# 처리완료될 노트\n")
+    mark_done()  # raw/ 전체를 처리완료로 표시 → 미처리 0
+    monkeypatch.setattr(sys, "argv", ["ingest.py"])
+
+    with pytest.raises(SystemExit) as exc:
+        main()
+
+    assert exc.value.code == 0
+
+
+def test_main_exits_0_when_raw_empty(tmp_raw, monkeypatch):
+    """raw/가 비어 미처리가 없으면 종료 코드 0."""
+    monkeypatch.setattr(sys, "argv", ["ingest.py"])
+
+    with pytest.raises(SystemExit) as exc:
+        main()
+
+    assert exc.value.code == 0
