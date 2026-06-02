@@ -20,7 +20,7 @@
 |---|---|
 | ![검색](docs/screenshots/dod-3-korean-search.png) | ![확장](docs/screenshots/dod-4-resnet-expansion.png) |
 
-| 결과 0개 → AI CTA | AI 답변 모달 (stub) |
+| 결과 0개 → AI CTA | AI 답변 모달 (live) |
 |---|---|
 | ![empty](docs/screenshots/dod-5-zero-results.png) | ![ai](docs/screenshots/dod-9-ai-modal.png) |
 
@@ -210,7 +210,7 @@ uv run python -m wiki_app
 
 스크린샷: `docs/screenshots/dod-*.png`
 
-> 1차 MVP는 AI 답변이 stub (`🚧 다음 버전`). 2차에서 `claude -p` CLI 연결 예정.
+> AI 답변은 `claude -p` CLI로 라이브 동작 (2026-05-23 연결, 05-26 SSE 스트리밍 추가). Claude Code 미설치 시 `status: unavailable`로 graceful 처리.
 
 ---
 
