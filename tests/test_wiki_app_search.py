@@ -1,3 +1,4 @@
+import json
 import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -301,3 +302,94 @@ def test_search_body_grep_expansion_supplements_basic_results(tmp_path):
     assert "body-hit" in slugs   # C 본문 매칭 (추가)
     body_hit = next(r for r in result["results"] if r["slug"] == "body-hit")
     assert body_hit["match_type"] == "body"
+
+
+# --- CRITICAL 회귀: index.md slug 의 path traversal 차단 ---
+# WHY: Index.build / _body_grep 가 index.md 의 slug 를
+# `wiki_root / category / f"{slug}.md"` 로 만든 뒤 containment 검사 없이
+# frontmatter.load / read_text 하면, index.md 에 `[[../../secret]]` 같은
+# traversal slug 가 들어갈 때 wiki_root *밖*의 파일을 읽어 검색 snippet /
+# frontmatter title 로 노출한다. resolve().is_relative_to(wiki_root) 검사를
+# build 와 _body_grep 양쪽에 강제해 해당 엔트리를 skip 해야 한다.
+# (find_page_path 의 traversal 방어는 /api/page 만 막고 /api/search 가 우회로로 남았던 결함.)
+
+
+def _build_wiki_with_external_secret(tmp_path):
+    """wiki_root + 그 *밖*의 secret 파일 + traversal slug 를 가리키는 index.md.
+
+    레이아웃:
+      tmp_path/proj/wiki/concepts/legit.md   (정상 페이지)
+      tmp_path/proj/secret.md                (wiki_root 밖, 유출되면 안 되는 비밀)
+    index.md 의 한 엔트리 slug 가 `../../secret` 라서 category 를 거쳐도
+    `wiki/concepts/../../secret.md` → `tmp_path/proj/secret.md` 로 빠져나간다.
+    """
+    project_root = tmp_path / "proj"
+    wiki_root = project_root / "wiki"
+    cat_dir = wiki_root / "concepts"
+    cat_dir.mkdir(parents=True, exist_ok=True)
+    (cat_dir / "legit.md").write_text(
+        "---\ntitle: 정상 페이지\ntags: [ok]\n---\n# 정상\n\n본문에 publictoken 토큰.\n"
+    )
+    # wiki_root 밖의 비밀 파일. frontmatter title + 본문 token 둘 다 유출 표지로 사용.
+    (project_root / "secret.md").write_text(
+        "---\ntitle: TOP_SECRET_TITLE\n---\n# 비밀\n\nleaked_secret_token 절대노출금지.\n"
+    )
+    # slug `../../secret` 는 category(concepts) 를 거쳐도 proj/secret.md 로 빠져나간다.
+    index_body = (
+        "## concepts/ (2개)\n"
+        "- [[legit]] — 정상 페이지 설명\n"
+        "- [[../../secret]] — leaked_secret_token 표지에도 심어둔 traversal 엔트리\n"
+    )
+    (project_root / "index.md").write_text(index_body)
+    return wiki_root
+
+
+def test_index_build_does_not_read_external_file_via_traversal_slug(tmp_path):
+    # Index.build 가 traversal slug 의 wiki_root 밖 frontmatter 를 읽어
+    # page_title 로 흡수하면 안 된다. 그 엔트리는 skip (등록되더라도 메타 비어있음).
+    wiki_root = _build_wiki_with_external_secret(tmp_path)
+
+    idx = Index.build(wiki_root=wiki_root)
+
+    # 어떤 엔트리도 wiki_root 밖 secret.md 의 frontmatter title 을 흡수하면 안 된다.
+    for entry in idx.by_slug.values():
+        assert entry.page_title != "TOP_SECRET_TITLE", (
+            f"traversal slug {entry.slug!r} 가 wiki 밖 secret frontmatter 를 읽었다"
+        )
+
+
+def test_search_does_not_expose_external_secret_via_traversal_slug(tmp_path):
+    # /api/search 우회로 차단: 본문 grep(_body_grep) 이 traversal slug 의
+    # wiki_root 밖 파일을 read_text 해 snippet 으로 노출하면 안 된다.
+    wiki_root = _build_wiki_with_external_secret(tmp_path)
+    idx = Index.build(wiki_root=wiki_root)
+
+    # secret.md 본문에만 있는 토큰으로 검색 → traversal slug 가 살아있으면
+    # _body_grep 이 wiki 밖 파일을 읽어 snippet 으로 leaked_secret_token 을 노출한다.
+    result = idx.search("leaked_secret_token")
+
+    # query 에코는 검사 대상이 아니다 — 실제 노출은 results(snippet/description/
+    # title) 에서만 일어난다. results 만 직렬화해 secret 표지를 검사한다.
+    serialized_results = json.dumps(result["results"], ensure_ascii=False)
+    assert "leaked_secret_token" not in serialized_results, (
+        "검색 결과가 wiki_root 밖 secret 본문을 노출했다 (path traversal)"
+    )
+    assert "TOP_SECRET_TITLE" not in serialized_results, (
+        "검색 결과가 wiki_root 밖 secret frontmatter 를 노출했다"
+    )
+    # traversal slug 자체가 결과로 떠서도 안 된다 (등록 단계에서 skip 돼야 함).
+    slugs = [r["slug"] for r in result["results"]]
+    assert "../../secret" not in slugs
+
+
+def test_search_still_works_on_legit_slug_with_traversal_entry_present(tmp_path):
+    # traversal 방어가 정상 slug 검색까지 죽이면 안 된다 (false negative 방지).
+    wiki_root = _build_wiki_with_external_secret(tmp_path)
+    idx = Index.build(wiki_root=wiki_root)
+
+    # 정상 페이지는 index.md description + 본문 grep 모두 정상 작동해야 한다.
+    desc_result = idx.search("정상")
+    assert "legit" in [r["slug"] for r in desc_result["results"]]
+
+    body_result = idx.search("publictoken")
+    assert "legit" in [r["slug"] for r in body_result["results"]]

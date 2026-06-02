@@ -9,6 +9,8 @@ from pathlib import Path
 
 import frontmatter
 
+from wiki_app import pages
+
 
 logger = logging.getLogger(__name__)
 
@@ -52,6 +54,7 @@ class Index:
             )
             return cls(wiki_root=wiki_root, by_slug=by_slug)
 
+        root_resolved = wiki_root.resolve()
         current_cat = "concepts"
         for line in index_path.read_text().splitlines():
             mcat = _INDEX_CAT_RE.match(line)
@@ -62,12 +65,37 @@ class Index:
             if m:
                 slug = m.group(1).strip()
                 desc = m.group(2).strip()
+                # path traversal 차단: slug→path 가 wiki_root 밖으로 나가는
+                # 엔트리(예: `[[../../secret]]` / 절대경로형 slug)는 아예 등록하지
+                # 않는다. 등록하면 index.md 의 description 만으로도 검색 결과에
+                # 떠 wiki 밖 존재를 노출하고, 이후 frontmatter/본문 read 의
+                # 우회로가 된다. find_page_path 와 같은 is_relative_to 경계.
+                candidate = wiki_root / current_cat / f"{slug}.md"
+                if not candidate.resolve().is_relative_to(root_resolved):
+                    logger.warning(
+                        "skip index entry — slug resolves outside wiki_root "
+                        "(possible path traversal): %s",
+                        slug,
+                    )
+                    continue
                 by_slug[slug] = _Entry(slug=slug, category=current_cat, description=desc)
 
         # 2. 각 페이지 frontmatter에서 tags + title 채움
         for entry in by_slug.values():
-            # 슬러그에 '/' 포함 시 (예: 260515_llm_wiki/prd) 그대로 경로로 사용
-            md_path = wiki_root / entry.category / f"{entry.slug}.md"
+            # slug→path 는 containment-checked 로만 만든다. index.md 에
+            # `[[../../secret]]` 같은 traversal slug 가 들어오면
+            # find_page_path 가 resolve().is_relative_to(wiki_root) 로 거르고
+            # PageNotFound 를 던지므로, 그 엔트리는 frontmatter 없이 skip 된다
+            # (wiki_root 밖 파일을 읽어 title/tags 로 흡수하는 경로 차단).
+            try:
+                md_path = pages.find_page_path(entry.slug, wiki_root)
+            except pages.PageNotFound:
+                logger.warning(
+                    "skip page in index build — slug not found or outside wiki_root "
+                    "(possible path traversal): %s",
+                    entry.slug,
+                )
+                continue
             if md_path.exists():
                 # 한 페이지의 frontmatter(YAML) 파싱 실패가 전체 인덱스 빌드를
                 # 크래시시키지 않도록 격리: 깨진 페이지는 tags/title 없이 skip,
@@ -157,7 +185,17 @@ class Index:
         for entry in self.by_slug.values():
             if entry.slug in exclude:
                 continue
-            md_path = self.wiki_root / entry.category / f"{entry.slug}.md"
+            # build 와 동일 trust boundary: traversal slug 의 wiki_root 밖
+            # 파일을 read_text 해 snippet 으로 노출하는 우회로(/api/search)를 막는다.
+            try:
+                md_path = pages.find_page_path(entry.slug, self.wiki_root)
+            except pages.PageNotFound:
+                logger.warning(
+                    "skip body grep — slug not found or outside wiki_root "
+                    "(possible path traversal): %s",
+                    entry.slug,
+                )
+                continue
             if not md_path.exists():
                 continue
             text = md_path.read_text().lower()
