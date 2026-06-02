@@ -429,7 +429,7 @@ resonance: high | medium | low   # ingest 시 수동 지정 (선택)
 
 ## 자동화 — OpenClaw cron (구 launchd, 2026-06-02 전환)
 
-> **2026-06-02 변경:** launchd 잡 `ai.habix.llm-wiki`는 macOS TCC가 `~/Documents` 하위 스크립트 exec을 차단해 매일 `exit 126`으로 실패(`.launchd.log` 도배)하여 **제거**했다. 데일리 자동화는 이제 OpenClaw cron `llm-wiki-daily`(`~/.openclaw/cron/jobs.json`, `0 07 * * *` Asia/Seoul, `agentTurn`)가 담당하며 STEP 1 `sync_raw.py --quiet` → STEP 2 `ingest.py` 미처리 확인 → STEP 3 CLAUDE.md 규칙대로 claude ingest 후 `ingest.py --mark-done`을 수행한다. 아래 launchd/`run_daily.sh` 기술은 **참조용**이며, `run_daily.sh` Step 4(주간 월요일 `curate --audit --lifecycle` + distill)는 현재 cron 페이로드에 **미포함**이다(알려진 갭 — 주기적 curate는 수동 실행 또는 cron 페이로드 보강 필요).
+> **2026-06-02 변경:** launchd 잡 `ai.habix.llm-wiki`는 macOS TCC가 `~/Documents` 하위 스크립트 exec을 차단해 매일 `exit 126`으로 실패(`.launchd.log` 도배)하여 **제거**했다. 데일리 자동화는 이제 OpenClaw cron `llm-wiki-daily`(`~/.openclaw/cron/jobs.json`, `0 07 * * *` Asia/Seoul, `agentTurn`)가 담당하며 STEP 1 `sync_raw.py --quiet` → STEP 2 `ingest.py` 미처리 확인 → STEP 3 CLAUDE.md 규칙대로 claude ingest 후 `ingest.py --mark-done`을 수행한다. **STEP 4(주간 월요일 `curate --audit --lifecycle` + distill)도 2026-06-02 cron 페이로드에 추가**되어 `date +%u == 1`(월요일)에만 실행된다. 아래 launchd/`run_daily.sh` 기술은 **참조용**이다.
 
 ### (참조) 구 launchd 설정
 
