@@ -1,4 +1,4 @@
-"""FastAPI app — 4 endpoints + static mount."""
+"""FastAPI app — 6 endpoints + static mount."""
 from __future__ import annotations
 
 import asyncio
@@ -265,12 +265,18 @@ def create_app(wiki_root: Path | None = None) -> FastAPI:
             )
 
             proc = None
+            stderr_task = None
             try:
                 proc = await asyncio.create_subprocess_exec(
                     "claude", "-p", prompt,
                     stdout=asyncio.subprocess.PIPE,
                     stderr=asyncio.subprocess.PIPE,
                 )
+                # stderr 를 stdout 과 *동시* drain — claude 가 stderr 를 많이
+                # 뱉을 때 stderr 파이프 버퍼가 차서 claude 가 막히고 stdout 진행이
+                # 멈추는 데드락 방지 (잔여1). EOF 까지 백그라운드 수집.
+                assert proc.stderr is not None
+                stderr_task = asyncio.create_task(proc.stderr.read())
                 # stdout을 라인 단위로 streaming
                 assert proc.stdout is not None
                 while True:
@@ -282,11 +288,9 @@ def create_app(wiki_root: Path | None = None) -> FastAPI:
                         break
                     text = line.decode("utf-8", errors="replace")
                     yield f"event: chunk\ndata: {_json.dumps({'text': text}, ensure_ascii=False)}\n\n"
-                # stdout EOF — 종료 대기 후 returncode 확인
+                # stdout EOF — 종료 대기 후 동시 drain 한 stderr 회수
                 await proc.wait()
-                stderr_bytes = b""
-                if proc.stderr is not None:
-                    stderr_bytes = await proc.stderr.read()
+                stderr_bytes = await stderr_task
                 if proc.returncode not in (0, None):
                     msg = stderr_bytes.decode("utf-8", errors="replace").strip() \
                         or f"claude exited with code {proc.returncode}"
@@ -304,6 +308,13 @@ def create_app(wiki_root: Path | None = None) -> FastAPI:
             finally:
                 # timeout·error·정상·disconnect 어디서든 살아있는 child 정리
                 await _terminate_proc(proc)
+                # 동시 drain task 가 아직 살아있으면(비정상 경로) 취소·회수 — leak 방지
+                if stderr_task is not None and not stderr_task.done():
+                    stderr_task.cancel()
+                    try:
+                        await stderr_task
+                    except (asyncio.CancelledError, Exception):
+                        pass
 
         return StreamingResponse(event_gen(), media_type="text/event-stream")
 
