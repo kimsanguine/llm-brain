@@ -71,11 +71,11 @@
 │
 ├── wiki_app/                    # HTML 검색·페이지뷰 (FastAPI + vanilla JS, port 8000)
 │   ├── __main__.py              # uv run python -m wiki_app
-│   ├── api.py                   # 4 endpoints (/api/index, /api/search, /api/page/{slug}, /api/ai-answer)
+│   ├── api.py                   # 6 endpoints (/api/index, /api/search, /api/page/{slug}, /api/page/{slug}/graph, /api/ai-answer, /api/ai-answer/stream)
 │   ├── search.py                # Index + B 알고리즘 + C 확장 (본문 grep)
 │   ├── pages.py                 # 페이지 로더 (frontmatter + body + graph metadata)
 │   ├── render.py                # markdown-it + [[wikilink]] SPA 앵커 후처리
-│   ├── access.py                # access_count 갱신 wrapper (scripts/curate.record_access)
+│   ├── access.py                # access_count 갱신 (명시적 경로·원자적 쓰기·threading.Lock)
 │   └── static/
 │       ├── index.html           # 3 views (empty / results / empty-results)
 │       ├── styles.css           # Pretendard + 디자인 톤

@@ -285,7 +285,7 @@ llm-brain/
 │   ├── curate.py              # 감사·압축·lifecycle·graph
 │   └── express.py             # wiki → 창작물 출력
 ├── wiki_app/                  # 🌐 HTML 검색·페이지뷰 (FastAPI)
-│   ├── api.py                 # 4 endpoints
+│   ├── api.py                 # 6 endpoints
 │   ├── search.py              # 검색 인덱스 + B/C 알고리즘
 │   ├── pages.py               # 페이지 로더
 │   ├── render.py              # markdown + wikilink 변환

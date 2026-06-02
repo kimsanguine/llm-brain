@@ -58,7 +58,7 @@ uv run python -m wiki_app
 - **AI 답변 토글**: `claude -p` CLI 라이브 연결 (SSE 스트리밍 `/api/ai-answer/stream` 포함). CLI 부재 시 `status: unavailable` fallback.
 - **백엔드**: `wiki_app/` (FastAPI · uv) — 6 endpoints (`/api/index`, `/api/search`, `/api/page/{slug}`, `/api/page/{slug}/graph`, `/api/ai-answer`, `/api/ai-answer/stream`)
 - **프론트엔드**: `wiki_app/static/` (vanilla JS + Pretendard)
-- **테스트**: `tests/test_wiki_app_*.py` (5 modules, 26 tests)
+- **테스트**: `tests/test_wiki_app_*.py` (5 modules, 37 tests)
 - **운영 가드레일**: 페이지뷰 시 wiki frontmatter `access_count` 자동 +1 (CLI query와 동등)
 - **설계 문서**: `docs/superpowers/specs/2026-05-22-wiki-search-html-mvp-design.md`
 
