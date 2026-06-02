@@ -230,7 +230,10 @@ def main() -> int:
     result = {
         "meta": {
             "generated": datetime.now(timezone.utc).isoformat(),
-            "total_pages": len(nodes),
+            # total_pages 는 필드명대로 실제 page kind 노드 수만 센다.
+            # 전체 노드 수(page+tag+ghost)는 total_nodes 로 분리해 노출한다.
+            "total_pages": kinds.get("page", 0),
+            "total_nodes": len(nodes),
             "total_links": len(edges),
             "kinds": kinds,
             "types": types,
