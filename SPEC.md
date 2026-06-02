@@ -239,7 +239,7 @@ wiki 전체를 감사(audit) + 압축(distill) + 수명 관리(lifecycle)하는 
 }
 ```
 
-`--record-access PAGE_SLUG` 호출 시 `access_count` 증가, `last_accessed` 갱신. distill 시 frontmatter의 `access_count`와 `wiki_stats.json`의 값 중 큰 값을 사용한다.
+`curate --record-access PAGE_SLUG` 호출 시 `wiki_stats.json`의 `access_count` 증가, `last_accessed` 갱신 (frontmatter는 갱신하지 않음). 웹 페이지뷰(`wiki_app/access.track`)는 frontmatter와 `wiki_stats.json` 둘 다 갱신한다. distill 시 frontmatter의 `access_count`와 `wiki_stats.json`의 값 중 큰 값을 사용한다.
 
 ---
 
@@ -349,7 +349,7 @@ created: YYYY-MM-DD
 updated: YYYY-MM-DD
 sources: [raw/파일경로1, raw/파일경로2]
 distill_level: 0          # 0~3, curate --distill이 관리
-access_count: 0           # curate --record-access가 갱신
+access_count: 0           # 웹 페이지뷰(wiki_app)가 갱신; CLI curate --record-access는 wiki_stats.json만 갱신 후 distill 시 동기화
 last_accessed: null       # YYYY-MM-DD
 last_distilled: null      # YYYY-MM-DD
 resonance: high | medium | low   # ingest 시 수동 지정 (선택)
@@ -397,7 +397,14 @@ resonance: high | medium | low   # ingest 시 수동 지정 (선택)
 }
 ```
 
-파일 위치: WIKI_ROOT 바로 아래 (`wiki_stats.json`). `curate --record-access SLUG` 호출마다 해당 slug의 `access_count` +1, `last_accessed` 갱신.
+파일 위치: WIKI_ROOT 바로 아래 (`wiki_stats.json`). 갱신 경로는 두 가지이며 동작이 다르다.
+
+| 경로 | frontmatter 갱신 | wiki_stats.json 갱신 |
+|------|-----------------|----------------------|
+| 웹 페이지뷰 (`wiki_app/access.track`) | O (원자적 쓰기) | O |
+| CLI `curate --record-access SLUG` | X | O |
+
+`distill` 실행 시 두 값 중 큰 값을 취해 frontmatter와 동기화한다.
 
 ---
 

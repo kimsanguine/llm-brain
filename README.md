@@ -153,10 +153,13 @@ uv run python scripts/export_graph.py       # wikilink 그래프 export → wiki
 wiki 페이지는 접근할수록 더 깊이 정제된다.
 
 ```yaml
-# 자동 관리되는 frontmatter
+# curate --distill이 관리하는 frontmatter 필드
 distill_level: 2      # 0=원문 → 1=요약 → 2=핵심 → 3=한줄
-access_count: 12
+access_count: 12      # 웹 페이지뷰(wiki_app)는 frontmatter와 wiki_stats.json 둘 다 갱신
+                      # CLI curate --record-access는 wiki_stats.json만 갱신
 ```
+
+> `access_count`의 실제 집계는 `wiki_stats.json` 사이드카가 정본이다. `distill` 실행 시 frontmatter 값과 `wiki_stats.json` 값 중 큰 값으로 동기화된다.
 
 `export_graph.py`는 `[[wikilink]]` 인바운드 수를 분석해 `wiki/graph.json`을 생성한다.
 허브·고립 페이지 판단은 `wiki_app`의 `/api/page/{slug}/graph` 엔드포인트로 조회 가능하다.
@@ -253,6 +256,8 @@ uv run python scripts/ingest.py
 #   실제 wiki 컴파일은 Claude Code 세션에서 "ingest 해줘"로 수행한다.
 
 # 5. 데모를 즉시 확인하려면 (빈 wiki 상태 우회)
+# ⚠ 기존 index.md가 있으면 덮어쓰인다. 먼저 백업:
+# cp index.md index.md.bak
 cp -r examples/seed-wiki/* ./
 uv run python -m wiki_app   # → http://localhost:8000
 
@@ -308,6 +313,12 @@ llm-brain/
 ├── wiki/                      # LLM 정제 결과 (.gitignore)
 └── express/                   # 창작물 출력 (.gitignore)
 ```
+
+---
+
+## 패키지명 참고 *Package Name Note*
+
+배포 패키지명은 `llm-wiki` (`pyproject.toml` name 필드), 제품·저장소명은 `llm-brain`이다. 두 이름이 혼용되지 않도록 주의: `uv sync`·`pip install` 시에는 `llm-wiki`, GitHub/Obsidian 참조 시에는 `llm-brain`을 사용한다.
 
 ---
 
