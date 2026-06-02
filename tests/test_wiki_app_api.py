@@ -608,8 +608,13 @@ def test_ai_answer_rejects_too_many_context_slugs(client):
 
 
 def test_ai_answer_rejects_path_traversal_slug(client):
-    """slug 에 path traversal('..')/구분자('/') 가 들어가면 422."""
-    for bad in ["../etc/passwd", "a/b", "..", "foo/../bar"]:
+    """traversal slug 는 거부(422). '..' segment·절대경로·백슬래시가 핵심 위험.
+
+    중첩 slug('a/b')는 더 이상 여기 포함되지 않는다 — find_page_path containment
+    모델이 wiki_root 내부 중첩 slug 를 정당하게 허용하므로(아래 nested 테스트 참고),
+    '/' 자체가 아니라 segment 단위 위험 요소('..'·선행'/'·'\\')만 거부한다.
+    """
+    for bad in ["../etc/passwd", "a/../../b", "/abs", "a\\b", "..", "foo/../bar"]:
         r = client.post("/api/ai-answer",
                         json={"question": "ping", "context_slugs": [bad]})
         assert r.status_code == 422, f"악성 slug 거부 실패: {bad!r}"
@@ -633,3 +638,87 @@ def test_ai_answer_accepts_valid_slug_pattern(client, patched_subprocess):
                     json={"question": "ping", "context_slugs": ["habix-profile", "개념-노트"]})
     assert r.status_code == 200
     assert r.json()["status"] == "done"
+
+
+# ---------------------------------------------------------------------------
+# C4 회귀 — 중첩 slug 가 AIAnswerRequest 에서 422 로 깨지는 문제
+#
+# Codex [high]: C4 가 slug 에 `pattern=r"^[\w가-힣-]+$"` 를 걸어 '/' 를 전면
+# 금지했다. 그러나 pages.find_page_path 는 wiki_root 내부의 중첩 slug
+# ("260515_llm_wiki/prd" 등)를 정당하게 허용하고, 프론트엔드는 검색 결과 slug 를
+# 그대로 context_slugs 로 보낸다. 결과: 중첩 페이지가 검색에 뜨면 /api/page 는
+# 열리지만 /api/ai-answer/stream 은 422 로 실패 → AI 답변이 사용자 눈에 깨진다.
+#
+# fix = '/' 전면 금지가 아니라 segment 단위 안전성(빈 segment·'..'·절대경로·
+# 백슬래시 금지)으로 검증하고, find_page_path containment 를 최종 게이트로 사용.
+# ---------------------------------------------------------------------------
+
+
+def test_ai_answer_accepts_nested_slug(tmp_path, monkeypatch):
+    """회귀: 중첩 slug('sub/nested')는 422 가 아니라 정상 처리돼야 한다.
+
+    wiki_root 내부의 중첩 페이지를 만들어, 그 slug 를 context_slugs 로 보냈을 때
+    (a) 422 가 안 나고 (b) status=done 으로 정상 처리되며 (c) 그 페이지가 실제
+    context(sources)로 수집되는지까지 확인한다.
+    """
+    # 중첩 페이지 fixture: wiki_root/concepts/sub/nested.md (slug = "sub/nested")
+    project_root = tmp_path / "proj"
+    wiki_root = project_root / "wiki"
+    (wiki_root / "concepts" / "sub").mkdir(parents=True)
+    (wiki_root / "concepts" / "sub" / "nested.md").write_text(
+        "---\ntitle: Nested\ntags: [misc]\n---\n# Nested\n\n중첩 페이지 본문.\n"
+    )
+    (project_root / "index.md").write_text("## concepts/ (1개)\n")
+
+    app = create_app(wiki_root=wiki_root)
+    local_client = TestClient(app)
+
+    # claude CLI fake (없으면 unavailable 로 빠지므로 검증 통과만 확인하려면 주입 필요)
+    monkeypatch.setattr(api_module.shutil, "which", lambda name: "/usr/bin/claude")
+
+    async def fake_exec(*args, **kwargs):
+        return FakeProc(communicate_hang=False)
+
+    monkeypatch.setattr(api_module.asyncio, "create_subprocess_exec", fake_exec)
+
+    r = local_client.post("/api/ai-answer",
+                          json={"question": "ping", "context_slugs": ["sub/nested"]})
+    assert r.status_code == 200, "중첩 slug 가 422 로 거부되면 회귀 미해결"
+    data = r.json()
+    assert data["status"] == "done"
+    # containment 통과 → 중첩 페이지가 실제 context(sources)로 수집됨
+    assert "sub/nested" in data["sources"], "중첩 페이지가 context 로 수집돼야 함"
+
+
+def test_ai_answer_excludes_traversal_slug_silently(tmp_path, monkeypatch):
+    """containment 를 통과 못 하는(존재 안 하는) 중첩 slug 는 422 가 아니라
+    조용히 제외돼야 한다.
+
+    '..' 같은 노골적 traversal 은 Pydantic 단에서 422 로 거부되지만('..'·절대경로·
+    백슬래시 — 위 traversal 테스트), 형식은 안전한데 wiki_root 안에 실재하지 않는
+    중첩 slug 는 _collect_context 의 find_page_path containment 가 PageNotFound 로
+    걸러 sources 에서 제외한다(요청 자체는 200).
+    """
+    project_root = tmp_path / "proj"
+    wiki_root = project_root / "wiki"
+    (wiki_root / "concepts").mkdir(parents=True)
+    (project_root / "index.md").write_text("## concepts/ (0개)\n")
+
+    app = create_app(wiki_root=wiki_root)
+    local_client = TestClient(app)
+
+    monkeypatch.setattr(api_module.shutil, "which", lambda name: "/usr/bin/claude")
+
+    async def fake_exec(*args, **kwargs):
+        return FakeProc(communicate_hang=False)
+
+    monkeypatch.setattr(api_module.asyncio, "create_subprocess_exec", fake_exec)
+
+    # 형식은 안전(빈 segment/'..'/절대경로 아님)하지만 실재하지 않는 중첩 slug
+    r = local_client.post("/api/ai-answer",
+                          json={"question": "ping", "context_slugs": ["sub/missing"]})
+    assert r.status_code == 200
+    data = r.json()
+    assert data["status"] == "done"
+    # containment 미통과 → sources 에서 조용히 제외 (422 아님)
+    assert data["sources"] == []

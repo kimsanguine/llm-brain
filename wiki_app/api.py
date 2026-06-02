@@ -5,6 +5,7 @@ import asyncio
 import datetime as _dt
 import json
 import os
+import re
 import shutil
 import signal
 import time
@@ -14,17 +15,51 @@ from typing import Annotated
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import StreamingResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel, Field, StringConstraints
+from pydantic import AfterValidator, BaseModel, Field
 
 from wiki_app import access, pages, render, search
 
 
-# slug 허용 패턴: 한글/영문/숫자/하이픈/언더스코어만.
-# path 구분자('/'·'\\')·traversal('..')·공백을 차단해 파일시스템 접근 표면을 줄인다.
-_SLUG_PATTERN = r"^[\w가-힣-]+$"
+# 한 segment 내부 허용 문자: 한글/영문/숫자/하이픈/언더스코어만.
+# (segment = slug 를 '/' 로 나눈 각 조각)
+_SEGMENT_PATTERN = re.compile(r"^[\w가-힣-]+$")
 
-# 개별 slug 제약: 패턴 + 길이 cap (path 문자 금지 → '..'/'/'/'\\' 자동 거부).
-_Slug = Annotated[str, StringConstraints(min_length=1, max_length=128, pattern=_SLUG_PATTERN)]
+
+def _validate_slug(slug: str) -> str:
+    """slug 안전성을 segment 단위로 검증한다.
+
+    `pages.find_page_path` 의 containment 모델("wiki_root 내부의 중첩 slug 는 허용,
+    밖으로 나가는 traversal 은 거부")에 맞춰, '/' 전면 금지 대신 segment 단위로
+    위험 요소만 거른다:
+
+    - 절대경로(선행 '/'), 백슬래시('\\') 금지 (path 주입 차단)
+    - 빈 segment('a//b', 'a/', '/a') 금지
+    - '..' segment 금지 (traversal 차단)
+    - 그 외 segment 는 단어 문자/한글/하이픈만 허용
+
+    이를 통과한 '/' 포함 중첩 slug("260515_llm_wiki/prd" 등)는 허용되며,
+    실제 wiki_root 내부 존재 여부는 `_collect_context` 의 containment 가
+    최종 게이트로 처리한다(통과 못 하면 조용히 제외).
+
+    위반 시 ValueError → FastAPI 가 422 로 변환한다.
+    """
+    if slug.startswith("/") or "\\" in slug:
+        raise ValueError(f"invalid slug (절대경로/백슬래시 금지): {slug!r}")
+    segments = slug.split("/")
+    for seg in segments:
+        if seg == "" or seg == "..":
+            raise ValueError(f"invalid slug (빈 segment/traversal 금지): {slug!r}")
+        if not _SEGMENT_PATTERN.match(seg):
+            raise ValueError(f"invalid slug segment: {seg!r}")
+    return slug
+
+
+# 개별 slug 제약: 길이 cap + segment 단위 안전성 검증.
+_Slug = Annotated[
+    str,
+    Field(min_length=1, max_length=128),
+    AfterValidator(_validate_slug),
+]
 
 
 class AIAnswerRequest(BaseModel):
