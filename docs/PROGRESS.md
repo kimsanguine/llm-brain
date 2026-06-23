@@ -57,6 +57,8 @@
 - **[2026-06-23·R3] description 추출 클래스 완성(번호목록·코드펜스 다이어그램·수식·라벨)** — Rule 2(품질, R1 부분수정 보완). R1이 약어만 고쳐 번호목록('1...2.' 잘림)·코드펜스 다이어그램·수식이 잔존(P1 R2 발견). 번호목록/수식/화살표 스킵 + 코드펜스 제거 + 콜론라벨/초단문 빈값화. 가역. 검증: 실데이터 4케이스 정상화 + 회귀 테스트.
 - **[2026-06-23·R3] `_strip_code_fences` 라인 앵커 regex 교정** — Rule 2(견고성). R3에서 새로 만든 helper의 `` ```.*?``` ``가 인라인/중첩 삼중백틱에서 내부 잔류(Codex R3 [major]). `(?ms)^```...\n...\n```$` 라인 앵커로 well-formed 블록만 제거. 가역. 검증: Codex reproducer 잔류 0 + 정상 펜스 제거 + 회귀 테스트.
 - **[2026-06-23·R3] Ralph loop 수렴 선언** — Rule 7. 6 렌즈 전부 새 critical/major 0. 잔여는 minor만(아래). 비가역 커밋은 GO 조건 충족 후 사람 승인.
+- **[2026-06-24] GO 조건 충족 + 로컬 커밋** — Rule 9. dry-run 보안 게이트로 본문 평문 민감정보 검토 → 사용자 결정 "전부 제외"로 9페이지(이든·EchoMate) `exclude_slugs`(로컬) 추가, sensitive_hits 0 수렴. okf/ 84페이지 생성(business 4 + 민감 9 제외). 브랜치 `feat/okf-export-p1`에 커밋 `88f8fa4`(OKF 파일만, 기존 미커밋 index.md·log.md·examples 보존, 로컬 민감설정 gitignored). **push(public 노출)는 보류 — 별도 승인.**
+- **[2026-06-24] 로컬 오버라이드 메커니즘** — Rule 8(privacy). `schema/okf_export.local.yaml`(gitignored)로 민감 키워드·exclude_slug 분리. 커밋 설정 파일에 실명 유입 방지. main()이 config + .local.yaml 병합.
 
 ---
 
