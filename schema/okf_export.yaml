@@ -1,0 +1,32 @@
+# OKF Export 설정 (Phase 1)
+#
+# scripts/okf_export.py 의 load_config() 가 읽는다.
+# 이 파일은 wiki/ → okf/ 투영 시 "무엇을 제외할지"를 감사 가능한 형태로 고정한다.
+# 제외가 분류기 추론이 아니라 명시적 설정이라야 public 커밋 전에 사람이 눈으로 검토할 수 있다.
+#
+# 계약: docs/superpowers/specs/2026-06-23-okf-export-p1-contract.md §1·§2·§9
+# 매핑 레퍼런스: schema/okf.md
+
+# exclude_paths — 1차 필터(구조적 보장). wiki_dir 기준 glob 패턴.
+#   여기 매칭된 경로는 okf/ 번들에서 완전히 빠진다(파일 미작성 + ExportStats.excluded 기록).
+#   경로 기반이라 도메인 분류기 오탐 여지가 없다 = 민감 정보 누락의 1차 방어선.
+exclude_paths:
+  - "business/**"   # 민감 비즈니스 정보 (anthropic·habix-profile·openai·thinking-machines 4페이지)
+  - "canvas/**"     # gitignore 대상 canvas 데이터
+
+# exclude_domains — (선택) 보조 제외. frontmatter 의 domain 라벨 기준.
+#   경로가 아닌 의미 라벨로 거를 때 사용. 비워 두면 비활성.
+#   주의: domain 라벨은 ingest 분류 결과라 오탐 여지가 있다 → 1차 방어는 exclude_paths.
+exclude_domains: []
+
+# exclude_slugs — (선택) 특정 페이지 명시 제외. slug 단위 정밀 제외.
+#   business/ 밖에 산재한 개별 민감 페이지를 dry-run 검토 후 추가할 때 사용.
+exclude_slugs: []
+
+# sensitive_patterns — (선택) included 페이지 본문의 평문 민감정보 스캐너.
+#   페이지 단위 제외(exclude_*)는 business *파일*만 막고, included 본문 산문에 흩어진
+#   평문(실명·운영수치 등)은 못 막는다(별칭 redact도 [[링크]]만 처리). 이 패턴들을
+#   본문/description에서 대소문자 무시로 스캔해 dry-run/log에 "검토 필요"로 표면화한다.
+#   차단이 아니라 표면화(Rule 8 fail-loud) — 사람이 커밋 전에 직접 판단하도록.
+#   예: ["김생근", "이든", "EchoMate", "StockPulse"] — 본인 운영 키워드로 채울 것.
+sensitive_patterns: []

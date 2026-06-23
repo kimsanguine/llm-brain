@@ -30,6 +30,7 @@
 │   ├── sync_raw.py              # sources.yaml → raw/ 델타 미러링
 │   ├── curate.py                # wiki 감사·압축·lifecycle (--health, --suggest-bridges)
 │   ├── export_graph.py          # wikilink 그래프 export → wiki/graph.json
+│   ├── okf_export.py            # wiki/ → OKF v0.1 호환 번들 okf/ 투영 (export 포트)
 │   ├── express.py               # wiki → 창작물 초안 컨텍스트 준비
 │   └── setup.sh                 # 초기 설정 (venv·폴더·config 생성)
 │
@@ -39,7 +40,9 @@
 │   ├── config.yaml              # LLM 엔진 선택 (cli / api)
 │   ├── domains.yaml             # 도메인 분류 규칙 및 키워드 매핑
 │   ├── ingest.md                # ingest 절차·품질 기준 규칙
-│   └── curate.md                # curate 단계별 규칙
+│   ├── curate.md                # curate 단계별 규칙
+│   ├── okf.md                   # OKF ↔ llm-brain 매핑 규칙 레퍼런스
+│   └── okf_export.yaml          # okf_export 제외 설정 (exclude_paths·domains·slugs)
 │
 ├── raw/                         # 원본 소스 (.gitignore 대상)
 │   ├── til/                     # OpenClaw TIL 미러 (sync_raw)
@@ -69,6 +72,12 @@
 │   ├── lecture/                 # 강의 슬라이드 초안
 │   ├── summary/                 # 주간·월간 요약 초안
 │   └── report/                  # 심층 리포트 초안
+│
+├── okf/                         # OKF v0.1 호환 번들 (okf_export.py 생성, Git 커밋 대상)
+│   ├── index.md                 # 번들 루트 목차 (type별 그룹 + 디렉토리 index 링크)
+│   ├── log.md                   # export 이력 + 변환 경고
+│   ├── .okf-bundle              # 번들 센티넬 (재export 시 안전 정리용 마커)
+│   └── {dir}/                   # 디렉토리별 미러 + index.md (business/·canvas/ 제외)
 │
 ├── wiki_app/                    # HTML 검색·페이지뷰 (FastAPI + vanilla JS, port 8000)
 │   ├── __main__.py              # uv run python -m wiki_app
@@ -240,6 +249,56 @@ wiki 전체를 감사(audit) + 압축(distill) + 수명 관리(lifecycle)하는 
 ```
 
 `curate --record-access PAGE_SLUG` 호출 시 `wiki_stats.json`의 `access_count` 증가, `last_accessed` 갱신 (frontmatter는 갱신하지 않음). 웹 페이지뷰(`wiki_app/access.track`)는 frontmatter와 `wiki_stats.json` 둘 다 갱신한다. distill 시 frontmatter의 `access_count`와 `wiki_stats.json`의 값 중 큰 값을 사용한다.
+
+---
+
+### scripts/okf_export.py
+
+`wiki/`(내부 슈퍼셋)를 OKF v0.1 호환 번들 `okf/`로 투영하는 export 포트. 내부 포맷은 바꾸지 않고 경계(`okf/`)에서만 변환한다. frontmatter 파서(`parse_frontmatter`·`FRONTMATTER_RE`·`WIKILINK_RE`)는 `scripts/export_graph.py`에서 import하며 export_graph는 수정하지 않는다.
+
+변환 규칙 전문은 `schema/okf.md`, 제외 설정은 `schema/okf_export.yaml` 참조.
+
+#### 변환 동작 요약
+
+- **frontmatter**: OKF 예약 6필드(`type`·`title`·`description`·`resource`·`tags`·`timestamp`) 순서로 매핑. `updated`(없으면 `created`)를 `timestamp`로 매핑. 나머지 내부 필드는 `x-llmbrain-{key}`로 보존(`--strip-internal`이면 제거).
+- **본문 wikilink**: `[[X]]` → `[X](/<rel>)` 번들 루트 절대경로 마크다운 링크. 별칭은 `[[X|별칭]]` → `[별칭](/<rel>)`. 깨진 링크(대상 없음)는 텍스트화 + `log.md` 기록. 제외 페이지를 가리키던 링크는 별칭을 버리고 slug만 남긴다(redact).
+- **description**: fm `description` → 본문 `## 핵심` 첫 문장 → 첫 문단 첫 문장 순으로 규칙 기반 추출(LLM 호출 없음). 300자 절삭.
+- **exclude**: 경로 글롭(기본 `business/**`·`canvas/**`) + domain 라벨 + slug. 경로 글롭이 1차 보안 필터.
+
+#### CLI 인자 전체
+
+| 인자 | 타입 | 기본값 | 설명 |
+|------|------|--------|------|
+| `--out PATH` | str | `okf/` | 출력 번들 루트. 상대경로는 레포 루트 기준 |
+| `--strip-internal` | flag | off | OKF 예약 6필드만 남기고 `x-llmbrain-*` 전부 제거 (외부 공유 최소본) |
+| `--config PATH` | str | `schema/okf_export.yaml` | 제외 설정 파일. 부재 시 하드코딩 기본값 사용 |
+| `--exclude-path GLOB` | str (복수) | `[]` | 추가 제외 경로 글롭. 설정 파일 값에 누적 |
+| `--exclude-domain D` | str (복수) | `[]` | frontmatter `domain` 라벨 기준 제외 (보조 필터) |
+| `--exclude-slug SLUG` | str (복수) | `[]` | 특정 slug 명시 제외 |
+| `--dry-run` | flag | off | 파일 0개 작성, export 대상·통계만 출력 (public 커밋 전 보안 게이트용) |
+
+`exclude_paths`·`exclude_domains`·`exclude_slugs` 최종값 = `schema/okf_export.yaml` 값 + CLI 인자(누적).
+
+#### 출력 파일
+
+| 파일 | 설명 |
+|------|------|
+| `okf/{dir}/{slug}.md` | 변환된 frontmatter + 본문. 실제 wiki 디렉토리 구조를 미러 |
+| `okf/{dir}/index.md` | 디렉토리별 목차 (title + description 링크) |
+| `okf/index.md` | 번들 루트 목차 (type별 섹션 + Directories 섹션) |
+| `okf/log.md` | export 이력 + 변환 경고 (깨진 링크·제외 페이지·skipped) |
+| `okf/.okf-bundle` | 번들 센티넬. 재export 시 이 마커가 있는 디렉토리만 안전하게 정리 |
+
+#### 안전 가드
+
+- `raw/`·`wiki/`는 읽기 전용. 출력은 `out_dir`(기본 `okf/`)에만.
+- `out_dir`가 `wiki_dir`이거나 그 조상(레포 루트 등)이면 거부(`rmtree` 데이터 손실 방지).
+- 비어있지 않은 `out_dir`에 `.okf-bundle` 마커가 없으면 덮어쓰기 거부.
+- frontmatter 값의 `---`는 em-dash로 치환 (OKF consumer의 `text.split("---")` 호환 보장).
+
+#### 호환성 단일 진실 — 링크 정규식
+
+OKF minimal consumer는 본문에서 `\]\((/[^)]+\.md)\)` 패턴으로 엣지를 추출한다. export가 만드는 모든 페이지 링크는 `/`로 시작하는 번들 루트 절대경로 + `.md` 끝이라 이 패턴에 잡힌다. 라운드트립 검증: 번들 노드 수 = export 페이지 수, 엣지 수 = 깨지지 않은 wikilink 수.
 
 ---
 
@@ -513,6 +572,7 @@ response = client.messages.create(
 | `uv run python scripts/curate.py --distill` | `curate.py` | 없음 (`distill_queue.md` 생성만) |
 | `uv run python scripts/curate.py --lifecycle` | `curate.py` | 없음 (후보 목록 출력) |
 | `uv run python scripts/export_graph.py` | `export_graph.py` | 없음 (`wiki/graph.json` 생성) |
+| `uv run python scripts/okf_export.py [--dry-run] [--strip-internal]` | `okf_export.py` | 없음 (규칙 기반 변환 → `okf/` 번들 생성, dry-run은 목록만) |
 | `uv run python scripts/curate.py --purge` | `curate.py` | 없음 (파일 이동) |
 | `uv run python scripts/curate.py --record-access SLUG` | `curate.py` | 없음 (stats 기록) |
 | `uv run python scripts/express.py blog TOPIC` | `express.py` | Claude가 `express/blog/*.md` 읽고 본문 작성 |

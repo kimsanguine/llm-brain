@@ -10,6 +10,9 @@ wiki/canvas/
 schema/sources.yaml
 schema/config.yaml
 
+# OKF export 로컬 오버라이드 — 민감 키워드(실명 등)·제외 slug. 커밋 금지
+schema/okf_export.local.yaml
+
 # 시스템 파일
 .DS_Store
 .venv/

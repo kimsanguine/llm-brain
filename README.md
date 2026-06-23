@@ -218,6 +218,29 @@ uv run python -m wiki_app
 
 ---
 
+### 📦 okf-export — wiki → OKF 호환 번들 *Wiki to OKF Bundle*
+
+`wiki/`(내부 슈퍼셋)를 OKF v0.1 호환 번들 `okf/`로 투영한다. 동료·외부 에이전트·habix 제품이 번역 없이 그대로 소비할 수 있는 표준 포맷으로 내보내, llm-brain을 경쟁 포맷이 아니라 OKF 표준을 흡수하는 export 포트로 만든다.
+
+내부 포맷은 바꾸지 않고 경계(`okf/`)에서만 변환한다. frontmatter는 OKF 예약 필드로 매핑하고 나머지 내부 필드는 `x-llmbrain-*`로 보존하며, 본문 `[[wikilink]]`는 번들 루트 절대경로 마크다운 링크(`[X](/concepts/x.md)`)로 변환한다.
+
+```bash
+# 1. dry-run으로 export 대상·제외 목록 확인 (파일 미작성)
+uv run python scripts/okf_export.py --dry-run
+
+# 2. 확인 후 실제 export → okf/ 생성
+uv run python scripts/okf_export.py
+
+# 3. 외부 공유본 (OKF 예약 6필드만, x-llmbrain-* 제거)
+uv run python scripts/okf_export.py --strip-internal
+```
+
+`business/**`·`canvas/**`는 `schema/okf_export.yaml`의 `exclude_paths`로 번들에서 제외된다.
+
+> ⚠ `okf/`는 Git 커밋 대상이고 history는 영구(비가역)다. **public 커밋 전 반드시 `--dry-run`으로 `business/` 페이지가 목록에 0개임을 확인**한다.
+
+---
+
 ## LLM 엔진 선택 *LLM Engine*
 
 ```yaml
@@ -292,13 +315,16 @@ llm-brain/
 │   ├── sources.example.yaml   # 소스 설정 템플릿
 │   ├── config.yaml            # LLM 엔진 선택
 │   ├── ingest.md              # ingest 규칙
-│   └── curate.md              # curate 규칙
+│   ├── curate.md              # curate 규칙
+│   ├── okf.md                 # OKF ↔ llm-brain 매핑 규칙
+│   └── okf_export.yaml        # okf-export 제외 설정 (exclude_paths)
 ├── scripts/
 │   ├── setup.sh               # 초기 설정
 │   ├── sync_raw.py            # 소스 미러링
 │   ├── ingest.py              # 파일 파싱 + 상태 관리
 │   ├── curate.py              # 감사·압축·lifecycle (--health, --suggest-bridges)
 │   ├── export_graph.py        # wikilink 그래프 export → wiki/graph.json
+│   ├── okf_export.py          # wiki → OKF v0.1 호환 번들 okf/ export
 │   └── express.py             # wiki → 창작물 출력
 ├── wiki_app/                  # 🌐 HTML 검색·페이지뷰 (FastAPI)
 │   ├── api.py                 # 6 endpoints
@@ -311,7 +337,8 @@ llm-brain/
 │   └── intro-video/           # Remotion 소개 영상
 ├── raw/                       # 원본 소스 (.gitignore)
 ├── wiki/                      # LLM 정제 결과 (.gitignore)
-└── express/                   # 창작물 출력 (.gitignore)
+├── express/                   # 창작물 출력 (.gitignore)
+└── okf/                       # OKF v0.1 호환 번들 (okf_export.py 생성, Git 커밋 대상)
 ```
 
 ---
