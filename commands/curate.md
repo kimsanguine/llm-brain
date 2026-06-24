@@ -17,7 +17,7 @@ llm-brain의 curate 커맨드입니다. `$ARGUMENTS`에 따라 아래를 실행�
 ## Step 1: curate 스크립트 실행
 
 ```bash
-cd /Users/sanguinekim/Documents/3_Code/Vibe/Project/260516_llm_brain
+cd "$(git rev-parse --show-toplevel)"  # llm-brain 레포 루트
 uv run python scripts/curate.py $ARGUMENTS
 ```
 

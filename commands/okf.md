@@ -27,7 +27,7 @@ llm-brain의 okf 커맨드입니다. `wiki/`(내부 슈퍼셋)를 OKF v0.1 호�
 ## Step 1: dry-run으로 먼저 검토 (`--dry-run`이 없어도 실 export 전에 1회 권장)
 
 ```bash
-cd /Users/sanguinekim/Documents/3_Code/Vibe/Project/260516_llm_brain
+cd "$(git rev-parse --show-toplevel)"  # llm-brain 레포 루트
 uv run python scripts/okf_export.py --dry-run $ARGUMENTS
 ```
 
@@ -43,7 +43,7 @@ dry-run을 다시 돌려 `sensitive_hits=0`으로 수렴시킨다.
 ## Step 2: 실제 export (Step 1 검토 통과 시에만)
 
 ```bash
-cd /Users/sanguinekim/Documents/3_Code/Vibe/Project/260516_llm_brain
+cd "$(git rev-parse --show-toplevel)"  # llm-brain 레포 루트
 uv run python scripts/okf_export.py $ARGUMENTS
 ```
 

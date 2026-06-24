@@ -21,7 +21,7 @@ llm-brain의 ingest 커맨드입니다. 아래 절차를 순서대로 실행하�
 
 ```bash
 # URL 수집
-cd /Users/sanguinekim/Documents/3_Code/Vibe/Project/260516_llm_brain
+cd "$(git rev-parse --show-toplevel)"  # llm-brain 레포 루트
 uv run python scripts/ingest.py --url <URL> [--resonance <level>]
 
 # 파일 추가
@@ -53,7 +53,7 @@ exit code 0 = 처리할 파일 없음, exit code 1 = 미처리 파일 있음.
 
 wiki 컴파일 완료 후:
 ```bash
-cd /Users/sanguinekim/Documents/3_Code/Vibe/Project/260516_llm_brain
+cd "$(git rev-parse --show-toplevel)"  # llm-brain 레포 루트
 uv run python scripts/ingest.py --mark-done
 ```
 
@@ -73,7 +73,7 @@ snapshot_graph()  # wiki/graph.json → wiki/.graph_prev.json 복사
 **4-1. export_graph.py 실행** (graph.json 갱신):
 
 ```bash
-cd /Users/sanguinekim/Documents/3_Code/Vibe/Project/260516_llm_brain
+cd "$(git rev-parse --show-toplevel)"  # llm-brain 레포 루트
 uv run python scripts/export_graph.py
 ```
 

@@ -31,7 +31,7 @@ llm-brain의 query 커맨드입니다. 질문: **$ARGUMENTS**
 
 답변에 사용한 각 페이지의 slug에 대해:
 ```bash
-cd /Users/sanguinekim/Documents/3_Code/Vibe/Project/260516_llm_brain
+cd "$(git rev-parse --show-toplevel)"  # llm-brain 레포 루트
 uv run python scripts/curate.py --record-access <페이지_slug>
 ```
 

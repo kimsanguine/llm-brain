@@ -16,7 +16,7 @@ llm-brain의 express 커맨드입니다. 아래 절차를 실행하세요.
 ## Step 1: express 스크립트 실행
 
 ```bash
-cd /Users/sanguinekim/Documents/3_Code/Vibe/Project/260516_llm_brain
+cd "$(git rev-parse --show-toplevel)"  # llm-brain 레포 루트
 uv run python scripts/express.py $ARGUMENTS
 ```
 
