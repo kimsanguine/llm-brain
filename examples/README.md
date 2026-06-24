@@ -1,6 +1,13 @@
-# Examples — seed-wiki
+# Examples — seed-wiki + seed-raw
 
-llm-brain을 fresh clone한 사용자가 **즉시 wiki_app 데모를 보기 위한** 5페이지 sample wiki.
+두 가지 데모를 제공한다:
+
+| 폴더 | 무엇 | 언제 |
+|---|---|---|
+| **`seed-wiki/`** | 이미 컴파일된 5페이지 sample **wiki** (결과물) | fresh clone 후 즉시 `wiki_app` 데모를 보고 싶을 때 |
+| **`seed-raw/`** | 가상 PM 11개 **raw 노트** (입력) | `raw → wiki` **컴파일 과정**(`/llm-brain:ingest`)을 직접 체험하고 싶을 때 |
+
+> 빈손으로 시작하는 수강생은 `seed-raw/`를 `raw/`에 복사해 ingest하면 "흩어진 메모 → 연결된 위키 그래프"를 체험할 수 있다. 자세한 실습 순서는 `seed-raw/README.md` 참조.
 
 ## seed-wiki 레이아웃
 
