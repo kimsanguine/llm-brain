@@ -24,7 +24,7 @@
 ## 현재 체크포인트 (2026-06-23)
 
 - **상태**: Phase 1(OKF Export) 구현 + 보안 강화 + **Ralph loop 3라운드 수렴 완료(critical/major 0)**.
-- **테스트**: `pytest` 전체 **176 통과**(OKF 54). 테스트 6종(export·roundtrip·frontmatter_safety·security·audit_fixes 등).
+- **테스트**: `pytest` 전체 **195 통과**(OKF 단위 54 + E2E 19). 7종(+ test_okf_e2e.py: subprocess CLI·consumer·보안·fresh-clone).
 - **검증**: 실 92페이지 round-trip dangling=0·business=0·깨진 키 0·json.dumps 92/92. dry-run: ghost=5 / excl_refs=85 / excluded=4 / skipped=1.
 - **Ralph loop 수렴 곡선**: R1 critical 2+major 6 → R2 major 2(R1 수정의 회귀/미완) → R3 major 1(Codex 코드펜스) → **수렴**. 6 렌즈(P1~P5+Codex) 전부 "새 critical/major 0".
 - **🔴 보류(승인 대기)**: **public 커밋은 비가역(Rule 9)이라 자동 실행 안 함.** 커밋 전 GO 조건(P3) ↓.
@@ -59,6 +59,10 @@
 - **[2026-06-23·R3] Ralph loop 수렴 선언** — Rule 7. 6 렌즈 전부 새 critical/major 0. 잔여는 minor만(아래). 비가역 커밋은 GO 조건 충족 후 사람 승인.
 - **[2026-06-24] GO 조건 충족 + 로컬 커밋** — Rule 9. dry-run 보안 게이트로 본문 평문 민감정보 검토 → 사용자 결정 "전부 제외"로 9페이지(이든·EchoMate) `exclude_slugs`(로컬) 추가, sensitive_hits 0 수렴. okf/ 84페이지 생성(business 4 + 민감 9 제외). 브랜치 `feat/okf-export-p1`에 커밋 `88f8fa4`(OKF 파일만, 기존 미커밋 index.md·log.md·examples 보존, 로컬 민감설정 gitignored). **push(public 노출)는 보류 — 별도 승인.**
 - **[2026-06-24] 로컬 오버라이드 메커니즘** — Rule 8(privacy). `schema/okf_export.local.yaml`(gitignored)로 민감 키워드·exclude_slug 분리. 커밋 설정 파일에 실명 유입 방지. main()이 config + .local.yaml 병합.
+- **[2026-06-24] 멀티에이전트 E2E 테스트 계획 + 구현** — Rule 4·6. 4 에이전트(CLI/운영·consumer interop·보안·fresh-clone)가 실측 설계한 53 시나리오 → `docs/superpowers/specs/2026-06-24-okf-e2e-test-plan.md` + `tests/test_okf_e2e.py`(19 E2E, subprocess 미니레포 + 독립 minimal consumer). 전체 195 passed. 설계 중 **단위테스트가 못 잡는 실제 갭 3건 발견·수정**: ↓
+- **[2026-06-24·GAP-2] symlink out_dir 거부 dead code 수정** — Rule 8·9. `resolve()`가 symlink를 먼저 해소해 `is_symlink()` 가드가 영구 False였음(A·E2E-19). resolve **전** 원본 인자로 검사하도록 이동. 검증: symlink `--out` 거부 실증 + 회귀 테스트.
+- **[2026-06-24·GAP-1] fresh-clone 게이트 침묵 비활성 경고** — Rule 8(fail-loud). gitignored local.yaml 부재 시 sensitive_patterns가 비어 게이트가 조용히 꺼지던 누출 위험(C·D 독립 발견). `sensitive_patterns` 미설정 + local 부재면 stderr 🔴 경고. 검증: fresh-clone 미니레포 경고 발화 + local 존재 시 미발화.
+- **[2026-06-24·GAP-3] custom-config local 우회 차단** — Rule 8. `--config custom.yaml` 시 기본 `okf_export.local.yaml`이 silent 무시되던 footgun(A·E2E-10). config별 + 기본 local을 모두 병합. okf/ 출력 불변 확인.
 
 ---
 

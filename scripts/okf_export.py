@@ -490,7 +490,13 @@ def export_bundle(
     검토하도록 dry-run 게이트에 노출하기 위함. 차단이 아니라 표면화(Rule 8 fail-loud).
     """
     wiki_dir = Path(wiki_dir).resolve()
-    out_dir = Path(out_dir).resolve()
+    # GAP-2: symlink 거부는 resolve() **전** 원본 인자로 검사해야 한다. resolve()가
+    # symlink를 먼저 해소하면 이후 is_symlink()는 항상 False가 되어 가드가 dead code가
+    # 된다(E2E-19). out_dir이 symlink면 rmtree가 링크 대상을 삭제할 위험 → 즉시 거부.
+    _out_arg = Path(out_dir)
+    if _out_arg.is_symlink():
+        raise SystemExit(f"[okf_export] out_dir가 심볼릭 링크라 거부(데이터 손실 방지): {_out_arg}")
+    out_dir = _out_arg.resolve()
     # 안전 가드(Y4 회귀 수정): out_dir이 소스(wiki_dir)이거나 그 조상(레포 루트 등)이면
     # 절대 거부. `--out .`·`--out wiki` 오지정으로 rmtree가 소스/레포를 삭제하는 사고 방지.
     if out_dir == wiki_dir or out_dir in wiki_dir.parents:
@@ -551,10 +557,8 @@ def export_bundle(
     # 디렉토리는 덮어쓰지 않고 거부.
     if out_dir.exists() and any(out_dir.iterdir()):
         if (out_dir / ".okf-bundle").exists():
-            # rmtree 직전 재검증(Codex TOCTOU): out_dir이 심볼릭 링크면 거부(링크 대상
-            # 삭제 방지). out_dir은 위에서 resolve()됐으나 symlink 교체 방어로 한 번 더.
-            if out_dir.is_symlink():
-                raise SystemExit(f"[okf_export] out_dir가 심볼릭 링크라 거부: {out_dir}")
+            # symlink 거부는 함수 진입부에서 resolve() 전에 처리(GAP-2). 여기 out_dir은
+            # 이미 실경로라 안전.
             shutil.rmtree(out_dir)
         else:
             raise SystemExit(
@@ -719,19 +723,39 @@ def main(argv: list[str] | None = None) -> int:
     config = load_config(config_path)
     # gitignored 로컬 오버라이드(.local.yaml): 실명 등 민감 키워드를 커밋되는 yaml에 넣지
     # 않고 로컬에서만 sensitive_patterns·exclude_slugs를 보강한다(P3 privacy 게이트).
-    local_config = load_config(config_path.with_suffix(".local.yaml"))
+    # GAP-3: config별 `<config>.local.yaml` + 기본 `schema/okf_export.local.yaml`를 모두
+    # 병합한다. custom --config만 쓰면 기본 민감설정이 silent 무시되던 우회를 막는다.
+    local_paths = {
+        config_path.with_suffix(".local.yaml"),
+        REPO_ROOT / "schema" / "okf_export.local.yaml",
+    }
+    local_present = any(p.is_file() for p in local_paths)
+    local_sensitive: list = []
+    local_exclude_slugs: list = []
+    for lp in local_paths:
+        lc = load_config(lp)
+        local_sensitive += list(lc.get("sensitive_patterns", []))
+        local_exclude_slugs += list(lc.get("exclude_slugs", []))
 
     exclude_paths = _resolve_exclude_paths(config, args.exclude_path)
     exclude_domains = list(config.get("exclude_domains", [])) + list(args.exclude_domain)
     exclude_slugs = (
         list(config.get("exclude_slugs", []))
-        + list(local_config.get("exclude_slugs", []))
+        + local_exclude_slugs
         + list(args.exclude_slug)
     )
-    sensitive_patterns = (
-        list(config.get("sensitive_patterns", []))
-        + list(local_config.get("sensitive_patterns", []))
-    )
+    sensitive_patterns = list(config.get("sensitive_patterns", [])) + local_sensitive
+
+    # GAP-1 fail-loud: 민감 게이트가 설정 부재로 침묵 비활성인 상태를 경고한다.
+    # fresh clone/CI/협업자 환경엔 gitignored local.yaml이 없어 sensitive_patterns가 비고
+    # 게이트가 조용히 꺼진다 → 민감 페이지가 다시 included될 수 있다. 차단은 아니되 표면화.
+    if not sensitive_patterns and not local_present:
+        print(
+            "🔴 경고: sensitive_patterns 미설정 + schema/okf_export.local.yaml 부재 — "
+            "본문 평문 민감정보 게이트가 비활성입니다. fresh clone/CI라면 로컬 설정을 두고 "
+            "public 커밋 전 --dry-run으로 직접 검토하세요.",
+            file=sys.stderr,
+        )
 
     if not wiki_dir.is_dir():
         print(f"[okf_export] ERROR: wiki dir not found: {wiki_dir}", file=sys.stderr)
