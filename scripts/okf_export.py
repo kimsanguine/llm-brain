@@ -202,7 +202,7 @@ def _extract_description(fm: dict, body: str) -> str:
 
     # ② `## 핵심` 섹션 첫 문장 (표·수평선 라인은 제외)
     for i, line in enumerate(lines):
-        if re.match(r"^#{1,6}\s+핵심\s*$", line.strip()):
+        if re.match(r"^#{1,6}\s+핵심", line.strip()):  # '핵심'·'핵심 요약'·'핵심 공식' 등
             section: list[str] = []
             for nxt in lines[i + 1:]:
                 if re.match(r"^#{1,6}\s", nxt):  # 다음 헤딩에서 중단
@@ -746,14 +746,16 @@ def main(argv: list[str] | None = None) -> int:
     )
     sensitive_patterns = list(config.get("sensitive_patterns", [])) + local_sensitive
 
-    # GAP-1 fail-loud: 민감 게이트가 설정 부재로 침묵 비활성인 상태를 경고한다.
-    # fresh clone/CI/협업자 환경엔 gitignored local.yaml이 없어 sensitive_patterns가 비고
-    # 게이트가 조용히 꺼진다 → 민감 페이지가 다시 included될 수 있다. 차단은 아니되 표면화.
-    if not sensitive_patterns and not local_present:
+    # GAP-1 fail-loud: 로컬 민감설정 부재로 게이트가 침묵 비활성인 상태를 경고한다.
+    # fresh clone/CI/협업자 환경엔 gitignored local.yaml이 없어 sensitive_patterns·
+    # exclude_slugs가 모두 비고 게이트가 조용히 꺼진다 → 이전에 제외하기로 한 민감
+    # 페이지가 다시 included될 수 있다(pages 증가, excluded 목록엔 안 잡힘). 차단 아닌 표면화.
+    if not local_present:
         print(
-            "🔴 경고: sensitive_patterns 미설정 + schema/okf_export.local.yaml 부재 — "
-            "본문 평문 민감정보 게이트가 비활성입니다. fresh clone/CI라면 로컬 설정을 두고 "
-            "public 커밋 전 --dry-run으로 직접 검토하세요.",
+            "🔴 경고: schema/okf_export.local.yaml 부재 — 민감 게이트가 비활성입니다"
+            "(sensitive_patterns 본문 스캐너 + exclude_slugs 민감 페이지 제외 모두 꺼짐). "
+            "fresh clone/CI에서는 이전에 제외한 민감 페이지가 다시 included될 수 있습니다. "
+            "public 커밋 전 로컬 설정을 두고 --dry-run의 excluded 카운트를 직접 검토하세요.",
             file=sys.stderr,
         )
 

@@ -58,7 +58,7 @@ python scripts/okf_export.py [--out okf/] [--strip-internal] [--config schema/ok
 
 ## 3. 페이지 로드 & slug→번들경로
 
-- `wiki/**/*.md` 전부 로드. **제외**: 최상위 메타(`index.md`, `graph_report.md`, `distill_queue.md`), `graph.json`, frontmatter에 `title` 없는 파일.
+- `wiki/**/*.md` 전부 로드. **제외**: 최상위 메타(`index.md`, `graph_report.md`, `distill_queue.md`, `curate_report.md`), `graph.json`, frontmatter에 `title` 없는 파일. (META_FILES는 export_graph의 집합 재사용 + `curate_report.md` 추가.)
 - `rel` = wiki_dir 기준 상대경로(posix). 예: `concepts/rag.md`, `projects/260515_llm_wiki/prd.md`.
 - `dir` = rel의 첫 파트(`concepts`).
 - **번들경로(링크 타깃)** = `"/" + rel` (예: `/concepts/rag.md`). 파일도 `out_dir/rel`에 동일 미러.

@@ -12,6 +12,25 @@
 
 ---
 
+## 설치 *Install*
+
+```bash
+# 1. Claude Code (운영 인터페이스) 설치 — https://claude.ai/code
+#    llm-brain은 /ingest·/okf·/query·/curate·/express 슬래시 커맨드로 운영한다.
+
+# 2. uv (Python 패키지 매니저) 설치 — 미설치 시
+curl -LsSf https://astral.sh/uv/install.sh | sh
+
+# 3. 클론 + 초기 설정 (의존성 설치 + 디렉토리 초기화)
+git clone https://github.com/kimsanguine/llm-brain.git
+cd llm-brain
+bash scripts/setup.sh
+```
+
+설치 후 이 폴더를 Claude Code로 열면 슬래시 커맨드를 쓸 수 있다. 첫 실행(소스 등록·데모)은 아래 [빠른 시작](#빠른-시작-quick-start) 참고.
+
+---
+
 ## 미리보기 *Preview*
 
 로컬 HTML 검색·페이지뷰 (`uv run python -m wiki_app`):
@@ -218,26 +237,25 @@ uv run python -m wiki_app
 
 ---
 
-### 📦 okf-export — wiki → OKF 호환 번들 *Wiki to OKF Bundle*
+### 📦 okf — wiki → OKF 호환 번들 *Wiki to OKF Bundle*
 
-`wiki/`(내부 슈퍼셋)를 OKF v0.1 호환 번들 `okf/`로 투영한다. 동료·외부 에이전트·habix 제품이 번역 없이 그대로 소비할 수 있는 표준 포맷으로 내보내, llm-brain을 경쟁 포맷이 아니라 OKF 표준을 흡수하는 export 포트로 만든다.
+`wiki/`(내부 슈퍼셋)를 OKF v0.1(Google Open Knowledge Format) 호환 번들 `okf/`로 투영한다. 동료·외부 에이전트·habix 제품이 번역 없이 그대로 소비할 수 있는 표준 포맷으로 내보내, llm-brain을 경쟁 포맷이 아니라 OKF 표준을 흡수하는 export 포트로 만든다.
 
 내부 포맷은 바꾸지 않고 경계(`okf/`)에서만 변환한다. frontmatter는 OKF 예약 필드로 매핑하고 나머지 내부 필드는 `x-llmbrain-*`로 보존하며, 본문 `[[wikilink]]`는 번들 루트 절대경로 마크다운 링크(`[X](/concepts/x.md)`)로 변환한다.
 
-```bash
-# 1. dry-run으로 export 대상·제외 목록 확인 (파일 미작성)
-uv run python scripts/okf_export.py --dry-run
-
-# 2. 확인 후 실제 export → okf/ 생성
-uv run python scripts/okf_export.py
-
-# 3. 외부 공유본 (OKF 예약 6필드만, x-llmbrain-* 제거)
-uv run python scripts/okf_export.py --strip-internal
+```
+"okf 해줘"               # /okf — 먼저 dry-run 검토 후 okf/ 번들 생성
+"/okf --dry-run"         # export 대상·제외·통계만 (파일 미작성, 보안 검토용)
+"/okf --strip-internal"  # 외부 공유본 (OKF 예약 6필드만, x-llmbrain-* 제거)
 ```
 
-`business/**`·`canvas/**`는 `schema/okf_export.yaml`의 `exclude_paths`로 번들에서 제외된다.
+> Claude Code 슬래시 커맨드 `.claude/commands/okf.md`가 내부적으로 `scripts/okf_export.py`를 실행한다.
 
-> ⚠ `okf/`는 Git 커밋 대상이고 history는 영구(비가역)다. **public 커밋 전 반드시 `--dry-run`으로 `business/` 페이지가 목록에 0개임을 확인**한다.
+**제외/민감 설정 (보안):**
+- 경로 제외(`business/**`·`canvas/**`)는 커밋되는 `schema/okf_export.yaml`의 `exclude_paths`.
+- 🔴 **민감 키워드(`sensitive_patterns`, 본문 평문 스캐너)·민감 페이지(`exclude_slugs`)는 gitignored `schema/okf_export.local.yaml`에만 둔다** — 커밋되는 yaml에 실명·내부명을 넣으면 그 자체가 누출.
+
+> ⚠ `okf/`는 Git 커밋·push되면 history가 영구(비가역)다. **public 커밋 전 `--dry-run`으로 ① `business/` 제외 ② `sensitive_hits=0` ③ `excluded` 카운트=기대값을 사람이 확인**한다. fresh clone/CI엔 `okf_export.local.yaml`이 없어 게이트가 비활성(stderr 🔴 경고) — 그 상태로 커밋 금지.
 
 ---
 
@@ -259,40 +277,31 @@ llm:
 
 ## 빠른 시작 *Quick Start*
 
+[설치](#설치-install)를 마친 뒤, 첫 실행:
+
 ```bash
-# 0. uv 설치 (미설치 시)
-curl -LsSf https://astral.sh/uv/install.sh | sh
-
-# 1. 클론
-git clone https://github.com/kimsanguine/llm-brain.git
-cd llm-brain
-
-# 2. 초기 설정
-bash scripts/setup.sh
-
-# 3. 소스 경로 등록
+# 1. 소스 경로 등록 (raw/ 가 어디 있는지)
 vi schema/sources.yaml
 
-# 4. 미처리 raw 파일 확인
+# 2. 미처리 raw 파일 확인
 uv run python scripts/ingest.py
-# ※ 이 명령은 raw/ 의 미처리 파일 목록만 출력한다.
-#   실제 wiki 컴파일은 Claude Code 세션에서 "ingest 해줘"로 수행한다.
+# ※ 목록만 출력한다. 실제 wiki 컴파일은 Claude Code 세션에서 "ingest 해줘"(/ingest)로 수행.
 
-# 5. 데모를 즉시 확인하려면 (빈 wiki 상태 우회)
-# ⚠ 기존 index.md가 있으면 덮어쓰인다. 먼저 백업:
-# cp index.md index.md.bak
-cp -r examples/seed-wiki/* ./
-uv run python -m wiki_app   # → http://localhost:8000
+# 3. 데모 시드로 즉시 체험 (선택)
+# ⚠ 클론에 포함된 작성자 index.md를 덮어쓰므로 먼저 백업:
+cp index.md index.md.bak 2>/dev/null || true
+cp -r examples/seed-wiki/wiki ./wiki        # app이 읽는 wiki/ 만 선별 복사
+cp examples/seed-wiki/index.md ./index.md
+uv run python -m wiki_app                   # → http://localhost:8000
 
-# 6. Obsidian에서 열기
-# 이 폴더를 Obsidian → "Open folder as vault"
+# 4. Obsidian에서 열기: 이 폴더를 "Open folder as vault"
 ```
 
 ---
 
 ## Obsidian 연동 *Obsidian Integration*
 
-`.obsidian/`이 프로젝트 루트에 있어 `raw/`와 `wiki/` 양쪽이 Graph View에 표시된다.
+`.obsidian/`(기본 설정)이 프로젝트 루트에 있어 이 폴더를 Obsidian vault로 바로 열 수 있다. `raw/`·`wiki/`가 vault에 포함되어 Graph View로 탐색 가능하다. *(개인 graph 레이아웃·플러그인 상태는 gitignore라 클론 환경에서 동일하게 재현되진 않는다.)*
 
 ```
 llm-brain/
@@ -317,7 +326,7 @@ llm-brain/
 │   ├── ingest.md              # ingest 규칙
 │   ├── curate.md              # curate 규칙
 │   ├── okf.md                 # OKF ↔ llm-brain 매핑 규칙
-│   └── okf_export.yaml        # okf-export 제외 설정 (exclude_paths)
+│   └── okf_export.yaml        # /okf 제외 설정 (exclude_paths)
 ├── scripts/
 │   ├── setup.sh               # 초기 설정
 │   ├── sync_raw.py            # 소스 미러링

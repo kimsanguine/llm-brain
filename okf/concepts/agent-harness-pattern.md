@@ -8,7 +8,7 @@ tags:
 - generator-evaluator
 - agent-evaluation
 - MCP
-timestamp: '2026-06-23'
+timestamp: '2026-06-25'
 x-llmbrain-domain:
 - AI/LLM
 - tools
@@ -116,6 +116,14 @@ NLP Newsletter의 2026-05-31 논문 묶음은 하네스 설계의 다음 경고�
 Cloaked의 AI Brain 사례는 새 에이전트 세션을 신입사원 온보딩처럼 취급한다. 역할, 사용 도구, 산출물 형식, 실패 시 연락 경로를 문서와 스크립트로 명시하고, worktree와 Claude Code hook으로 세션을 격리한다. 야간 librarian 에이전트가 기밀 유출을 감시하는 구조는 하네스의 Verify/Correct/HITL 원칙이 회사 운영으로 확장된 사례다.
 
 Agentic RL 프레임워크 신호는 다음 병목을 드러낸다. 일반 RL은 단일 상태-행동-보상 문제에 가깝지만, 에이전트 RL은 긴 시간 지평의 멀티턴 trajectory, 종료 조건, 병렬 rollout 인프라, credit assignment를 함께 다뤄야 한다. 따라서 프로덕션 하네스는 rollout log, step-level reward, final outcome, policy violation을 기록할 수 있어야 한다.
+
+## 2026-06-24 보강: 배터리 포함 하네스와 매니지드 오케스트레이션
+
+AI Human Day 79의 `langchain-ai/deepagents` 신호는 하네스가 단순 `create_agent` wrapper를 넘어 planning, 가상 파일시스템, 서브에이전트 위임, 컨텍스트 관리, 스킬 로딩을 한 번에 묶는 **배터리 포함 런타임**으로 이동하고 있음을 보여준다. 이는 [claude-code-agent-system](/tools/claude-code-agent-system.md)이나 [openai-agents-sdk](/tools/openai-agents-sdk.md)처럼 실행환경, 파일 상태, 권한, 평가를 한 표면에서 다루는 흐름과 같다.
+
+AWS의 엔터프라이즈 에이전트 플랫폼 강화 신호도 같은 방향이다. 개발자가 매번 오케스트레이션 루프를 직접 짜기보다, 모델·도구·스킬·지침·메모리·브라우징·파일시스템을 선언하면 플랫폼이 실행 루프를 제공한다. 실무 판단은 "프레임워크를 쓸까 말까"가 아니라 어느 레이어를 플랫폼에 맡기고, 어느 레이어를 직접 통제할지다.
+
+그렙 모니토의 LLM 에이전트 적용은 하네스가 코드/문서 작업만의 패턴이 아님을 보여준다. 시험감독 맥락에서는 인식 결과를 모으고, 부정행위 의심 정황을 추론하고, 사람이 검토할 리포트로 남기는 관찰→추론→산출물 루프가 핵심이다. 즉 하네스는 "모델이 도구를 부르는 구조"가 아니라 도메인별 증거 수집과 검증 가능한 출력 계약을 만드는 운영 레이어다.
 
 ## 프로덕션 수치
 

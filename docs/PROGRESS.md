@@ -21,17 +21,16 @@
 
 ---
 
-## 현재 체크포인트 (2026-06-23)
+## 현재 체크포인트 (2026-06-25)
 
-- **상태**: Phase 1(OKF Export) 구현 + 보안 강화 + **Ralph loop 3라운드 수렴 완료(critical/major 0)**.
-- **테스트**: `pytest` 전체 **195 통과**(OKF 단위 54 + E2E 19). 7종(+ test_okf_e2e.py: subprocess CLI·consumer·보안·fresh-clone).
-- **검증**: 실 92페이지 round-trip dangling=0·business=0·깨진 키 0·json.dumps 92/92. dry-run: ghost=5 / excl_refs=85 / excluded=4 / skipped=1.
-- **Ralph loop 수렴 곡선**: R1 critical 2+major 6 → R2 major 2(R1 수정의 회귀/미완) → R3 major 1(Codex 코드펜스) → **수렴**. 6 렌즈(P1~P5+Codex) 전부 "새 critical/major 0".
-- **🔴 보류(승인 대기)**: **public 커밋은 비가역(Rule 9)이라 자동 실행 안 함.** 커밋 전 GO 조건(P3) ↓.
+- **상태**: Phase 1(OKF Export) + 보안 강화 + Ralph loop 3R 수렴 + E2E + 문서 검수 **완료·public push됨**(main).
+- **테스트**: `pytest` 전체 **195 통과**(OKF 단위 54 + E2E 19).
+- **검증**: 실 round-trip dangling=0·business=0·깨진 키 0·json.dumps 전수. dry-run(민감 제외 적용): excluded=13(business 4 + 민감 slug 9) / sensitive_hits=0 / pages=84.
+- **Ralph loop 수렴 곡선**: R1 critical 2+major 6 → R2 major 2 → R3 major 1 → 수렴(6 렌즈 새 critical/major 0).
 
-### public 커밋 GO 조건 (P3 보안 검토 — 충족 후에만 커밋)
-1. `schema/okf_export.yaml`의 `sensitive_patterns`를 본인 운영 키워드(실명·EchoMate·StockPulse·context-dealer 등)로 채운다. *(주의: 이 파일은 커밋되므로 실명을 넣기 싫으면 gitignored 로컬 설정 분리 권장.)*
-2. `uv run python scripts/okf_export.py --dry-run` 실행 → 출력의 `business 제외 4건`·`sensitive_hits`를 사람이 눈으로 검토.
+### public 커밋 보안 게이트 (재export·재커밋 시 매번 — 충족 후에만 커밋)
+1. **gitignored `schema/okf_export.local.yaml` 존재 확인** — 민감 키워드(`sensitive_patterns`)·제외 페이지(`exclude_slugs`)는 **반드시 이 로컬 파일에만** 둔다. **커밋되는 `schema/okf_export.yaml`에는 실명·내부명을 절대 넣지 않는다**(그 자체가 누출). fresh clone/CI엔 이 파일이 없어 게이트가 비활성 → 그 상태로 커밋 금지.
+2. `uv run python scripts/okf_export.py --dry-run` → ① `business 제외 4건` ② `sensitive_hits=0` ③ **`excluded` 카운트 = business 4 + 민감 slug 수**(기대값과 일치)인지 사람이 검토. (local.yaml 부재 시 `pages`가 늘고 민감 페이지가 included로 조용히 섞이니 카운트 대조 필수.)
 3. 누출 0 확인 후에만 `okf/` 생성 + 커밋.
 
 ---
@@ -57,7 +56,7 @@
 - **[2026-06-23·R3] description 추출 클래스 완성(번호목록·코드펜스 다이어그램·수식·라벨)** — Rule 2(품질, R1 부분수정 보완). R1이 약어만 고쳐 번호목록('1...2.' 잘림)·코드펜스 다이어그램·수식이 잔존(P1 R2 발견). 번호목록/수식/화살표 스킵 + 코드펜스 제거 + 콜론라벨/초단문 빈값화. 가역. 검증: 실데이터 4케이스 정상화 + 회귀 테스트.
 - **[2026-06-23·R3] `_strip_code_fences` 라인 앵커 regex 교정** — Rule 2(견고성). R3에서 새로 만든 helper의 `` ```.*?``` ``가 인라인/중첩 삼중백틱에서 내부 잔류(Codex R3 [major]). `(?ms)^```...\n...\n```$` 라인 앵커로 well-formed 블록만 제거. 가역. 검증: Codex reproducer 잔류 0 + 정상 펜스 제거 + 회귀 테스트.
 - **[2026-06-23·R3] Ralph loop 수렴 선언** — Rule 7. 6 렌즈 전부 새 critical/major 0. 잔여는 minor만(아래). 비가역 커밋은 GO 조건 충족 후 사람 승인.
-- **[2026-06-24] GO 조건 충족 + 로컬 커밋** — Rule 9. dry-run 보안 게이트로 본문 평문 민감정보 검토 → 사용자 결정 "전부 제외"로 9페이지(이든·EchoMate) `exclude_slugs`(로컬) 추가, sensitive_hits 0 수렴. okf/ 84페이지 생성(business 4 + 민감 9 제외). 브랜치 `feat/okf-export-p1`에 커밋 `88f8fa4`(OKF 파일만, 기존 미커밋 index.md·log.md·examples 보존, 로컬 민감설정 gitignored). **push(public 노출)는 보류 — 별도 승인.**
+- **[2026-06-24→25] GO 조건 충족 + 커밋·머지·push** — Rule 9. dry-run 보안 게이트로 본문 평문 민감정보 검토 → 사용자 결정 "전부 제외"로 민감 페이지 9개를 `exclude_slugs`(로컬 `.local.yaml`)에 추가, sensitive_hits 0 수렴. okf/ 84페이지 생성(business 4 + 민감 slug 9 제외). 커밋 `88f8fa4`(OKF 파일만, 기존 미커밋 index.md·log.md·examples 보존). **main 머지 + origin push 완료**(GitHub 라이브 검증: business 404·제외 페이지 부재). 로컬 민감설정은 gitignored 유지.
 - **[2026-06-24] 로컬 오버라이드 메커니즘** — Rule 8(privacy). `schema/okf_export.local.yaml`(gitignored)로 민감 키워드·exclude_slug 분리. 커밋 설정 파일에 실명 유입 방지. main()이 config + .local.yaml 병합.
 - **[2026-06-24] 멀티에이전트 E2E 테스트 계획 + 구현** — Rule 4·6. 4 에이전트(CLI/운영·consumer interop·보안·fresh-clone)가 실측 설계한 53 시나리오 → `docs/superpowers/specs/2026-06-24-okf-e2e-test-plan.md` + `tests/test_okf_e2e.py`(19 E2E, subprocess 미니레포 + 독립 minimal consumer). 전체 195 passed. 설계 중 **단위테스트가 못 잡는 실제 갭 3건 발견·수정**: ↓
 - **[2026-06-24·GAP-2] symlink out_dir 거부 dead code 수정** — Rule 8·9. `resolve()`가 symlink를 먼저 해소해 `is_symlink()` 가드가 영구 False였음(A·E2E-19). resolve **전** 원본 인자로 검사하도록 이동. 검증: symlink `--out` 거부 실증 + 회귀 테스트.

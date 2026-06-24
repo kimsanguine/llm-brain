@@ -5,7 +5,7 @@ tags:
 - deep-learning
 - deep-learning-component
 - transfer-learning
-timestamp: '2026-06-05'
+timestamp: '2026-06-25'
 x-llmbrain-domain:
 - teaching
 - AI/LLM
@@ -169,6 +169,18 @@ AI Avatar/Dubbing 수업에서는 이 세트를 "이미지 분류 모델"이 아
 | ADOPT | Adam도 여전히 개선 대상이다. 2차 모멘트 추정과 정규화 순서를 바꾸는 작은 수정으로 beta2 선택 민감도를 줄이고 최적 수렴률을 보장하려는 흐름이다. |
 
 강의에서는 optimizer를 외워야 할 함수명이 아니라 디버깅 도구로 다루는 편이 좋다. loss가 흔들리면 learning rate schedule, gradient norm, sharpness/generalization, Adam 계열 hyperparameter를 순서대로 점검한다.
+
+### 자기 정규화, 순환 학습률, Muon
+
+2026-06-24 논문 추천은 신경망 학습을 "레이어를 많이 쌓는 법"보다 **분포와 업데이트를 안정시키는 법**으로 보강한다.
+
+| 논문/기법 | 강의 메시지 |
+|---|---|
+| Self-Normalizing Neural Networks | SELU + 적절한 초기화 + alpha dropout으로 activation 평균과 분산이 스스로 안정 영역으로 돌아가게 만든다. 정규화는 BatchNorm 같은 별도 레이어만의 문제가 아니라 활성화 함수 설계 문제이기도 하다. |
+| Cyclical Learning Rates | 학습률은 항상 줄이는 값이 아니라 탐색과 탈출을 위해 주기적으로 높일 수 있는 제어 변수다. LR range test는 수강생에게 가장 실용적인 튜닝 절차로 소개하기 좋다. |
+| Muon | AdamW가 끝판왕이 아니라, 가중치 행렬의 기하 구조를 활용한 optimizer가 LLM 사전학습 compute를 줄일 수 있다는 최신 신호다. |
+
+수업에서는 이 세트를 하나의 디버깅 루틴으로 묶는다. 학습이 불안정하면 먼저 activation/gradient 분산을 보고, 그 다음 learning rate range를 찾고, 마지막으로 optimizer 선택과 update scale을 확인한다. 이 흐름은 ai-paper-learning-path Module 3의 "Classic + Recent + Practical Lens" 구조와 연결된다.
 
 ### 강사 팁
 

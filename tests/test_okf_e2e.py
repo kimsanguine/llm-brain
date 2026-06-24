@@ -235,12 +235,12 @@ def test_e2e_local_sensitive_surfaced(tmp_path):
     """local.yaml의 sensitive_patterns가 dry-run에 표면화."""
     repo = _minirepo(
         tmp_path,
-        pages={"concepts/a.md": "---\ntitle: A\ntype: concept\n---\n\n이든의 EchoMate 이탈률.\n"},
-        local={"sensitive_patterns": ["이든", "EchoMate"], "exclude_slugs": []},
+        pages={"concepts/a.md": "---\ntitle: A\ntype: concept\n---\n\n홍길동의 FooApp 이탈률.\n"},
+        local={"sensitive_patterns": ["홍길동", "FooApp"], "exclude_slugs": []},
     )
     rc, out, _ = _run(repo, "--dry-run")
     assert rc == 0
-    assert "민감정보 후보" in out and "이든" in out
+    assert "민감정보 후보" in out and "홍길동" in out
 
 
 def test_e2e_gap1_warning_when_gate_inactive(tmp_path):

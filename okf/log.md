@@ -1,9 +1,9 @@
-## 2026-06-24 export
+## 2026-06-25 export
 
 - pages_exported: 84
-- links_converted: 899
+- links_converted: 901
 - broken_links (진짜 ghost): 4
-- excluded_link_refs (제외 페이지 가리킴·redact): 165
+- excluded_link_refs (제외 페이지 가리킴·redact): 166
 - excluded_pages: 13
 - skipped (로드 실패·title 부재): 0
 - sensitive_hits (본문 민감정보 후보): 0
@@ -107,6 +107,7 @@
 - `lecture/adsp-exam-prep.md` → `[[ai-paper-learning-path]]` (제외됨)
 - `lecture/adsp-exam-prep.md` → `[[ai-paper-learning-path]]` (제외됨)
 - `lecture/adsp-exam-prep.md` → `[[ai-human-daily-brief-curriculum-signals]]` (제외됨)
+- `lecture/deep-learning-fundamentals.md` → `[[ai-paper-learning-path]]` (제외됨)
 - `lecture/deep-learning-fundamentals.md` → `[[ai-paper-learning-path]]` (제외됨)
 - `lecture/deep-learning-fundamentals.md` → `[[ai-paper-learning-path]]` (제외됨)
 - `lecture/deep-learning-fundamentals.md` → `[[260515_100_agents]]` (제외됨)

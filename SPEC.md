@@ -277,7 +277,17 @@ wiki 전체를 감사(audit) + 압축(distill) + 수명 관리(lifecycle)하는 
 | `--exclude-slug SLUG` | str (복수) | `[]` | 특정 slug 명시 제외 |
 | `--dry-run` | flag | off | 파일 0개 작성, export 대상·통계만 출력 (public 커밋 전 보안 게이트용) |
 
-`exclude_paths`·`exclude_domains`·`exclude_slugs` 최종값 = `schema/okf_export.yaml` 값 + CLI 인자(누적).
+`exclude_paths`·`exclude_domains`·`exclude_slugs`·`sensitive_patterns` 최종값 = `schema/okf_export.yaml`(커밋됨) + gitignored `schema/okf_export.local.yaml` + CLI 인자(누적).
+
+#### 보안 — 민감정보 게이트
+
+| 메커니즘 | 동작 |
+|---|---|
+| `exclude_paths` (경로 글롭) | `business/**`·`canvas/**` 등 경로째 번들에서 제외. 1차 방어선 |
+| `sensitive_patterns` (본문 스캐너) | included 페이지 본문/description 평문을 대소문자 무시 스캔 → `sensitive_hits`로 dry-run/log 표면화(차단 아님, 사람 검토용). 페이지 제외로 못 막는 본문 평문 실명·운영수치 탐지 |
+| `exclude_slugs` (페이지 제외) | dry-run 검토 후 누출 확인된 페이지를 명시 제외 |
+| 로컬 분리 | 🔴 실명·내부명 같은 민감 값은 **gitignored `schema/okf_export.local.yaml`에만** 둔다. 커밋되는 `okf_export.yaml`에 넣으면 그 자체가 누출. main()이 두 파일을 병합 |
+| fail-loud 경고 | `okf_export.local.yaml` 부재 시(fresh clone/CI) 게이트 비활성 → stderr에 🔴 경고. 그 상태로 커밋 금지 |
 
 #### 출력 파일
 
@@ -293,12 +303,15 @@ wiki 전체를 감사(audit) + 압축(distill) + 수명 관리(lifecycle)하는 
 
 - `raw/`·`wiki/`는 읽기 전용. 출력은 `out_dir`(기본 `okf/`)에만.
 - `out_dir`가 `wiki_dir`이거나 그 조상(레포 루트 등)이면 거부(`rmtree` 데이터 손실 방지).
+- `out_dir`가 심볼릭 링크면 거부(`resolve()` 전 원본 인자로 검사 — 링크 대상 삭제 방지).
 - 비어있지 않은 `out_dir`에 `.okf-bundle` 마커가 없으면 덮어쓰기 거부.
-- frontmatter 값의 `---`는 em-dash로 치환 (OKF consumer의 `text.split("---")` 호환 보장).
+- frontmatter 값의 `---`는 em-dash로 치환, date/datetime은 ISO 문자열로 직렬화 (OKF consumer의 `text.split("---")`·`json.dumps` 호환 보장).
 
 #### 호환성 단일 진실 — 링크 정규식
 
-OKF minimal consumer는 본문에서 `\]\((/[^)]+\.md)\)` 패턴으로 엣지를 추출한다. export가 만드는 모든 페이지 링크는 `/`로 시작하는 번들 루트 절대경로 + `.md` 끝이라 이 패턴에 잡힌다. 라운드트립 검증: 번들 노드 수 = export 페이지 수, 엣지 수 = 깨지지 않은 wikilink 수.
+OKF minimal consumer는 본문에서 `\]\((/[^)]+\.md)\)` 패턴으로 엣지를 추출한다. export가 만드는 모든 페이지 링크는 `/`로 시작하는 번들 루트 절대경로 + `.md` 끝이라 이 패턴에 잡힌다. 라운드트립 검증: **콘텐츠 노드 수 = export 페이지 수**, 엣지 수 = 깨지지 않은 wikilink 수.
+
+> ⚠ minimal consumer가 `rglob("*.md")`로 노드를 모으면 페이지 외에 디렉토리별 `index.md`·`log.md`도 노드로 잡힌다(OKF 관례 파일). 라운드트립에서 "노드 = 페이지 수"를 검증하려면 frontmatter `title`이 없는 메타 파일(index/log)을 콘텐츠 노드에서 제외하고 센다.
 
 ---
 

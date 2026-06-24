@@ -11,13 +11,13 @@
 - [Claude Code Hook 시스템](/concepts/claude-code-hook-system.md) — Claude Code의 hook은 settings.json에 정의된 자동화 트리거로, 세션 시작 시점의 스냅샷만 로드된다.
 - [Code-native Visual AI](/concepts/code-native-visual-ai.md) — Visual AI의 다음 프론티어는 완성 픽셀을 바로 생성하는 것이 아니라, 픽셀을 만드는 편집 가능한 코드 아티팩트를 생성하는 방향이다.
 - [Context Dealer 패턴](/concepts/context-dealer-pattern.md) — PM은 문서 작성자가 아니라 AI에게 맥락(context)을 나눠주는 사람(dealer) 이다.
-- [Context-first 에이전트 오케스트레이션](/concepts/context-first-agent-orchestration.md) — 에이전트 시스템의 성패는 모델 성능이 아니라 컨텍스트 설계가 결정한다.
+- [Context-first 에이전트 오케스트레이션](/concepts/context-first-agent-orchestration.md) — 에이전트 시스템의 성패는 모델 성능이 아니라 컨텍스트 설계와 워크플로우 소유권이 결정한다.
 - [FFmpeg 자막 처리 패턴](/concepts/ffmpeg-subtitle-pipeline.md) — FFmpeg를 사용한 영상 편집 및 자막 처리 시 알아야 할 핵심 동작 패턴.
 - [Forward Deployed Engineering (FDE)](/concepts/forward-deployed-engineering.md) — Forward Deployed Engineer는 frontier AI 제품을 고객사 환경 안에서 실제로 작동하게 만드는 "embedded builder" 역할이다.
 - [Frontier AI Labs 비교](/concepts/frontier-labs-comparison.md) — 2024-2026 frontier AI lab 진영을 포지셔닝 축 4가지로 비교: ① safety-first vs product-first vs research-first ② 자본 구조 ③ 핵심 제품 ④ 출신 인물 그래프.
 - [Generator-Evaluator 아키텍처 (PGE 패턴)](/concepts/generator-evaluator-architecture.md) — 에이전트는 자기 결과를 정확히 평가하지 못한다.
 - [하네스 엔지니어링 3세대 진화](/concepts/harness-engineering-evolution.md) — 핵심 질문: "무슨 말을 해야 하나?"
-- [Interaction Models](/concepts/interaction-models.md) — thinking-machines가 2026-05-11에 발표한 새로운 모델 class.
+- [Interaction Models](/concepts/interaction-models.md) — Whisper 같은 대형 standalone encoder에 의존하지 않는다.
 - [Knowledge Management Tools Evolution](/concepts/knowledge-management-tools-evolution.md) — 개인 지식 관리(PKM) 도구는 2000년대 이후 다섯 단계를 거쳐 진화해 왔다.
 - [LLM Deployment Patterns](/concepts/llm-deployment-patterns.md) — LLM 배포는 latency·cost·privacy·scalability 4개 축의 트레이드오프로 결정된다.
 - [LLM 양자화와 압축](/concepts/llm-quantization-compression.md) — LLM 양자화는 모델 품질을 크게 잃지 않으면서 메모리와 추론 비용을 줄이는 serving 기술이다.

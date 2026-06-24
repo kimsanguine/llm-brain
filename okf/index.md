@@ -13,13 +13,13 @@
 - [Claude Code Hook 시스템](/concepts/claude-code-hook-system.md) — Claude Code의 hook은 settings.json에 정의된 자동화 트리거로, 세션 시작 시점의 스냅샷만 로드된다.
 - [Code-native Visual AI](/concepts/code-native-visual-ai.md) — Visual AI의 다음 프론티어는 완성 픽셀을 바로 생성하는 것이 아니라, 픽셀을 만드는 편집 가능한 코드 아티팩트를 생성하는 방향이다.
 - [Context Dealer 패턴](/concepts/context-dealer-pattern.md) — PM은 문서 작성자가 아니라 AI에게 맥락(context)을 나눠주는 사람(dealer) 이다.
-- [Context-first 에이전트 오케스트레이션](/concepts/context-first-agent-orchestration.md) — 에이전트 시스템의 성패는 모델 성능이 아니라 컨텍스트 설계가 결정한다.
+- [Context-first 에이전트 오케스트레이션](/concepts/context-first-agent-orchestration.md) — 에이전트 시스템의 성패는 모델 성능이 아니라 컨텍스트 설계와 워크플로우 소유권이 결정한다.
 - [FFmpeg 자막 처리 패턴](/concepts/ffmpeg-subtitle-pipeline.md) — FFmpeg를 사용한 영상 편집 및 자막 처리 시 알아야 할 핵심 동작 패턴.
 - [Forward Deployed Engineering (FDE)](/concepts/forward-deployed-engineering.md) — Forward Deployed Engineer는 frontier AI 제품을 고객사 환경 안에서 실제로 작동하게 만드는 "embedded builder" 역할이다.
 - [Frontier AI Labs 비교](/concepts/frontier-labs-comparison.md) — 2024-2026 frontier AI lab 진영을 포지셔닝 축 4가지로 비교: ① safety-first vs product-first vs research-first ② 자본 구조 ③ 핵심 제품 ④ 출신 인물 그래프.
 - [Generator-Evaluator 아키텍처 (PGE 패턴)](/concepts/generator-evaluator-architecture.md) — 에이전트는 자기 결과를 정확히 평가하지 못한다.
 - [하네스 엔지니어링 3세대 진화](/concepts/harness-engineering-evolution.md) — 핵심 질문: "무슨 말을 해야 하나?"
-- [Interaction Models](/concepts/interaction-models.md) — thinking-machines가 2026-05-11에 발표한 새로운 모델 class.
+- [Interaction Models](/concepts/interaction-models.md) — Whisper 같은 대형 standalone encoder에 의존하지 않는다.
 - [Knowledge Management Tools Evolution](/concepts/knowledge-management-tools-evolution.md) — 개인 지식 관리(PKM) 도구는 2000년대 이후 다섯 단계를 거쳐 진화해 왔다.
 - [LLM Deployment Patterns](/concepts/llm-deployment-patterns.md) — LLM 배포는 latency·cost·privacy·scalability 4개 축의 트레이드오프로 결정된다.
 - [LLM 양자화와 압축](/concepts/llm-quantization-compression.md) — LLM 양자화는 모델 품질을 크게 잃지 않으면서 메모리와 추론 비용을 줄이는 serving 기술이다.
@@ -69,12 +69,12 @@
 
 ## person
 
-- [Andrew Ng](/people/andrew-ng.md) — Stanford University CS 교수.
+- [Andrew Ng](/people/andrew-ng.md) — "AI is the new electricity." (2016) 전기가 모든 산업을 바꿨듯 AI가 모든 산업을 재편할 것이라는 메타포.
 - [Dario Amodei](/people/dario-amodei.md) — anthropic CEO이자 공동 창립자.
 - [Demis Hassabis](/people/demis-hassabis.md) — Google DeepMind CEO 및 공동 창립자.
 - [Geoffrey Hinton](/people/geoffrey-hinton.md) — 딥러닝의 "대부(godfather)"로 불리는 컴퓨터 과학자.
 - [Ilya Sutskever](/people/ilya-sutskever.md) — 전 OpenAI Chief Scientist (2015–2024) 및 공동 창립 멤버.
-- [John Yang (Princeton)](/people/john-yang.md) — Princeton CS 박사과정생.
+- [John Yang (Princeton)](/people/john-yang.md) — "LM 에이전트는 새 카테고리의 end user다." 인간이 IDE·GUI를 통해 컴퓨터와 상호작용하듯, LM 에이전트에게도 specially-built interface가 필요하다는 논지.
 - [Andrej Karpathy](/people/karpathy.md) — "LLM을 컴파일러처럼 써라.
 - [Mira Murati](/people/mira-murati.md) — 전 OpenAI CTO (2018-2024).
 - [Mitchell Hashimoto](/people/mitchell-hashimoto.md) — HashiCorp 공동 창립자 (2012).
@@ -86,7 +86,7 @@
 ## project
 
 - [LLM Wiki 시스템](/projects/260515_llm_wiki.md) — Karpathy의 LLM wiki 패턴을 기반으로 구축한 개인 지식 컴파일 시스템.
-- [LLM Wiki — 아키텍처](/projects/260515_llm_wiki/architecture.md) — karpathy의 원본 설계에서 4가지 축을 확장한다.
+- [LLM Wiki — 아키텍처](/projects/260515_llm_wiki/architecture.md) — 가드레일 설계는 claude-code-agent-system의 scope 제한 패턴을 참조.
 - [LLM Wiki — 운영 가이드](/projects/260515_llm_wiki/operations.md) — claude-code CLI(claude -p)를 실행 엔진으로 하는 명령어 체계.
 - [LLM Wiki — PRD](/projects/260515_llm_wiki/prd.md) — LLM을 컴파일러로 쓰는 개인 지식 관리 시스템 (skill / template).
 - [T3-TEACH 강의 운영 패턴 및 인사이트](/projects/t3-teach-lecture-operations.md) — T3-TEACH 클라이언트의 강의 세션 운영 패턴과 수강생 프로젝트 발표 트렌드를 MeetFlow 주간 요약에서 추출한 운영 인사이트.

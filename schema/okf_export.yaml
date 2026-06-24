@@ -28,5 +28,8 @@ exclude_slugs: []
 #   평문(실명·운영수치 등)은 못 막는다(별칭 redact도 [[링크]]만 처리). 이 패턴들을
 #   본문/description에서 대소문자 무시로 스캔해 dry-run/log에 "검토 필요"로 표면화한다.
 #   차단이 아니라 표면화(Rule 8 fail-loud) — 사람이 커밋 전에 직접 판단하도록.
-#   예: ["김생근", "이든", "EchoMate", "StockPulse"] — 본인 운영 키워드로 채울 것.
+#   🔴 실값(실명·내부 프로젝트명 등)은 **이 파일에 넣지 말 것** — 이 파일은 커밋되므로
+#      주석/값에 실명을 적으면 그 자체가 누출이다. 실 패턴은 gitignored
+#      schema/okf_export.local.yaml 에만 둔다(아래 exclude_slugs 도 동일).
+#   예: ["<본인-실명>", "<내부-프로젝트-코드명>"] 형태로 .local.yaml 에 작성.
 sensitive_patterns: []

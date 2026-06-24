@@ -7,7 +7,7 @@ tags:
 - retrieval
 - retriever-reader
 - modular-rag
-timestamp: '2026-06-22'
+timestamp: '2026-06-25'
 x-llmbrain-domain:
 - AI/LLM
 - Retrieval
@@ -80,6 +80,8 @@ BGE-M3는 이 흐름을 dense, sparse, multi-vector 검색을 한 모델에 통�
 2026-06-22 vector database 논문 세트는 대규모 벡터 검색을 압축과 인덱싱의 조합으로 설명한다. Product Quantization(PQ)은 벡터를 여러 부분공간으로 나눠 짧은 코드로 압축하고, SPANN은 centroid는 메모리에, posting list는 SSD에 두는 메모리-디스크 하이브리드 구조로 십억 규모 검색 비용을 낮춘다. RaBitQ는 1비트/차원 양자화와 오차 보증을 결합해 recall-cost tradeoff를 더 정량적으로 다룬다.
 
 KAIST의 옴니RAG/아카식DB 신호는 이 기술 축이 제품 레이어에서는 벡터, 그래프, 관계형 DB의 통합으로 보인다는 점을 보여준다. 사용자는 "벡터 검색"을 원하는 것이 아니라 권한, 관계, 최신성, 의미 검색이 한 질의에서 함께 작동하기를 원한다.
+
+2026-06-24 AI Human 브리프는 이 방향을 Ch08 학습 맥락으로 다시 확인한다. 옴니RAG/아카식DB는 의미 유사도, 개체 관계, 구조화 조건을 한 시스템에서 처리해야 복합 질의의 속도와 정확도를 함께 올릴 수 있다는 신호다. 따라서 RAG 강의는 "벡터DB 붙이기"에서 시작하기보다, 어떤 질의가 dense retrieval만으로 충분하고 어떤 질의가 graph/relational filter까지 요구하는지 구분하는 의사결정으로 시작해야 한다.
 
 ## 활용 사례
 

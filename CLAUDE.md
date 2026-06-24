@@ -35,17 +35,27 @@ uv run python scripts/export_graph.py
 `[[wikilink]]` 파싱 → `wiki/graph.json` 생성 (D3 force-graph 형식).
 mini-graph는 `wiki_app` `/api/page/{slug}/graph` 엔드포인트로 조회.
 
-### okf-export (wiki → OKF v0.1 호환 번들)
+### okf (wiki → OKF v0.1 호환 번들 export)
 ```
-uv run python scripts/okf_export.py --dry-run        # export 대상·제외 목록만 (파일 미작성)
-uv run python scripts/okf_export.py                  # okf/ 번들 생성
-uv run python scripts/okf_export.py --strip-internal # 외부 공유본 (x-llmbrain-* 제거)
+"okf 해줘"                     # /okf — 먼저 dry-run 검토 후 okf/ 번들 생성
+"/okf --dry-run"               # export 대상·제외·통계만 (파일 미작성, 보안 검토용)
+"/okf --strip-internal"        # 외부 공유본 (x-llmbrain-* 제거)
 ```
-`wiki/`를 OKF v0.1 호환 번들 `okf/`로 투영 (동료·외부 에이전트·habix 제품이 번역 없이 소비).
-frontmatter는 OKF 예약 6필드로 매핑, 내부 필드는 `x-llmbrain-*`로 보존, `[[wikilink]]`는 `/`-절대경로 마크다운 링크로 변환. 제외 설정: `schema/okf_export.yaml` (`business/**`·`canvas/**`). 변환 규칙: `schema/okf.md`.
+`/okf` 커맨드(`.claude/commands/okf.md`)가 `scripts/okf_export.py`를 실행해 `wiki/`를
+OKF v0.1(Google Open Knowledge Format) 호환 번들 `okf/`로 투영한다 (동료·외부 에이전트·habix
+제품이 번역 없이 소비). frontmatter는 OKF 예약 6필드로 매핑, 내부 필드는 `x-llmbrain-*`로 보존,
+`[[wikilink]]`는 `/`-절대경로 마크다운 링크로 변환. 변환 규칙: `schema/okf.md`.
 
-> ⚠ **drift 주의**: `okf/`는 export 시점 스냅샷이다. `wiki/` 갱신 후 재export 안 하면 `okf/`가 stale 상태로 남는다.
-> 🔴 **public 커밋 전 보안 게이트 (one-way door)**: `okf/`는 Git 커밋 대상이고 history는 영구다. 커밋 전 반드시 `--dry-run`으로 `business/` 제외·민감정보가 목록에 0개임을 사람이 눈으로 확인한다.
+**제외/민감 설정 (보안):**
+- 경로 제외(`business/**`·`canvas/**`)는 커밋되는 `schema/okf_export.yaml`의 `exclude_paths`.
+- 🔴 **민감 키워드(`sensitive_patterns`)·민감 페이지(`exclude_slugs`)는 gitignored
+  `schema/okf_export.local.yaml`에만 둔다** — 커밋되는 yaml에 실명·내부명을 넣으면 그 자체가 누출.
+
+> ⚠ **drift 주의**: `okf/`는 export 시점 스냅샷이다. `wiki/` 갱신 후 재export 안 하면 stale.
+> 🔴 **public 커밋 전 보안 게이트 (one-way door)**: `okf/`는 Git 커밋·push되면 history 영구.
+> 커밋 전 `--dry-run`으로 ① `business/` 제외 ② `sensitive_hits=0` ③ `excluded` 카운트=기대값을
+> 사람이 확인. fresh clone/CI엔 `okf_export.local.yaml`이 없어 게이트가 비활성(stderr 🔴 경고) —
+> 그 상태로 커밋 금지.
 
 ### query
 ```
@@ -76,7 +86,7 @@ uv run python -m wiki_app
 - **AI 답변 토글**: `claude -p` CLI 라이브 연결 (SSE 스트리밍 `/api/ai-answer/stream` 포함). CLI 부재 시 `status: unavailable` fallback.
 - **백엔드**: `wiki_app/` (FastAPI · uv) — 6 endpoints (`/api/index`, `/api/search`, `/api/page/{slug}`, `/api/page/{slug}/graph`, `/api/ai-answer`, `/api/ai-answer/stream`)
 - **프론트엔드**: `wiki_app/static/` (vanilla JS + Pretendard)
-- **테스트**: `tests/test_wiki_app_*.py` (5 modules, 37 tests)
+- **테스트**: `tests/test_wiki_app_*.py` (5 modules, 73 tests)
 - **운영 가드레일**: 페이지뷰 시 wiki frontmatter `access_count` 자동 +1 (CLI query와 동등)
 - **설계 문서**: `docs/superpowers/specs/2026-05-22-wiki-search-html-mvp-design.md`
 

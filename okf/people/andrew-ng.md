@@ -1,7 +1,8 @@
 ---
 type: person
 title: Andrew Ng
-description: Stanford University CS 교수.
+description: '"AI is the new electricity." (2016) 전기가 모든 산업을 바꿨듯 AI가 모든 산업을 재편할 것이라는
+  메타포.'
 tags:
 - andrew-ng
 - deeplearning-ai

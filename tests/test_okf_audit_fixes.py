@@ -185,9 +185,9 @@ def test_strip_code_fences_line_anchored(tmp_path):
 def test_sensitive_patterns_surfaced(tmp_path):
     """[P3 major] included 본문 평문 민감정보가 dry-run 게이트에 표면화돼야."""
     wiki = tmp_path / "wiki"
-    _w(wiki, "concepts/a.md", "---\ntitle: A\ntype: concept\n---\n\n이든의 개인 인프라와 EchoMate 이탈률.\n")
+    _w(wiki, "concepts/a.md", "---\ntitle: A\ntype: concept\n---\n\n홍길동의 개인 인프라와 FooApp 이탈률.\n")
     s = okf_export.export_bundle(
-        wiki, tmp_path / "okf", sensitive_patterns=["이든", "EchoMate"], dry_run=True
+        wiki, tmp_path / "okf", sensitive_patterns=["홍길동", "FooApp"], dry_run=True
     )
     hits = {pat for _rel, pat in s.sensitive_hits}
-    assert "이든" in hits and "EchoMate" in hits, f"민감정보 미표면화: {s.sensitive_hits}"
+    assert "홍길동" in hits and "FooApp" in hits, f"민감정보 미표면화: {s.sensitive_hits}"

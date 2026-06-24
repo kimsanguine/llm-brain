@@ -1,7 +1,7 @@
 ---
 type: concept
 title: Interaction Models
-description: thinking-machines가 2026-05-11에 발표한 새로운 모델 class.
+description: Whisper 같은 대형 standalone encoder에 의존하지 않는다.
 tags:
 - omni-modal
 - multimodal

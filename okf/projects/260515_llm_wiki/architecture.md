@@ -1,7 +1,7 @@
 ---
 type: project
 title: LLM Wiki — 아키텍처
-description: karpathy의 원본 설계에서 4가지 축을 확장한다.
+description: 가드레일 설계는 claude-code-agent-system의 scope 제한 패턴을 참조.
 tags:
 - architecture
 - llm-wiki

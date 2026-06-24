@@ -1,7 +1,8 @@
 ---
 type: person
 title: John Yang (Princeton)
-description: Princeton CS 박사과정생.
+description: '"LM 에이전트는 새 카테고리의 end user다." 인간이 IDE·GUI를 통해 컴퓨터와 상호작용하듯, LM 에이전트에게도
+  specially-built interface가 필요하다는 논지.'
 tags:
 - john-yang
 - swe-agent

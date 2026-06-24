@@ -1,12 +1,12 @@
 ---
 type: concept
 title: Context-first 에이전트 오케스트레이션
-description: 에이전트 시스템의 성패는 모델 성능이 아니라 컨텍스트 설계가 결정한다.
+description: 에이전트 시스템의 성패는 모델 성능이 아니라 컨텍스트 설계와 워크플로우 소유권이 결정한다.
 tags:
 - context-first
 - agent-orchestration
 - mcp
-timestamp: '2026-06-23'
+timestamp: '2026-06-25'
 x-llmbrain-domain:
 - AI/LLM
 x-llmbrain-created: '2026-05-15'
@@ -21,7 +21,7 @@ x-llmbrain-last_distilled: null
 
 ## 핵심 요약
 
-에이전트 시스템의 성패는 모델 성능이 아니라 **컨텍스트 설계**가 결정한다. ServiceNow(Context Engine), Grok 4.20(역할별 병렬 검증), OpenAI Codex Chronicle(자동 메모리 축적), Snowflake Horizon Context + Cortex Sense — 서로 다른 세 곳이 같은 결론에 도달했다. Google Cloud Trends 2026: "워크플로우 > 모델."
+에이전트 시스템의 성패는 모델 성능이 아니라 **컨텍스트 설계와 워크플로우 소유권**이 결정한다. ServiceNow(Context Engine), Grok 4.20(역할별 병렬 검증), OpenAI Codex Chronicle(자동 메모리 축적), Snowflake Horizon Context + Cortex Sense, deepagents/AWS managed agent platform — 서로 다른 사례가 같은 결론에 도달했다. Google Cloud Trends 2026: "워크플로우 > 모델."
 
 ## 상세 내용
 
