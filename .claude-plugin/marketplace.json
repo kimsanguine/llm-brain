@@ -1,0 +1,16 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "llm-brain",
+  "owner": {
+    "name": "kimsanguine",
+    "url": "https://github.com/kimsanguine"
+  },
+  "plugins": [
+    {
+      "name": "llm-brain",
+      "source": "./",
+      "description": "LLM을 컴파일러로 쓰는 Second Brain — raw 메모를 구조화된 wiki로 컴파일하고 OKF v0.1 호환 번들로 export. ingest·curate·express·query·okf 슬래시 커맨드.",
+      "version": "0.1.0"
+    }
+  ]
+}

@@ -14,20 +14,16 @@
 
 ## 설치 *Install*
 
-```bash
-# 1. Claude Code (운영 인터페이스) 설치 — https://claude.ai/code
-#    llm-brain은 /ingest·/okf·/query·/curate·/express 슬래시 커맨드로 운영한다.
+Claude Code 플러그인으로 설치한다:
 
-# 2. uv (Python 패키지 매니저) 설치 — 미설치 시
-curl -LsSf https://astral.sh/uv/install.sh | sh
-
-# 3. 클론 + 초기 설정 (의존성 설치 + 디렉토리 초기화)
-git clone https://github.com/kimsanguine/llm-brain.git
-cd llm-brain
-bash scripts/setup.sh
+```
+/plugin marketplace add kimsanguine/llm-brain
+/plugin install llm-brain@llm-brain
 ```
 
-설치 후 이 폴더를 Claude Code로 열면 슬래시 커맨드를 쓸 수 있다. 첫 실행(소스 등록·데모)은 아래 [빠른 시작](#빠른-시작-quick-start) 참고.
+설치하면 컴파일러 커맨드가 추가된다 — `/llm-brain:ingest`·`/llm-brain:curate`·`/llm-brain:express`·`/llm-brain:query`·`/llm-brain:okf`.
+
+> 자기 지식 데이터를 다루려면 레포를 클론해 `raw/` 소스를 등록한다(아래 [빠른 시작](#빠른-시작-quick-start)). 플러그인은 *컴파일러 커맨드*를, 클론은 *자기 데이터*를 제공한다.
 
 ---
 
@@ -145,10 +141,10 @@ Second Brain의 핵심은 **Distill과 Express**다.
 # 채널 1: 수동 투입 (MD · TXT · PDF · DOCX · PPTX)
 cp paper.pdf raw/docs/
 
-# 채널 2: /ingest 슬래시 명령 (Claude Code 세션 내에서만 동작 — 터미널 직접 실행 불가)
-/ingest https://example.com --resonance high
-/ingest ~/Downloads/paper.pdf
-/ingest "오늘 배운 것: ..."
+# 채널 2: /llm-brain:ingest 슬래시 명령 (Claude Code 세션 내에서만 동작)
+/llm-brain:ingest https://example.com --resonance high
+/llm-brain:ingest ~/Downloads/paper.pdf
+/llm-brain:ingest "오늘 배운 것: ..."
 
 # 채널 3: Obsidian vault 자동 미러링 (schema/sources.yaml 등록)
 # 채널 4: Claude Code Routines 크론 등록
@@ -161,13 +157,13 @@ index.md 기반 중복 검사로 wiki 노이즈 방지.
 
 ### 🔁 curate — 점진적 압축 + 그래프 분석 *Progressive Summarization + Graph*
 
-```bash
-uv run python scripts/curate.py --distill    # distill_level 점진 압축
-uv run python scripts/curate.py --lifecycle  # TTL 초과 페이지 → archive 후보
-uv run python scripts/curate.py --all        # 전체 실행
-
-uv run python scripts/export_graph.py       # wikilink 그래프 export → wiki/graph.json
 ```
+/llm-brain:curate --distill     # distill_level 점진 압축
+/llm-brain:curate --lifecycle   # TTL 초과 페이지 → archive 후보
+/llm-brain:curate --all         # 전체 실행 (audit + distill + lifecycle)
+```
+
+> wikilink 그래프(`wiki/graph.json`)는 `curate`·`wiki_app`이 내부적으로 생성한다.
 
 wiki 페이지는 접근할수록 더 깊이 정제된다.
 
@@ -191,11 +187,11 @@ Second Brain의 존재 이유. 지식을 꺼내 쓴다.
 
 *The reason Second Brain exists. Get knowledge out.*
 
-```bash
-uv run python scripts/express.py blog "AI 에이전트 설계 패턴"
-uv run python scripts/express.py lecture "context-first-orchestration" --slides 5
-uv run python scripts/express.py summary --week
-uv run python scripts/express.py report "경쟁사 현황"
+```
+/llm-brain:express blog "AI 에이전트 설계 패턴"
+/llm-brain:express lecture "context-first-orchestration" --slides 5
+/llm-brain:express summary --week
+/llm-brain:express report "경쟁사 현황"
 ```
 
 blog 출력은 `raw/blog/`에도 자동 복사 → 다음 ingest 사이클에 wiki로 피드백.
@@ -219,7 +215,7 @@ query 시 접근한 페이지의 `access_count`가 올라가
 
 ### 🌐 wiki-web — HTML 검색·페이지뷰 인터페이스 *Local HTML Search UI*
 
-CLI `/query`의 시각화 버전. 브라우저에서 검색·페이지 탐색·wikilink 클릭.
+CLI `/llm-brain:query`의 시각화 버전. 브라우저에서 검색·페이지 탐색·wikilink 클릭.
 
 ```bash
 uv run python -m wiki_app
@@ -244,12 +240,12 @@ uv run python -m wiki_app
 내부 포맷은 바꾸지 않고 경계(`okf/`)에서만 변환한다. frontmatter는 OKF 예약 필드로 매핑하고 나머지 내부 필드는 `x-llmbrain-*`로 보존하며, 본문 `[[wikilink]]`는 번들 루트 절대경로 마크다운 링크(`[X](/concepts/x.md)`)로 변환한다.
 
 ```
-"okf 해줘"               # /okf — 먼저 dry-run 검토 후 okf/ 번들 생성
-"/okf --dry-run"         # export 대상·제외·통계만 (파일 미작성, 보안 검토용)
-"/okf --strip-internal"  # 외부 공유본 (OKF 예약 6필드만, x-llmbrain-* 제거)
+/llm-brain:okf                  # 먼저 dry-run 검토 후 okf/ 번들 생성
+/llm-brain:okf --dry-run        # export 대상·제외·통계만 (파일 미작성, 보안 검토용)
+/llm-brain:okf --strip-internal # 외부 공유본 (OKF 예약 6필드만, x-llmbrain-* 제거)
 ```
 
-> Claude Code 슬래시 커맨드 `.claude/commands/okf.md`가 내부적으로 `scripts/okf_export.py`를 실행한다.
+> 슬래시 커맨드 `commands/okf.md`가 내부적으로 `scripts/okf_export.py`를 실행한다.
 
 **제외/민감 설정 (보안):**
 - 경로 제외(`business/**`·`canvas/**`)는 커밋되는 `schema/okf_export.yaml`의 `exclude_paths`.
@@ -277,25 +273,31 @@ llm:
 
 ## 빠른 시작 *Quick Start*
 
-[설치](#설치-install)를 마친 뒤, 첫 실행:
+[설치](#설치-install)로 커맨드를 받은 뒤, 자기 지식 데이터로 운영하려면 레포를 클론한다:
 
 ```bash
-# 1. 소스 경로 등록 (raw/ 가 어디 있는지)
-vi schema/sources.yaml
-
-# 2. 미처리 raw 파일 확인
-uv run python scripts/ingest.py
-# ※ 목록만 출력한다. 실제 wiki 컴파일은 Claude Code 세션에서 "ingest 해줘"(/ingest)로 수행.
-
-# 3. 데모 시드로 즉시 체험 (선택)
-# ⚠ 클론에 포함된 작성자 index.md를 덮어쓰므로 먼저 백업:
-cp index.md index.md.bak 2>/dev/null || true
-cp -r examples/seed-wiki/wiki ./wiki        # app이 읽는 wiki/ 만 선별 복사
-cp examples/seed-wiki/index.md ./index.md
-uv run python -m wiki_app                   # → http://localhost:8000
-
-# 4. Obsidian에서 열기: 이 폴더를 "Open folder as vault"
+git clone https://github.com/kimsanguine/llm-brain.git && cd llm-brain
 ```
+
+그다음 Claude Code 세션에서 슬래시 커맨드로 운영한다:
+
+```
+1. schema/sources.yaml 에 raw/ 위치 등록
+2. /llm-brain:ingest          # raw → wiki 컴파일
+3. /llm-brain:query "..."     # wiki 기반 질의
+4. /llm-brain:express blog "..."   # 창작물 출력
+```
+
+데모 시드로 즉시 체험(선택):
+
+```bash
+cp index.md index.md.bak 2>/dev/null || true   # 작성자 index 백업
+cp -r examples/seed-wiki/wiki ./wiki            # 데모 wiki 선별 복사
+cp examples/seed-wiki/index.md ./index.md
+uv run python -m wiki_app                       # 로컬 HTML UI → localhost:8000
+```
+
+Obsidian으로 열려면 이 폴더를 "Open folder as vault".
 
 ---
 
@@ -316,6 +318,8 @@ llm-brain/
 
 ```
 llm-brain/
+├── .claude-plugin/            # 플러그인 manifest (marketplace.json + plugin.json)
+├── commands/                  # 슬래시 커맨드 (/llm-brain:ingest·curate·express·query·okf)
 ├── CLAUDE.md                  # Claude Code 운영 가이드
 ├── SPEC.md                    # 기술 명세서
 ├── README.md
@@ -326,7 +330,7 @@ llm-brain/
 │   ├── ingest.md              # ingest 규칙
 │   ├── curate.md              # curate 규칙
 │   ├── okf.md                 # OKF ↔ llm-brain 매핑 규칙
-│   └── okf_export.yaml        # /okf 제외 설정 (exclude_paths)
+│   └── okf_export.yaml        # /llm-brain:okf 제외 설정 (exclude_paths)
 ├── scripts/
 │   ├── setup.sh               # 초기 설정
 │   ├── sync_raw.py            # 소스 미러링

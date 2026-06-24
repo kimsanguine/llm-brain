@@ -11,6 +11,8 @@ Claude는 이 시스템의 **컴파일러**다. `raw/` 소스를 읽어 `wiki/`�
 
 ## 명령어
 
+> 플러그인(`commands/`)으로 제공된다. 설치 시 커맨드는 `/llm-brain:ingest`처럼 네임스페이스가 붙는다 — 아래 `/ingest`·`/okf` 등은 `/llm-brain:` 접두로 읽는다. 자연어("ingest 해줘", "okf 해줘")로도 호출된다.
+
 ### ingest
 ```
 "ingest 해줘"
@@ -37,11 +39,11 @@ mini-graph는 `wiki_app` `/api/page/{slug}/graph` 엔드포인트로 조회.
 
 ### okf (wiki → OKF v0.1 호환 번들 export)
 ```
-"okf 해줘"                     # /okf — 먼저 dry-run 검토 후 okf/ 번들 생성
-"/okf --dry-run"               # export 대상·제외·통계만 (파일 미작성, 보안 검토용)
-"/okf --strip-internal"        # 외부 공유본 (x-llmbrain-* 제거)
+"okf 해줘"                     # /llm-brain:okf — 먼저 dry-run 검토 후 okf/ 번들 생성
+"/llm-brain:okf --dry-run"      # export 대상·제외·통계만 (파일 미작성, 보안 검토용)
+"/llm-brain:okf --strip-internal"  # 외부 공유본 (x-llmbrain-* 제거)
 ```
-`/okf` 커맨드(`.claude/commands/okf.md`)가 `scripts/okf_export.py`를 실행해 `wiki/`를
+`okf` 커맨드(`commands/okf.md`)가 `scripts/okf_export.py`를 실행해 `wiki/`를
 OKF v0.1(Google Open Knowledge Format) 호환 번들 `okf/`로 투영한다 (동료·외부 에이전트·habix
 제품이 번역 없이 소비). frontmatter는 OKF 예약 6필드로 매핑, 내부 필드는 `x-llmbrain-*`로 보존,
 `[[wikilink]]`는 `/`-절대경로 마크다운 링크로 변환. 변환 규칙: `schema/okf.md`.
