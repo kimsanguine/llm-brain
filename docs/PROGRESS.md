@@ -23,7 +23,7 @@
 
 ---
 
-## 이니셔티브 ② — Agent Memory OS Upgrade (설계 완료, 미구현)
+## 이니셔티브 ② — Agent Memory OS Upgrade (Phase 0-3 구현 완료)
 
 > 5층 메모리 모델(작업·에피소드·의미·절차·메타)로 llm-brain을 "지식 컴파일러" → "에이전트 메모리 운영 계층"으로.
 > 요구사항: `docs/PRD.md` (US-001~008) · 설계(HOW): `SPEC.md` "Agent Memory OS Upgrade — 설계" 절.
@@ -35,7 +35,12 @@
   - TDD: frontmatter_utils·episode·config 각각 RED(모듈/설정 없음) 관측 후 GREEN.
   - **2-렌즈 코드리뷰 통과**(SOUND-WITH-CHANGES, critical 0) → HIGH 2 + 봉인 1 + 테스트보강 수정 반영(아래 Decision Log).
 - **범위 결정**: 전체 아키텍처 1개 설계서(SPEC 흡수) + 단계형 플랜, 코어 루프 우선.
-- **다음**: **Phase 1(쓰기측)** — `episode.append` 배선(express→ingest→wiki_app, fail-soft) + express 재사용 frontmatter. ⚠️ 기존 명령 경로 수정 = blast radius↑ → 사용자 컨펌 후 진행.
+- **Phase 1·2·3 구현 완료** (2026-06-28, 5+2 병렬 worktree 에이전트):
+  - P1 쓰기측: express·ingest·wiki_app episode 배선(fail-soft) + US-007 (`bdf8a91`·`acdba2e`)
+  - P2 읽기+제어: `brain_context.py`(US-005, degree tie-breaker) + curate `memory_score`·rescue@lifecycle(US-006) (`7c93439`·`88581a7`) → **루프 닫힘**
+  - P3 주변: `procedures/`+loader(US-004) + `memory_health`(US-008, okf 봉인) + memory_type 문서(US-003) (`af89e9c`·`146fb46`·`1971f51`)
+  - 검증(실측): 전체 **285 통과**(회귀 0) · `brain_context` 실행 exit 0 · okf dry-run exit 0(memory_health/episodes/procedures 미등장)
+- **다음**: Wave 3 검증(5 페르소나 MD 최신화 + Claude·Codex 코드리뷰) → 잔여 deferred(#5·#6·#7·#9).
 
 ### Decision Log — ②
 > 형식: `[날짜] 결정 — 근거(룰) · 가역성 · 검증`
@@ -50,6 +55,8 @@
 - **[2026-06-27] Claude·Codex 2-렌즈 적대 크로스체크 → SOUND-WITH-CHANGES (HIGH 3 + MED 5 + LOW 2 설계 반영)** — Rule 4(단일 에이전트 불신)·8. 두 렌즈가 *서로 다른* HIGH 포착: Claude=**rescue 게이트 오배선**(자문용 `run_distill`에 걸림, 실제 게이트는 `run_lifecycle` inbound==0), Codex=**점수 이중계산**(express 런이 express_reuse+episode_ref 동시 +1), 공통=**memory_health 누출**(wiki/→okf). 반영: ①memory_health→okf `META_FILES`+집계만 ②rescue를 `run_lifecycle`/`_purge`(상대 top-N%) ③episode_ref에서 express 제외 ④cold-start 상대화 ⑤curate→`episode.append` ⑥config 부분/오류 키 안전 ⑦ai_answer `finally` 양 핸들러 ⑧brain_context degree tie-breaker+rglob 정렬 ⑨frontmatter_utils '단일출처' 프레이밍 교정 ⑩Phase0 무변경 단서. 가역(설계 문서). 검증: 양 렌즈 실측 코드 대조(okf `wiki/` rglob·`run_lifecycle` inbound==0·`META_FILES`에 health 부재) → SPEC §C/§D 반영 완료. HIGH 3 미수정 시 빌드 금지.
 
 - **[2026-06-27] Phase 0 코드 2-렌즈 리뷰 → SOUND-WITH-CHANGES (critical 0), HIGH 2 + 봉인 1 + 테스트보강 수정** — Rule 4·8. Claude=`json.dumps` 가 `EpisodeSchemaError` 밖→fail-soft 우회(express 가 `Path` 넘기면 Phase 1 크래시), **양쪽**=`read_recent` 문자열 정렬(오프셋 TZ 오정렬), Claude=`procedures/` gitignore 누락. 수정(TDD RED 재현): #2 직렬화 `try→EpisodeSchemaError`(FS 부작용 전), #1 `datetime` 키 정렬(naive→UTC), #4 `procedures/` gitignore(가역·US-004 재검토), +견고성 테스트(broken-line·크로스샤드·limit-newest). **deferred(선택)**: #5 enum 검증·#6 naive ts 거부·#7 topic 단어경계·#9 dual `FrontmatterParseError`(이관 시). 검증: 신규 6 RED→GREEN, 전체 224 통과, okf dry-run exit0 누출0.
+
+- **[2026-06-28] Phase 1·2·3 병렬 구현 (5+2 worktree 에이전트, 파일소유 분리)** — Rule 9(worktree 격리·scope 명시)·4. Wave 1: express+ingest·wiki_app·curate score·procedures·docs(disjoint). Wave 2: brain_context·memory_health. cherry-pick 선형 병합 → 전체 285 통과. **함정: worktree가 origin/main(stale, Wave1 미push) 기준 분기** → A4·A6가 ff-merge/cherry로 자가교정([[feedback_agent_worktree_base_and_commit]]). 교훈: 다음 wave 전 cherry-pick push 필수. **procedures = git-tracked+OKF-excluded**(#4 과잉 정정, US-004 정합). curate `do_purge` 정규식을 Lifecycle 섹션 한정으로 축소(rescue 보존 위해 필요). 가역. 검증: 통합 285 통과·okf 누출0·brain_context 실행 exit0.
 
 ### 변경 표면 (AS-IS → TO-BE)
 > 코드 레벨 line-by-line diff(curate `run_distill`·frontmatter·express·okf)는 `SPEC.md` §C·§D 참조 — 여기선 구조 요약만(중복 drift 방지). **신규 4파일 + 변경 6파일 + 신규 2디렉터리.**
