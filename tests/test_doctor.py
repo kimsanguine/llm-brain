@@ -1,0 +1,49 @@
+"""doctor.py — 설치 진단·수정 계약 테스트.
+
+WHY: 설치가 제대로 됐는지 진단하고(누락 디렉토리·스크립트·커맨드·설정·의존성),
+--fix 로 안전 복구(디렉토리 생성·sources 설정 복사, 기존 파일 미덮어씀)한다.
+실 repo 는 FAIL 0 이어야 한다(있으면 그게 진짜 설치 문제).
+"""
+from __future__ import annotations
+
+import sys
+from pathlib import Path
+
+_REPO_ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(_REPO_ROOT / "scripts"))
+
+import doctor  # noqa: E402
+
+
+def test_doctor_flags_missing_on_empty(tmp_path):
+    results = doctor.run_checks(tmp_path)
+    assert any(r["status"] == "FAIL" for r in results)  # 빈 디렉토리 → 필수 누락 FAIL
+
+
+def test_doctor_fix_creates_dirs(tmp_path):
+    doctor.run_checks(tmp_path, fix=True)
+    assert (tmp_path / "raw" / "notes").is_dir()
+    assert (tmp_path / "procedures").is_dir()
+
+
+def test_doctor_fix_copies_sources_example(tmp_path):
+    (tmp_path / "schema").mkdir()
+    (tmp_path / "schema" / "sources.example.yaml").write_text("sources: []\n", encoding="utf-8")
+    doctor.run_checks(tmp_path, fix=True)
+    assert (tmp_path / "schema" / "sources.yaml").is_file()  # example → sources 복사
+
+
+def test_doctor_fix_does_not_overwrite_existing(tmp_path):
+    (tmp_path / "schema").mkdir()
+    (tmp_path / "schema" / "sources.example.yaml").write_text("sources: []\n", encoding="utf-8")
+    existing = tmp_path / "schema" / "sources.yaml"
+    existing.write_text("MINE\n", encoding="utf-8")
+    doctor.run_checks(tmp_path, fix=True)
+    assert existing.read_text(encoding="utf-8") == "MINE\n"  # 기존 파일 보존(Rule 9)
+
+
+def test_doctor_real_repo_no_fail():
+    # 실 repo 는 핵심 체크(디렉토리·스크립트·커맨드·의존성) 통과여야 한다.
+    results = doctor.run_checks(doctor.ROOT)
+    fails = [(r["name"], r["detail"]) for r in results if r["status"] == "FAIL"]
+    assert not fails, f"실 repo FAIL: {fails}"

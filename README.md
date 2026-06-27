@@ -82,7 +82,7 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 /plugin install llm-brain@llm-brain
 ```
 
-설치하면 컴파일러 커맨드가 추가된다 — `/llm-brain:ingest`·`/llm-brain:curate`·`/llm-brain:express`·`/llm-brain:query`·`/llm-brain:okf`.
+설치하면 컴파일러 커맨드가 추가된다 — `/llm-brain:ingest`·`/llm-brain:curate`·`/llm-brain:express`·`/llm-brain:query`·`/llm-brain:okf` · 설치 점검 `/llm-brain:doctor` · 웹 UI `/llm-brain:wikiweb`.
 
 > 자기 지식 데이터를 다루려면 레포를 클론해 `raw/` 소스를 등록한다(아래 [빠른 시작](#빠른-시작-quick-start)). 플러그인은 *컴파일러 커맨드*를, 클론은 *자기 데이터*를 제공한다.
 

@@ -66,6 +66,8 @@
 
 - **[2026-06-28] 이미지 5층 갭 3종 구현 (메타 중복제거·감쇠 + 절차 버전)** — Rule 1·5·9. 사용자가 5층 이미지로 미구현 부분 점검 요청 → 실측: 메타 "중복제거/감쇠" 미구현·절차 "버전" 미구현 포착. ① **merge-review**(US-006): 같은 카테고리 내 title+tags Jaccard≥0.6 후보를 curate_report에 표면화, **자동병합 안 함**(사람 결정). ② **감쇠**: `retention`이 memory_score recency 감쇠율 조절(durable=0·seasonal=1·ephemeral=2), 선언만 됐던 필드를 작동시킴(폐기와 별개). ③ **procedure version**: 절차 frontmatter `version` + 헬퍼. 갭 A+B는 worktree 에이전트(curate.py), C는 직접(procedures.py). 가역(config 튜닝). 검증: 신규 16 TDD RED→GREEN, main 전체 **304 통과**, okf 누출0. (worktree의 wiki_app_search 4 fail은 데이터부재 — main 데이터로 통과 실증.)
 
+- **[2026-06-28] E2E 5/5 PASS(실 repo 실행 관측) + doctor·wikiweb 커맨드 추가** — Rule 4·8. 5 서브에이전트가 실 데이터에 실제 명령 실행·관측(테스트 green ≠ 작동): brain_context(6섹션 결정적·0.03s)·memory_health(읽기전용·verbatim 부재 실증)·curate 메타(score 52.58·merge-review emit·decay 단조 durable>seasonal>ephemeral·rescue 분기)·episode 쓰기(9키 정합·fail-soft)·okf 보안(3중 봉인). **실동작 진실**: ingest exit 1=by-design(컴파일 대기 신호; episode는 그 전 기록)·원장이 "ping" 스모크 위주(데이터 미성숙, 기능 무관)·flock 없는 append 병렬 간섭을 정직 귀속(#7 topic 연속부분문자열 한계 노출). **신규 커맨드**: `scripts/doctor.py`(설치 40체크 진단 + `--fix` 안전복구, 기존파일 미덮어씀) + `commands/{doctor,wikiweb}.md`. 검증: doctor 실 repo ✅40/⚠️0/❌0·wikiweb `GET /`=200·`/api/index`=200·전체 309 통과. 가역.
+
 ### 변경 표면 (AS-IS → TO-BE)
 > 코드 레벨 line-by-line diff(curate `run_distill`·frontmatter·express·okf)는 `SPEC.md` §C·§D 참조 — 여기선 구조 요약만(중복 drift 방지). **신규 4파일 + 변경 6파일 + 신규 2디렉터리.**
 

@@ -118,6 +118,18 @@ uv run python scripts/memory_health.py --report
 리포트 섹션: memory_type별 페이지 수 · orphan semantic(inbound 0) · stale 절차(>180일 미검증) · 최근 에피소드(집계·메타만, verbatim 본문 비공개) · top 재사용 페이지 · 저신뢰 페이지 · archive 후보.
 🔴 episode verbatim 본문은 리포트에 넣지 않으며, 리포트 파일은 okf `META_FILES`에 등재돼 공개 OKF 번들에서 봉인된다.
 
+### doctor (설치 진단·수정)
+```
+uv run python scripts/doctor.py [--fix]
+```
+설치 상태 점검 — 필수 디렉토리·스크립트(메모리 OS 포함)·커맨드·설정(config/sources)·의존성·claude CLI. `--fix`는 누락 디렉토리 생성 + `sources.example.yaml`→`sources.yaml` 복사(**기존 파일 미덮어씀**, Rule 9). FAIL=설치 문제, WARN=선택/환경별. exit 1 if FAIL. 새 클론 직후 권장.
+
+### wikiweb (웹 UI 로컬 실행)
+```
+uv run python -m wiki_app   # → http://localhost:8000
+```
+wiki-web HTML 검색·페이지뷰 UI를 로컬에서 띄운다(위 `wiki-web` 절과 동일 동작, 슬래시 커맨드 `/llm-brain:wikiweb`). 종료 `Ctrl+C`.
+
 ## procedures/ — 재사용 절차 (procedural 메모리)
 
 `procedures/`의 `.md` 파일(각 frontmatter `memory_type: procedural`)은 "어떻게 하는가"를 담는 절차 메모리다. `scripts/procedures.py`가 slug 단위로 로드하고, `brain_context`가 후보 절차로 주입한다.
