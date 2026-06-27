@@ -1,7 +1,7 @@
 # PROGRESS — llm-brain (이니셔티브별 진행 + Decision Log)
 
 > 이 문서는 **진행 현황 + Decision Log**의 단일 확인처다. 주요 변경은 반드시 여기에 기록한다.
-> 이니셔티브: **①** [완료] OKF 통합 (Phase 1) · **②** [설계 완료·미구현] Agent Memory OS Upgrade.
+> 이니셔티브: **①** [완료] OKF 통합 (Phase 1) · **②** [Phase 1-3 구현 완료] Agent Memory OS Upgrade.
 > ② 요구사항: `docs/PRD.md` · 설계(HOW): `SPEC.md` → "Agent Memory OS Upgrade — 설계" 절.
 > ① 출처 PRD: `~/Desktop/prd-okf-integration.md` · 설계: `docs/superpowers/specs/2026-06-23-okf-export-p1-design.md` · 계약: `...-contract.md`
 > 최종 갱신: 2026-06-27
@@ -40,7 +40,8 @@
   - P2 읽기+제어: `brain_context.py`(US-005, degree tie-breaker) + curate `memory_score`·rescue@lifecycle(US-006) (`7c93439`·`88581a7`) → **루프 닫힘**
   - P3 주변: `procedures/`+loader(US-004) + `memory_health`(US-008, okf 봉인) + memory_type 문서(US-003) (`af89e9c`·`146fb46`·`1971f51`)
   - 검증(실측): 전체 **285 통과**(회귀 0) · `brain_context` 실행 exit 0 · okf dry-run exit 0(memory_health/episodes/procedures 미등장)
-- **다음**: Wave 3 검증(5 페르소나 MD 최신화 + Claude·Codex 코드리뷰) → 잔여 deferred(#5·#6·#7·#9).
+- **Wave 3 검증 완료** (2026-06-28): 5 페르소나(MD 최신화) + 코드 4 위험점 직접 실측. 조치 → **US-002 curate episode 갭 수정**(실경로 검증) · 문서 일괄 최신화(SPEC 현재형·CLAUDE.md·README) · **index.md gitignore**(business 누출 봉인). 코드(fail-soft·_express_rooted·memory_health 읽기전용·rescue/do_purge) 전부 SOUND.
+- **잔여(deferred)**: #5 enum·#6 naive ts·#7 topic 단어경계·#9 dual error class · **US-006 merge-review 섹션**(curate_report) · **index.md git history scrub / repo private**(사람 결정).
 
 ### Decision Log — ②
 > 형식: `[날짜] 결정 — 근거(룰) · 가역성 · 검증`
@@ -57,6 +58,8 @@
 - **[2026-06-27] Phase 0 코드 2-렌즈 리뷰 → SOUND-WITH-CHANGES (critical 0), HIGH 2 + 봉인 1 + 테스트보강 수정** — Rule 4·8. Claude=`json.dumps` 가 `EpisodeSchemaError` 밖→fail-soft 우회(express 가 `Path` 넘기면 Phase 1 크래시), **양쪽**=`read_recent` 문자열 정렬(오프셋 TZ 오정렬), Claude=`procedures/` gitignore 누락. 수정(TDD RED 재현): #2 직렬화 `try→EpisodeSchemaError`(FS 부작용 전), #1 `datetime` 키 정렬(naive→UTC), #4 `procedures/` gitignore(가역·US-004 재검토), +견고성 테스트(broken-line·크로스샤드·limit-newest). **deferred(선택)**: #5 enum 검증·#6 naive ts 거부·#7 topic 단어경계·#9 dual `FrontmatterParseError`(이관 시). 검증: 신규 6 RED→GREEN, 전체 224 통과, okf dry-run exit0 누출0.
 
 - **[2026-06-28] Phase 1·2·3 병렬 구현 (5+2 worktree 에이전트, 파일소유 분리)** — Rule 9(worktree 격리·scope 명시)·4. Wave 1: express+ingest·wiki_app·curate score·procedures·docs(disjoint). Wave 2: brain_context·memory_health. cherry-pick 선형 병합 → 전체 285 통과. **함정: worktree가 origin/main(stale, Wave1 미push) 기준 분기** → A4·A6가 ff-merge/cherry로 자가교정([[feedback_agent_worktree_base_and_commit]]). 교훈: 다음 wave 전 cherry-pick push 필수. **procedures = git-tracked+OKF-excluded**(#4 과잉 정정, US-004 정합). curate `do_purge` 정규식을 Lifecycle 섹션 한정으로 축소(rescue 보존 위해 필요). 가역. 검증: 통합 285 통과·okf 누출0·brain_context 실행 exit0.
+
+- **[2026-06-28] Wave 3 검증(5 페르소나 + 코드 직접검증) → 문서 최신화 + US-002 갭 수정 + index.md 봉인** — Rule 4(기술+페르소나 양 렌즈)·8·9. 페르소나 5/5 NEEDS-UPDATE: 문서(README·SPEC 현재형·CLAUDE.md·PROGRESS 라벨)가 신규 코드 미반영 → 일괄 최신화. **PM 페르소나가 over-claim 포착**: US-002 curate→episode.append 미배선(ingest·express·wiki_app 3개만 done) → TDD로 수정 + 실경로 기록 검증. **보안 페르소나가 index.md business 누출 포착**(public GitHub, okf 옆문) → 사용자 결정 'gitignore+추적해제'(history scrub는 별도). 코드 4 위험점(fail-soft 래핑·_express_rooted try/finally·memory_health write 1곳·rescue Lifecycle 섹션밖) 직접 실측 SOUND. mailbox 코드리뷰어(cr-claude·cr-codex) flaky 미응답 → 직접 검증 대체. 가역. 검증: 신규 3 RED→GREEN, curate episode 실경로 기록(orphans=2).
 
 ### 변경 표면 (AS-IS → TO-BE)
 > 코드 레벨 line-by-line diff(curate `run_distill`·frontmatter·express·okf)는 `SPEC.md` §C·§D 참조 — 여기선 구조 요약만(중복 drift 방지). **신규 4파일 + 변경 6파일 + 신규 2디렉터리.**

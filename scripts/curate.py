@@ -24,6 +24,8 @@ from pathlib import Path
 
 import yaml
 
+import episode  # 로컬 모듈 (scripts/ on sys.path) — US-002 curate 실행 episode 기록
+
 logger = logging.getLogger(__name__)
 
 WIKI_ROOT = Path(__file__).parent.parent
@@ -1117,6 +1119,38 @@ def do_purge() -> None:
     print(f"[purge] {moved}개 파일 archive/로 이동")
 
 
+def _curate_episode_record(mode: str, audit: dict, distilled: list, lifecycle: dict,
+                           *, now: datetime | None = None) -> dict:
+    """curate 실행 요약을 episode 레코드(C1 스키마)로 만든다. (US-002)"""
+    ts = (now or datetime.now().astimezone()).isoformat()
+    return {
+        "timestamp": ts,
+        "task_type": "curate",
+        "user_goal": f"curate {mode}",
+        "inputs": {"mode": mode},
+        "read_pages": [],
+        "procedures_used": [],
+        "outputs": {
+            "orphans": len(audit.get("orphans", [])),
+            "stale_links": len(audit.get("stale_links", [])),
+            "distill_queued": len(distilled),
+            "archive_candidates": len(lifecycle.get("archive", [])),
+            "delete_candidates": len(lifecycle.get("delete", [])),
+            "rescued": len(lifecycle.get("rescued", [])),
+        },
+        "status": "ok",
+        "notes": "",
+    }
+
+
+def _record_curate_episode(mode: str, audit: dict, distilled: list, lifecycle: dict) -> None:
+    """fail-soft: episode 기록 실패가 curate 메인 경로를 못 깨뜨린다 (US-002 AC)."""
+    try:
+        episode.append(_curate_episode_record(mode, audit, distilled, lifecycle))
+    except (episode.EpisodeSchemaError, Exception) as e:  # noqa: B014 — 명시적 fail-soft
+        print(f"[curate] episode 기록 실패(무시): {e}", file=sys.stderr)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="LLM wiki curate")
     parser.add_argument("--all", action="store_true")
@@ -1156,6 +1190,11 @@ def main() -> None:
     lifecycle_result = run_lifecycle(pages) if (run_all or args.lifecycle) else {}
 
     write_report(audit_result, distilled, lifecycle_result)
+
+    mode = "all" if run_all else "+".join(
+        m for m, on in [("audit", args.audit), ("distill", args.distill), ("lifecycle", args.lifecycle)] if on
+    )
+    _record_curate_episode(mode, audit_result, distilled, lifecycle_result)
 
 
 if __name__ == "__main__":

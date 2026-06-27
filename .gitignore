@@ -43,3 +43,6 @@ express/
 # Agent Memory OS — 에피소드 원장(운영 맥락, one-way door). 전체 제외, 스키마 예시 1개만 examples/에 커밋
 episodes/
 # 절차 메모리(procedures/)는 git-tracked(공유 워크플로우, US-004 예시 커밋) + OKF 제외 — gitignore 안 함(결정 2026-06-27)
+
+# wiki 목차 — gitignored wiki/의 파생물. business/ 민감 제목 노출 방지로 추적 제외(2026-06-28)
+index.md

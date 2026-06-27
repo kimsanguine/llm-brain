@@ -163,7 +163,7 @@ For stories that change web behavior:
 - [ ] Add a `memory_score` calculation for wiki pages.
 - [ ] Score inputs include at minimum: `resonance`, `access_count`, recency, graph centrality/degree, source count, express reuse, stale age, and contradiction risk placeholder.
 - [ ] `curate --distill` writes score reasons into `wiki/distill_queue.md`.
-- [ ] `curate_report.md` includes top promote, merge-review, archive-review, and decay candidates.
+- [ ] `curate_report.md` includes top promote, archive-review, and decay candidates (+ Rescued 섹션). **merge-review 후보 섹션은 v2 deferred** (페이지 유사도 계산 필요 = 범위 밖, Wave3 PM 리뷰).
 - [ ] Score calculation is deterministic and covered by unit tests.
 - [ ] Existing access-count thresholds remain supported as a backward-compatible fallback.
 
