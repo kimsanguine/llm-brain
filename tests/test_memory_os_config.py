@@ -34,6 +34,13 @@ def test_gitignore_isolates_episodes():
     assert any(line.strip() == "episodes/" for line in gi)  # 운영 맥락 누출 차단
 
 
+def test_gitignore_isolates_procedures():
+    # #4: procedures/ 가 okf exclude 엔 있으나 .gitignore 엔 없던 비대칭 봉인(Claude L3).
+    # Phase 0 에선 보수적으로 gitignore(가역) — US-004 export 결정 시 의식적으로 재검토.
+    gi = (_REPO_ROOT / ".gitignore").read_text(encoding="utf-8").splitlines()
+    assert any(line.strip() == "procedures/" for line in gi)
+
+
 def test_episode_schema_example_is_valid(tmp_path):
     path = _REPO_ROOT / "examples" / "episode-schema-example.jsonl"
     lines = [ln for ln in path.read_text(encoding="utf-8").splitlines() if ln.strip()]

@@ -31,8 +31,9 @@
 ### 현재 체크포인트 (2026-06-27)
 - **상태**: 설계 확정 + 2-렌즈 크로스체크 반영(`14bf223`) → **Phase 0(토대) 구현·검증 완료**(`a539265`).
   - `scripts/lib/frontmatter_utils.py`(공용 파서) · `scripts/episode.py`(append-only 원장) · `examples/episode-schema-example.jsonl` · `.gitignore`/`okf_export.yaml` 누출 봉인.
-  - 검증(실측): 신규 23 통과 · 전체 **218 통과**(회귀 0) · `curate --audit` exit 0 · `okf --dry-run` exit 0(episodes/procedures 미등장, excluded=13 불변).
+  - 검증(실측): 신규 29 통과 · 전체 **224 통과**(회귀 0) · `curate --audit` exit 0 · `okf --dry-run` exit 0(episodes/procedures 미등장, excluded=13 불변).
   - TDD: frontmatter_utils·episode·config 각각 RED(모듈/설정 없음) 관측 후 GREEN.
+  - **2-렌즈 코드리뷰 통과**(SOUND-WITH-CHANGES, critical 0) → HIGH 2 + 봉인 1 + 테스트보강 수정 반영(아래 Decision Log).
 - **범위 결정**: 전체 아키텍처 1개 설계서(SPEC 흡수) + 단계형 플랜, 코어 루프 우선.
 - **다음**: **Phase 1(쓰기측)** — `episode.append` 배선(express→ingest→wiki_app, fail-soft) + express 재사용 frontmatter. ⚠️ 기존 명령 경로 수정 = blast radius↑ → 사용자 컨펌 후 진행.
 
@@ -47,6 +48,8 @@
 - **[2026-06-27] one-way door 봉인 = episodes/·procedures/ repo 루트 + okf `exclude_paths` 방어 2줄 + strip 모드 외부공유** — Rule 8·9. public 누출(비가역)을 폴더 위치 + gitignore + 규칙으로 3중 봉인. 가역(설정). 검증: `okf_export.py` wiki/-only rglob 실측.
 
 - **[2026-06-27] Claude·Codex 2-렌즈 적대 크로스체크 → SOUND-WITH-CHANGES (HIGH 3 + MED 5 + LOW 2 설계 반영)** — Rule 4(단일 에이전트 불신)·8. 두 렌즈가 *서로 다른* HIGH 포착: Claude=**rescue 게이트 오배선**(자문용 `run_distill`에 걸림, 실제 게이트는 `run_lifecycle` inbound==0), Codex=**점수 이중계산**(express 런이 express_reuse+episode_ref 동시 +1), 공통=**memory_health 누출**(wiki/→okf). 반영: ①memory_health→okf `META_FILES`+집계만 ②rescue를 `run_lifecycle`/`_purge`(상대 top-N%) ③episode_ref에서 express 제외 ④cold-start 상대화 ⑤curate→`episode.append` ⑥config 부분/오류 키 안전 ⑦ai_answer `finally` 양 핸들러 ⑧brain_context degree tie-breaker+rglob 정렬 ⑨frontmatter_utils '단일출처' 프레이밍 교정 ⑩Phase0 무변경 단서. 가역(설계 문서). 검증: 양 렌즈 실측 코드 대조(okf `wiki/` rglob·`run_lifecycle` inbound==0·`META_FILES`에 health 부재) → SPEC §C/§D 반영 완료. HIGH 3 미수정 시 빌드 금지.
+
+- **[2026-06-27] Phase 0 코드 2-렌즈 리뷰 → SOUND-WITH-CHANGES (critical 0), HIGH 2 + 봉인 1 + 테스트보강 수정** — Rule 4·8. Claude=`json.dumps` 가 `EpisodeSchemaError` 밖→fail-soft 우회(express 가 `Path` 넘기면 Phase 1 크래시), **양쪽**=`read_recent` 문자열 정렬(오프셋 TZ 오정렬), Claude=`procedures/` gitignore 누락. 수정(TDD RED 재현): #2 직렬화 `try→EpisodeSchemaError`(FS 부작용 전), #1 `datetime` 키 정렬(naive→UTC), #4 `procedures/` gitignore(가역·US-004 재검토), +견고성 테스트(broken-line·크로스샤드·limit-newest). **deferred(선택)**: #5 enum 검증·#6 naive ts 거부·#7 topic 단어경계·#9 dual `FrontmatterParseError`(이관 시). 검증: 신규 6 RED→GREEN, 전체 224 통과, okf dry-run exit0 누출0.
 
 ### 변경 표면 (AS-IS → TO-BE)
 > 코드 레벨 line-by-line diff(curate `run_distill`·frontmatter·express·okf)는 `SPEC.md` §C·§D 참조 — 여기선 구조 요약만(중복 drift 방지). **신규 4파일 + 변경 6파일 + 신규 2디렉터리.**

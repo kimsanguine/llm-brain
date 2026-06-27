@@ -11,7 +11,7 @@ episodes/ 는 repo 루트(wiki/ 밖)이며 .gitignore 로 격리된다 — OKF �
 from __future__ import annotations
 
 import json
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 EPISODES_DIR = Path(__file__).parent.parent / "episodes"
@@ -56,9 +56,15 @@ def append(record: dict, episodes_dir: Path = EPISODES_DIR) -> None:
     """검증 통과 시 월별 샤드에 1줄 append. 위반 시 EpisodeSchemaError(쓰기 0)."""
     _validate(record)
     shard = _shard_name(record["timestamp"])  # bad timestamp 도 쓰기 전에 fail-loud
+    try:
+        line = json.dumps(record, ensure_ascii=False, sort_keys=False)
+    except TypeError as exc:
+        # inputs/outputs 에 Path·datetime·set 등 직렬화 불가 값 → 모든 거부를
+        # EpisodeSchemaError 로 통일(호출측 except EpisodeSchemaError fail-soft 작동).
+        # FS 부작용(mkdir) 전에 raise → 쓰기 0.
+        raise EpisodeSchemaError(f"직렬화 불가 값 포함(inputs/outputs 등): {exc}") from exc
     episodes_dir = Path(episodes_dir)
     episodes_dir.mkdir(parents=True, exist_ok=True)
-    line = json.dumps(record, ensure_ascii=False, sort_keys=False)
     with (episodes_dir / f"{shard}.jsonl").open("a", encoding="utf-8") as f:
         f.write(line + "\n")
 
@@ -94,7 +100,7 @@ def read_recent(
             if topic is not None and not _topic_match(rec, topic):
                 continue
             records.append(rec)
-    records.sort(key=lambda r: r.get("timestamp", ""), reverse=True)  # 동률은 인코딩 순서(결정적)
+    records.sort(key=_sort_key, reverse=True)  # 실제 시각 기준(동률은 인코딩 순서로 결정적)
     return records[:limit]
 
 
@@ -105,3 +111,16 @@ def _topic_match(record: dict, topic: str) -> bool:
         + json.dumps(record.get("inputs", {}), ensure_ascii=False)
     ).lower()
     return topic.lower() in hay
+
+
+def _sort_key(record: dict) -> datetime:
+    """timestamp 를 *실제 시각* 으로 파싱해 정렬 키로. 문자열 정렬은 오프셋 다른 TZ
+    (UTC vs +09:00)를 오정렬한다. 파싱 불가/naive 는 안전 정규화(aware 와 비교 가능)."""
+    ts = record.get("timestamp", "")
+    try:
+        dt = datetime.fromisoformat(ts)
+    except (ValueError, TypeError):
+        return datetime.min.replace(tzinfo=timezone.utc)  # 깨진 ts 는 가장 과거로
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)  # naive → UTC 가정
+    return dt

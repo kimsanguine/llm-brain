@@ -118,3 +118,44 @@ def test_read_recent_respects_limit(tmp_path):
 
 def test_read_recent_empty_when_no_episodes(tmp_path):
     assert episode.read_recent(episodes_dir=tmp_path) == []
+
+
+# ── 2-렌즈 리뷰 반영: 정렬·직렬화·견고성 ───────────────────────
+def test_read_recent_sorts_chronologically_across_timezones(tmp_path):
+    # #1(HIGH): 오프셋 다른 ISO 를 문자열이 아니라 *실제 시각* 으로 정렬해야 한다.
+    # A=2026-06-27T00:00+00:00(UTC) 는 B=2026-06-27T06:00+09:00(=06-26 21:00 UTC)보다 늦음.
+    episode.append(_rec(timestamp="2026-06-27T00:00:00+00:00", notes="A_utc_later"), episodes_dir=tmp_path)
+    episode.append(_rec(timestamp="2026-06-27T06:00:00+09:00", notes="B_kst_earlier"), episodes_dir=tmp_path)
+    got = episode.read_recent(episodes_dir=tmp_path)
+    assert [r["notes"] for r in got] == ["A_utc_later", "B_kst_earlier"]
+
+
+def test_append_non_serializable_value_raises_episode_error(tmp_path):
+    # #2(HIGH): inputs/outputs 에 직렬화 불가 값(Path 등) → bare TypeError 아니라
+    # EpisodeSchemaError. Phase 1 호출자의 `except EpisodeSchemaError` fail-soft 가 작동해야
+    # 메인 명령 경로가 안 깨진다. FS 부작용 0.
+    with pytest.raises(episode.EpisodeSchemaError):
+        episode.append(_rec(outputs={"draft_path": Path("express/blog/x.md")}), episodes_dir=tmp_path)
+    assert list(tmp_path.glob("*.jsonl")) == []
+
+
+def test_read_recent_skips_broken_lines(tmp_path):
+    # 견고성: 깨진 JSON 줄은 skip, 정상 줄만 반환(원장 read 는 한 줄 손상에 견고).
+    episode.append(_rec(notes="good"), episodes_dir=tmp_path)
+    with (tmp_path / "2026-06.jsonl").open("a", encoding="utf-8") as f:
+        f.write("{이건 깨진 JSON\n")
+    assert [r["notes"] for r in episode.read_recent(episodes_dir=tmp_path)] == ["good"]
+
+
+def test_read_recent_orders_across_shards(tmp_path):
+    # 크로스 샤드: 다른 달 레코드도 최신순 통합 정렬(같은 샤드만 쓰던 커버리지 갭).
+    episode.append(_rec(timestamp="2026-05-10T00:00:00+09:00", notes="may"), episodes_dir=tmp_path)
+    episode.append(_rec(timestamp="2026-06-10T00:00:00+09:00", notes="jun"), episodes_dir=tmp_path)
+    assert [r["notes"] for r in episode.read_recent(episodes_dir=tmp_path)] == ["jun", "may"]
+
+
+def test_read_recent_limit_keeps_newest(tmp_path):
+    # limit 은 정렬 *후* 적용 → 최신 N 개 생존(슬라이스-전-정렬 회귀 포착).
+    for d in ("01", "02", "03"):
+        episode.append(_rec(timestamp=f"2026-06-{d}T00:00:00+09:00", notes=d), episodes_dir=tmp_path)
+    assert [r["notes"] for r in episode.read_recent(limit=2, episodes_dir=tmp_path)] == ["03", "02"]
