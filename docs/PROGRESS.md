@@ -1,8 +1,10 @@
-# PROGRESS — llm-brain × OKF 통합 (Phase 1)
+# PROGRESS — llm-brain (이니셔티브별 진행 + Decision Log)
 
 > 이 문서는 **진행 현황 + Decision Log**의 단일 확인처다. 주요 변경은 반드시 여기에 기록한다.
-> 출처 PRD: `~/Desktop/prd-okf-integration.md` · 설계: `docs/superpowers/specs/2026-06-23-okf-export-p1-design.md` · 계약: `...-contract.md`
-> 최종 갱신: 2026-06-23
+> 이니셔티브: **①** [완료] OKF 통합 (Phase 1) · **②** [설계 완료·미구현] Agent Memory OS Upgrade.
+> ② 요구사항: `docs/PRD.md` · 설계(HOW): `SPEC.md` → "Agent Memory OS Upgrade — 설계" 절.
+> ① 출처 PRD: `~/Desktop/prd-okf-integration.md` · 설계: `docs/superpowers/specs/2026-06-23-okf-export-p1-design.md` · 계약: `...-contract.md`
+> 최종 갱신: 2026-06-27
 
 ---
 
@@ -20,6 +22,52 @@
 | 누적 결정 자체 | **Rule 7** | 이 로그 운영 |
 
 ---
+
+## 이니셔티브 ② — Agent Memory OS Upgrade (설계 완료, 미구현)
+
+> 5층 메모리 모델(작업·에피소드·의미·절차·메타)로 llm-brain을 "지식 컴파일러" → "에이전트 메모리 운영 계층"으로.
+> 요구사항: `docs/PRD.md` (US-001~008) · 설계(HOW): `SPEC.md` "Agent Memory OS Upgrade — 설계" 절.
+
+### 현재 체크포인트 (2026-06-27)
+- **상태**: brainstorming 설계 확정 → `SPEC.md` 통합 완료 · `docs/PRD.md` 이관 완료. **구현 미착수.**
+- **범위 결정**: 전체 아키텍처 1개 설계서(SPEC 흡수) + 단계형 플랜, 코어 루프(에피소드·작업기억·메타점수) 우선.
+- **다음**: writing-plans로 Phase별 구현 플랜 → Phase 0부터 구현.
+
+### Decision Log — ②
+> 형식: `[날짜] 결정 — 근거(룰) · 가역성 · 검증`
+- **[2026-06-27] 산출물 = 구현 설계서 + 단계형 플랜(빌드 직전까지), 코드 미착수** — Rule 4(이미 WHETHER 통과한 PRD라 HOW 설계). 가역. 검증: 사용자 선택.
+- **[2026-06-27] 설계서 = 전체 아키텍처 1개 + 제어루프 척추 중심(폴더 나열 아님)** — Rule 2·3. 8 US를 하나의 배선도로. 가역. 검증: 사용자 선택.
+- **[2026-06-27] 문서 통합 = 새 design.md 신설 0; PRD→`docs/PRD.md`(Desktop 이동)·설계→`SPEC.md`·진행→`PROGRESS.md` 3축** — Rule 3(문서 통합 원칙, 파편화 차단). 가역. 검증: 사용자 선택 + 신설 파일 0.
+- **[2026-06-27] memory_score 철학 = 재사용 우선(express_reuse 35 + episode_ref 25 + centrality 15 + access 10 + recency 10 + source 5) + rescue** — Rule 5(사람이 가중치 결정). 단순 access_count와 차별; "클릭 적어도 인용되면 보존". 가역(config 튜닝). 검증: 워크드 예시 비교 후 사용자 선택.
+- **[2026-06-27] resonance v1 제외** — Rule 1·2. 실측: resonance는 wiki frontmatter 미저장(컴파일 시 필터링) → 점수 입력 불가. wiki 영속화는 raw→wiki 컴파일 계약 변경(blast radius↑) → v2 후순. 가역. 검증: 4 에이전트 frontmatter 실측 audit.
+- **[2026-06-27] episode 저장 = 월별 샤드 `episodes/YYYY-MM.jsonl` + episodes/ 전체 gitignore(예시 1개만 커밋)** — Rule 9(one-way door; 운영 맥락 누출 방지). 가역. 검증: okf wiki/-only 스캔 실측 + 루트 배치 구조적 격리.
+- **[2026-06-27] one-way door 봉인 = episodes/·procedures/ repo 루트 + okf `exclude_paths` 방어 2줄 + strip 모드 외부공유** — Rule 8·9. public 누출(비가역)을 폴더 위치 + gitignore + 규칙으로 3중 봉인. 가역(설정). 검증: `okf_export.py` wiki/-only rglob 실측.
+
+### 구현 단계 (유지→변경→신규, 코어 루프 우선)
+| Phase | 성격 | 내용 | 루프 효과 | PRD US |
+|---|---|---|---|---|
+| **0 토대** | 신규·저위험 | `frontmatter_utils` + `episode.py` + episodes/ gitignore + okf 방어 2줄 + `examples/episode-schema-example.jsonl` | 기존 동작 무변경(호출 0) | 001 |
+| **1 쓰기측** | 변경 | `episode.append` 배선(express→ingest→wiki_app) + express 재사용 메타 | ② 턴 이후 쓰기 ON | 002·007 |
+| **2 읽기+제어** | 신규+변경 | `brain_context.py` + curate `memory_score` | ①읽기+③제어 ON → **루프 닫힘** | 005·006 |
+| **3 주변** | 신규 | `procedures/`+loader + `memory_health` + memory_type 문서(SPEC·README) | 저장 기질 보강 | 004·008·003 |
+
+각 Phase: 품질 게이트(`uv run pytest` · `curate.py --audit` · `okf_export.py --dry-run` · wiki_app 기동) 그린 후 다음. 결정은 본 로그에 누적.
+
+### 테스트 전략 (결정성 지점)
+- `episode.py`: 정상 append · malformed 거부(`EpisodeSchemaError`) · `read_recent` 필터·순서.
+- **호출측 fail-soft**: `episode.append`이 raise해도 express/ingest/ai-answer 명령은 성공(mock raise → exit ok).
+- `frontmatter_utils`: 라운드트립 · invalid fail-loud · 신규 필드 보존.
+- `brain_context`: 빈 wiki · 매칭 페이지 · episode 포함 · procedure 포함 · 결정적 순서.
+- `memory_score`: 결정적 값 · **rescue 케이스**(저 access + 고 reuse → 구조) · config 부재 fallback.
+- `memory_health`: 픽스처 리포트 생성 · 읽기전용(파일 미이동).
+- `okf`: 기존 보안 스위트 + **episodes/procedures가 export 목록에 미등장** 신규 테스트.
+
+### 비범위 — ②
+벡터 DB 도입 · raw→wiki 컴파일러 모델 교체 · 메모리 자동 삭제 · OKF 기본 episode/procedure 공개 · 멀티에이전트 오케스트레이션 플랫폼 · (v1) resonance 점수 입력.
+
+---
+
+> **아래는 이니셔티브 ① OKF 통합 (Phase 1) 기록 — 완료·push됨(main).**
 
 ## 현재 체크포인트 (2026-06-25)
 
