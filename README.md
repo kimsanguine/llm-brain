@@ -2,8 +2,9 @@
 
 # llm-brain — 당신의 두 번째 뇌를 만드세요
 
-> **LLM을 컴파일러로 쓰는 Second Brain 시스템**
-> *Build your Second Brain with LLM as the compiler*
+> **메모·노트를 넣으면 AI가 정리된 지식 위키로 만들고, 필요할 때 글로 꺼내 쓰는 '두 번째 뇌' 도구.**
+> LLM을 컴파일러(메모를 자동으로 정리해 주는 AI)처럼 써서, 흩어진 raw 메모를 구조화된 위키로 바꾼다.
+> *Build your Second Brain with LLM as the compiler.*
 
 ![Python](https://img.shields.io/badge/Python-3.11+-3776AB?logo=python&logoColor=white)
 ![License](https://img.shields.io/badge/License-MIT-green)
@@ -45,11 +46,10 @@ Claude Code 플러그인으로 설치한다:
 
 ## 왜 만들었나 *Why this exists*
 
-매일 TIL을 쓰고, 회의록을 남기고, 논문을 클리핑한다.
-그런데 한 달 뒤 그 지식은 어디 있는가?
+매일 TIL(Today I Learned, 오늘 배운 것 메모)을 쓰고, 회의록을 남기고, 논문을 클리핑한다.
+그런데 한 달 뒤, 그 지식은 어디 있는가?
 
-*You write TILs, meeting notes, paper clippings every day.*
-*But where does that knowledge go after a month?*
+*You write notes every day — but where does that knowledge go after a month?*
 
 ---
 
@@ -70,17 +70,15 @@ raw/   →   [LLM 컴파일러]   →   wiki/
 |---|---|
 | ✅ | **LLM이 구조화를 담당** — 사람이 직접 편집할 필요 없음 |
 | ✅ | **raw / wiki 분리** — 원본은 보존, 정제본은 별도 관리 |
-| ✅ | **wikilink 연결** — 지식이 그래프로 연결됨 |
-| ✅ | **오염 방지** — raw 없이 wiki 수정 금지 원칙으로 할루시네이션 차단 |
+| ✅ | **wikilink(페이지끼리 연결하는 링크) 연결** — 지식이 그래프로 이어짐 |
+| ✅ | **오염 방지** — raw 출처 없이 wiki 수정 금지 원칙으로 할루시네이션(AI가 없는 사실을 지어내는 것) 차단 |
 
 ---
 
 ## 그러나 4가지가 빠져 있다 *But 4 things are missing*
 
 LLM Wiki는 아이디어 수준에 머물렀다.
-실제로 운영해보면 이 4가지 벽에 부딪힌다.
-
-*LLM Wiki stays at the concept level. In practice, you hit 4 walls.*
+실제로 운영해 보면 이 4가지 벽에 부딪힌다.
 
 | 한계 | 증상 |
 |---|---|
@@ -116,15 +114,13 @@ Second Brain의 핵심은 **Distill과 Express**다.
 
 두 패턴의 결합이 이 프로젝트다.
 
-*This project is the synthesis of both patterns.*
-
 ```
          LLM Wiki          +        Second Brain
     ─────────────────────────────────────────────
     raw → wiki 컴파일       +    CODE 전체 생애주기
     할루시네이션 방지         +    Distill → LLM 대행
     wikilink 그래프          +    Express → 창작물 출력
-                             +    lifecycle → TTL 관리
+                             +    lifecycle → TTL(보관 기한) 관리
 ```
 
 **Distill은 LLM이 대행한다. 당신은 Express에만 집중하라.**
@@ -135,7 +131,11 @@ Second Brain의 핵심은 **Distill과 Express**다.
 
 ## 핵심 기능 *Core Features*
 
-### 📥 ingest — 4가지 입력 채널 *4 Input Channels*
+쉬운 말로 6가지: **넣기(ingest) · 정리(curate) · 꺼내쓰기(express) · 물어보기(query) · 웹으로 보기(wiki-web) · 내보내기(okf)**.
+
+### 📥 ingest — 넣기: 메모·파일·URL 모으기 *Capture · 4 Input Channels*
+
+**한 줄로: 지식을 시스템에 '넣기'.** 메모·문서·웹페이지를 raw/(원본 보관함)에 모은다.
 
 ```bash
 # 채널 1: 수동 투입 (MD · TXT · PDF · DOCX · PPTX)
@@ -150,44 +150,29 @@ cp paper.pdf raw/docs/
 # 채널 4: Claude Code Routines 크론 등록
 ```
 
-`--resonance high/medium/low` 태그로 중요도 표시.
-index.md 기반 중복 검사로 wiki 노이즈 방지.
+`--resonance high/medium/low`(중요도 태그)로 자료 중요도를 표시하고, index.md(전체 목차) 기반 중복 검사로 위키에 불필요한 중복이 쌓이는 것을 막는다.
 
 ---
 
-### 🔁 curate — 점진적 압축 + 그래프 분석 *Progressive Summarization + Graph*
+### 🔁 curate — 정리: 압축·수명 관리 *Curate · Progressive Summarization*
+
+**한 줄로: 쌓인 지식을 '정리'하기.** 자주 보는 페이지일수록 더 짧게 압축(distill, 압축 정리)하고, 오래 안 본 페이지는 archive(보관) 후보로 내린다.
 
 ```
-/llm-brain:curate --distill     # distill_level 점진 압축
-/llm-brain:curate --lifecycle   # TTL 초과 페이지 → archive 후보
-/llm-brain:curate --all         # 전체 실행 (audit + distill + lifecycle)
+/llm-brain:curate --distill     # 자주 본 페이지를 한 단계 더 압축
+/llm-brain:curate --lifecycle   # 보관 기한(TTL) 지난 페이지를 archive 후보로
+/llm-brain:curate --all         # 전체 실행 (점검 + 압축 + 수명 관리)
 ```
 
-> wikilink 그래프(`wiki/graph.json`)는 `curate`·`wiki_app`이 내부적으로 생성한다.
+각 페이지는 frontmatter(페이지 머리말 정보)에 `distill_level`(압축 단계: 0=원문 → 3=한 줄)과 `access_count`(열어본 횟수)를 기록한다. 자주 열어본 페이지일수록 자동으로 먼저 정리된다.
 
-wiki 페이지는 접근할수록 더 깊이 정제된다.
-
-```yaml
-# curate --distill이 관리하는 frontmatter 필드
-distill_level: 2      # 0=원문 → 1=요약 → 2=핵심 → 3=한줄
-access_count: 12      # 웹 페이지뷰(wiki_app)는 frontmatter와 wiki_stats.json 둘 다 갱신
-                      # CLI curate --record-access는 wiki_stats.json만 갱신
-```
-
-> `access_count`의 실제 집계는 `wiki_stats.json` 사이드카가 정본이다. `distill` 실행 시 frontmatter 값과 `wiki_stats.json` 값 중 큰 값으로 동기화된다.
-
-> wiki 페이지는 이 외에 Agent Memory OS의 optional 필드(`memory_type`, `retention`, `confidence`, `source_count`, `last_verified`, `decay_policy`)를 선언할 수 있다. 전부 선택이라 없어도 기존 페이지는 그대로 유효하다. (상세: `SPEC.md`)
-
-`export_graph.py`는 `[[wikilink]]` 인바운드 수를 분석해 `wiki/graph.json`을 생성한다.
-허브·고립 페이지 판단은 `wiki_app`의 `/api/page/{slug}/graph` 엔드포인트로 조회 가능하다.
+> 압축 단계·접근 집계의 동작 방식, wikilink 그래프(`wiki/graph.json`) 분석, Agent Memory OS의 선택 필드(`memory_type` 등)는 모두 자동 처리된다. 상세: `SPEC.md`.
 
 ---
 
-### 📤 express — wiki → 창작물 *Wiki to Output*
+### 📤 express — 꺼내쓰기: wiki → 창작물 *Express · Wiki to Output*
 
-Second Brain의 존재 이유. 지식을 꺼내 쓴다.
-
-*The reason Second Brain exists. Get knowledge out.*
+**한 줄로: 정리된 지식을 글로 '꺼내 쓰기'.** Second Brain의 존재 이유 — 블로그·강의안·요약·리포트 초안을 자동 생성한다.
 
 ```
 /llm-brain:express blog "AI 에이전트 설계 패턴"
@@ -204,7 +189,9 @@ wiki/ → express/blog/ → raw/blog/ → wiki/   ← 피드백 루프
 
 ---
 
-### 🔍 query — wiki 기반 답변 *Wiki-grounded Answers*
+### 🔍 query — 물어보기: wiki 기반 답변 *Query · Wiki-grounded Answers*
+
+**한 줄로: 내 지식에 '물어보기'.** wiki에 있는 내용만 근거로 답한다 — 없으면 솔직히 "없다"고 한다(지어내지 않는다).
 
 ```
 사용자: "RAG 구현할 때 뭐가 중요했지?"
@@ -212,12 +199,11 @@ Claude: wiki/ 내용 기반으로만 답변
         (wiki에 없으면 "raw 데이터가 필요합니다")
 ```
 
-query 시 접근한 페이지의 `access_count`가 올라가
-다음 `curate --distill`에서 자동 우선 처리된다.
+물어본 페이지는 열어본 횟수(`access_count`)가 올라가, 다음 `curate --distill`에서 자동으로 먼저 정리된다.
 
-### 🌐 wiki-web — HTML 검색·페이지뷰 인터페이스 *Local HTML Search UI*
+### 🌐 wiki-web — 웹으로 보기: HTML 검색·페이지뷰 *Local HTML Search UI*
 
-CLI `/llm-brain:query`의 시각화 버전. 브라우저에서 검색·페이지 탐색·wikilink 클릭.
+**한 줄로: 위 query를 브라우저에서.** 검색창·페이지 보기·wikilink 클릭으로 위키를 둘러본다.
 
 ```bash
 uv run python -m wiki_app
@@ -235,47 +221,35 @@ uv run python -m wiki_app
 
 ---
 
-### 📦 okf — wiki → OKF 호환 번들 *Wiki to OKF Bundle*
+### 📦 okf — 내보내기: wiki → OKF 호환 번들 *Export · Wiki to OKF Bundle*
 
-`wiki/`(내부 슈퍼셋)를 OKF v0.1(Google Open Knowledge Format) 호환 번들 `okf/`로 투영한다. 동료·외부 에이전트·habix 제품이 번역 없이 그대로 소비할 수 있는 표준 포맷으로 내보내, llm-brain을 경쟁 포맷이 아니라 OKF 표준을 흡수하는 export 포트로 만든다.
-
-내부 포맷은 바꾸지 않고 경계(`okf/`)에서만 변환한다. frontmatter는 OKF 예약 필드로 매핑하고 나머지 내부 필드는 `x-llmbrain-*`로 보존하며, 본문 `[[wikilink]]`는 번들 루트 절대경로 마크다운 링크(`[X](/concepts/x.md)`)로 변환한다.
+**한 줄로: 위키를 표준 포맷으로 '내보내기'.** 동료나 다른 AI 도구가 그대로 읽을 수 있는 OKF(Google Open Knowledge Format, 공개 지식 표준) 번들 `okf/`로 변환한다. 내부 포맷은 그대로 두고 경계에서만 바꾼다.
 
 ```
 /llm-brain:okf                  # 먼저 dry-run 검토 후 okf/ 번들 생성
-/llm-brain:okf --dry-run        # export 대상·제외·통계만 (파일 미작성, 보안 검토용)
-/llm-brain:okf --strip-internal # 외부 공유본 (OKF 예약 6필드만, x-llmbrain-* 제거)
+/llm-brain:okf --dry-run        # 내보낼·제외할 목록과 통계만 미리보기 (파일 미작성)
+/llm-brain:okf --strip-internal # 외부 공유본 (내부 전용 필드 제거)
 ```
 
-> 슬래시 커맨드 `commands/okf.md`가 내부적으로 `scripts/okf_export.py`를 실행한다.
-
-**제외/민감 설정 (보안):**
-- 경로 제외(`business/**`·`canvas/**`)는 커밋되는 `schema/okf_export.yaml`의 `exclude_paths`.
-- 🔴 **민감 키워드(`sensitive_patterns`, 본문 평문 스캐너)·민감 페이지(`exclude_slugs`)는 gitignored `schema/okf_export.local.yaml`에만 둔다** — 커밋되는 yaml에 실명·내부명을 넣으면 그 자체가 누출.
-
-> ⚠ `okf/`는 Git 커밋·push되면 history가 영구(비가역)다. **public 커밋 전 `--dry-run`으로 ① `business/` 제외 ② `sensitive_hits=0` ③ `excluded` 카운트=기대값을 사람이 확인**한다. fresh clone/CI엔 `okf_export.local.yaml`이 없어 게이트가 비활성(stderr 🔴 경고) — 그 상태로 커밋 금지.
+> 🔴 **보안 (한 줄):** `okf/`를 public으로 커밋하면 history가 영구로 남는다. 커밋 전 반드시 `--dry-run`으로 민감 항목이 빠졌는지(`sensitive_hits=0`) 사람이 직접 확인한다. 제외·민감 설정과 보안 게이트 동작 상세: `SPEC.md`.
 
 ---
 
 ### 🧠 Agent Memory OS — 5층 기억 *5-Layer Memory*
 
-지금까지의 `wiki/`는 **의미 기억(semantic)** — "무엇을 아는가"만 담는다. Agent Memory OS는 여기에 **에피소드·절차·작업기억·메타** 4개 층을 더해, 한 번의 실행이 다음 실행을 더 똑똑하게 만드는 되먹임 루프를 완성한다.
+![AI 에이전트 메모리 5층 구조](./assets/agent-memory-5layers.jpg)
 
-*`wiki/` is semantic memory ("what you know"). Memory OS adds episodic · procedural · working · meta layers so each run makes the next one smarter.*
+사람의 기억이 여러 종류로 나뉘듯, AI 에이전트도 여러 층의 기억이 필요하다. 지금까지의 `wiki/`는 그중 **의미 기억(semantic, '무엇을 아는가')** 하나였다. 여기에 4개 층을 더해, 한 번의 실행이 다음 실행을 더 똑똑하게 만드는 되먹임 루프를 완성한다 — **5개 층 모두 구현 완료(✅)**.
 
-```
-작업기억(읽기) → 실행(ingest·express·query·curate) → 에피소드(쓰기) → 메타(건강 진단) → 더 나은 작업기억
-```
+| 층 (Layer) | 쉬운 비유 | 무엇을 하는가 | 구현 |
+|---|---|---|---|
+| 🧩 작업기억 (working) | 일하기 직전 책상에 펴 놓는 자료 | 작업 시작 직전, 관련 메모·이력·절차를 한 묶음으로 모아 준다 (`brain_context`) | ✅ |
+| 📒 에피소드 (episodic) | 작업 일지 | "언제 무엇을 했는지" 실행 이력을 자동 기록한다 (`episodes/`, 기록이 실패해도 본 작업은 안 멈춤·비공개) | ✅ |
+| 📚 의미 (semantic) | 정리된 백과사전 | "무엇을 아는가" — 정리된 위키 본체 (`wiki/`) | ✅ |
+| 🔁 절차 (procedural) | 업무 매뉴얼 | "어떻게 하는가" 재사용 워크플로우 (`procedures/`) | ✅ |
+| 🩺 메타 (meta) | 정리·관리를 맡은 사서 | 기억의 건강을 진단하고 정리한다 (`memory_health`·`curate`) | ✅ |
 
-새로 얻는 것 *What you gain*:
-
-| 기능 | 설명 |
-|---|---|
-| 📒 **episode 자동 기록** | `ingest`·`express`·`query` 실행이 `episodes/YYYY-MM.jsonl`에 운영 이력으로 남는다 (fail-soft — 기록이 실패해도 본 작업은 안 멈춤 · gitignored 사적 데이터) |
-| 🧩 **brain_context** | 작업 직전 "작업기억 팩"(관련 semantic + 최근 episode + 후보 procedure + 제약)을 결정적 순서로 한 번에 조립 |
-| 🩺 **memory_health** | 읽기전용 메모리 건강 리포트 — wiki 페이지는 건드리지 않고 리포트(`wiki/memory_health_report.md`)만 쓴다 |
-| 🔁 **procedures/** | 재사용 절차(워크플로우) 메모리 (예: `ingest`·`express-blog`·`okf-export-safety`) |
-| 🏷️ **memory_type** | 페이지의 메모리 역할(`semantic`·`episodic`·`procedural`·`meta`·`working`)을 선언하는 frontmatter 필드 (선택) |
+> 메타 층의 4가지 정리 동작 — **보관(archive)·중복제거(merge)·폐기(purge)·감쇠(decay)** — 도 전부 구현되어 있다.
 
 바로 써보기 *Try it*:
 
@@ -292,6 +266,8 @@ uv run python scripts/memory_health.py --report
 ---
 
 ## LLM 엔진 선택 *LLM Engine*
+
+엔진 = 위키를 정리·생성하는 AI를 어디서 부를지 고르는 설정이다.
 
 ```yaml
 # schema/config.yaml
@@ -315,21 +291,20 @@ llm:
 git clone https://github.com/kimsanguine/llm-brain.git && cd llm-brain
 ```
 
-그다음 Claude Code 세션에서 슬래시 커맨드로 운영한다:
+그다음 Claude Code 세션에서 슬래시 커맨드로 운영한다 — 핵심 흐름은 **넣기 → 물어보기 → 꺼내쓰기** 3단계다:
 
 ```
-1. schema/sources.yaml 에 raw/ 위치 등록
-2. /llm-brain:ingest          # raw → wiki 컴파일
-3. /llm-brain:query "..."     # wiki 기반 질의
-4. /llm-brain:express blog "..."   # 창작물 출력
+1. schema/sources.yaml 에 내 raw/ 위치 등록
+2. /llm-brain:ingest               # ① 넣기: raw → wiki 자동 정리
+3. /llm-brain:query "..."          # ② 물어보기: wiki 기반 답변
+4. /llm-brain:express blog "..."   # ③ 꺼내쓰기: 글 초안 생성
 ```
 
-데모 시드로 즉시 체험(선택):
+데모 시드로 즉시 체험(선택) — 예시 위키를 복사해 바로 둘러본다:
 
 ```bash
-cp index.md index.md.bak 2>/dev/null || true   # 작성자 index 백업
-cp -r examples/seed-wiki/wiki ./wiki            # 데모 wiki 선별 복사
-cp examples/seed-wiki/index.md ./index.md
+cp -r examples/seed-wiki/wiki ./wiki            # 데모 wiki 복사
+cp examples/seed-wiki/index.md ./index.md       # 데모 목차(index.md) 생성
 uv run python -m wiki_app                       # 로컬 HTML UI → localhost:8000
 ```
 
