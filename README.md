@@ -12,6 +12,9 @@
 ![License](https://img.shields.io/badge/License-MIT-green)
 ![Claude Code](https://img.shields.io/badge/Claude_Code-CLI-orange)
 ![Obsidian](https://img.shields.io/badge/Obsidian-Graph_View-7C3AED)
+![Version](https://img.shields.io/badge/version-0.2.0-blue)
+
+> 🎉 **v0.2** — Agent Memory OS 5층 기억(작업·에피소드·의미·절차·메타) + 설치 점검 `/llm-brain:doctor` · 웹 UI `/llm-brain:wikiweb` 커맨드 추가.
 
 ---
 
