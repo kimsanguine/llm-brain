@@ -639,18 +639,18 @@ response = client.messages.create(
 
 | 모듈 | 상태 | 단일 책임 | 인터페이스 | 의존 | PRD US |
 |---|---|---|---|---|---|
-| `scripts/lib/frontmatter_utils.py` | 신규(토대) | frontmatter 파싱 단일 출처(fail-loud) | `read_fm(text)->(dict,body)`, `write_fm(fm,body)->str` | pyyaml | 003 토대 |
+| `scripts/lib/frontmatter_utils.py` | 신규(토대) | 신규+접촉 리더 **공용** 파서(fail-loud; "단일 출처" 아님) | `read_fm(text)->(dict,body)`, `write_fm(fm,body)->str` | pyyaml | 003 토대 |
 | `scripts/episode.py` | 신규 | append-only 에피소드 원장 | `append(record)->None`, `read_recent(task_type,topic,limit)->list[dict]` | 표준 라이브러리 | 001 |
 | `scripts/brain_context.py` | 신규 | 작업기억 팩 조립(휘발성) | CLI `--task --topic --type --max-pages [--json]` | `express.collect_related_pages`, `episode.read_recent`, procedures loader | 005 |
 | `procedures/` + loader | 신규 | 재사용 절차 저장/로드 | `list_procedures()`, `read_procedure(slug)->(fm,body)` | frontmatter_utils | 004 |
-| `scripts/curate.py` | **변경** | +메타 점수(기존 distill 위) | `compute_memory_score(entry, graph, fm)->float` | graph.json, episodes, express/ | 006 |
+| `scripts/curate.py` | **변경** | +메타 점수·rescue(`run_lifecycle`/`_purge`)·episode 기록 | `compute_memory_score(...)->float`; `run_*` 후 `episode.append` | graph.json, episodes, express/ | 006·002 |
 | `scripts/express.py` | **변경** | +재사용 메타 frontmatter, +episode 기록 | `save_draft` 직후 `episode.append` | episode | 007·002 |
 | `scripts/ingest.py` | **변경** | +staging episode 기록 | 저장 성공 직후 `episode.append`(status=pending) | episode | 002 |
-| `wiki_app/api.py` | **변경** | +AI답변 episode 기록 | `_collect_context` 직후 `episode.append` | episode | 002 |
+| `wiki_app/api.py` | **변경** | +AI답변 episode 기록 | 비스트림·스트림 핸들러 **둘 다 `finally`**에서 `episode.append`(최종 status 포함) | episode | 002 |
 | `scripts/memory_health.py` | 신규 | 읽기전용 건강 리포트 | `--report` → `wiki/memory_health_report.md` | episode, curate, frontmatter_utils | 008 |
 | `schema/okf_export.yaml` | **변경** | 방어 제외 2줄 | `exclude_paths += episodes/**, procedures/**` | — | 보안 |
 
-**격리 원칙:** `brain_context`는 웹 계층(`wiki_app/search.py`)이 아니라 `scripts/express.collect_related_pages`(현 75–106행, 이미 결정적)를 재사용 — 스크립트가 웹에 의존하지 않게. `frontmatter_utils`는 **신규 코드 + US가 건드리는 리더만** 채택(현재 4벌 파서 중 `export_graph.py` 등 미접촉 파일은 그대로 = Rule 3).
+**격리 원칙:** `brain_context`는 웹 계층(`wiki_app/search.py`)이 아니라 `scripts/express.collect_related_pages`(현 75–106행, 이미 결정적)를 재사용 — 스크립트가 웹에 의존하지 않게. `frontmatter_utils`는 **신규 코드 + US가 건드리는 리더만** 채택(현재 4벌 파서 중 `export_graph.py` 등 미접촉 파일은 그대로 = Rule 3). → 따라서 "단일 출처"가 **아니다**; `export_graph.py` 미니파서는 블록리스트 데이터손실 이력(PROGRESS ① R1)이 있어 **다음 접촉 시 이관 후보**로 둔다(Claude#5a·Codex C6).
 
 ## §C — 파일 계약
 
@@ -696,7 +696,7 @@ decay_policy: default     # 명명된 정책 키 (선택)
 → 결정적 순서 6 섹션(테스트 가능):
 
 1. **목표** (`--task`)
-2. **관련 semantic 페이지** — `express.collect_related_pages(topic, max_pages)` 재사용
+2. **관련 semantic 페이지** — `express.collect_related_pages(topic, max_pages)` 재사용 + **graph degree tie-breaker**(US-005 요구; 현 함수는 키워드 점수만이라 `graph.json` degree로 동점 정렬을 brain_context에서 보강) + `find_wiki_file`의 비정렬 `rglob` 정렬(결정성, Claude·Codex C5)
 3. **최근 관련 episode** — `episode.read_recent(task_type=--type, topic, limit)`
 4. **후보 procedure** — procedures loader, topic 키워드 필터
 5. **제약** — CLAUDE.md 가드레일(raw 출처 없는 wiki 사실 금지 등) 정적 주입
@@ -715,11 +715,12 @@ score = 35·norm(express_reuse) + 25·norm(episode_ref) + 15·norm(centrality)
 - `centrality = w1·inbound_degree + w2·betweenness` (`wiki/graph.json`).
 - `recency` = age 감쇠(예: <30일 1.0 → 365일 0.0 선형).
 - `express_reuse` = `express/` 산출물이 이 slug를 `source_pages`/`[[link]]`로 인용한 횟수(express/ 스캔, 캐시).
-- `episode_ref` = episode `read_pages`에 이 slug가 등장한 횟수(episode 샤드 집계).
+- `episode_ref` = episode `read_pages`에 이 slug가 등장한 횟수. **단 `task_type=express_*` 에피소드는 제외**(Codex C3) — 같은 express 런이 `express_reuse`와 `episode_ref`를 동시에 올리는 이중계산 방지. `episode_ref`는 ingest·ai_answer·curate 등 *비-express* 운영 읽기만 집계.
 - **PRD US-006 입력 대비 v1 매핑(추적성):** `resonance` v1 제외(wiki frontmatter 미저장 — 컴파일 시 필터링; v2 후순). `stale_age`는 `recency` 감쇠에 흡수(별도 항 아님). `contradiction_risk`는 v1 제외(교차 페이지 의미 매칭 필요 = 범위 밖). `episode_ref`는 PRD 미열거 신호이나 재사용 우선 철학에 따라 추가. → 나머지 6개(express_reuse·access·recency·centrality·source_count + episode_ref)만 점수화.
-- **plug-in 지점: `curate.py` `run_distill()` 현 343–356행.** 임계 게이트(access≥10/distill<3=urgent 등)는 **유지**(신규 페이지 보호·backward-compat). 점수는 ① tier 내 정렬 + ② **rescue**: archive 게이트(access==0·age>90)에 걸린 페이지가 `score ≥ RESCUE_THRESHOLD`면 archive 대신 promote/keep-review.
+- **plug-in ① 정렬 — `curate.py` `run_distill()` 현 343–356행:** 임계 게이트(access≥10/distill<3=urgent 등) **유지**(신규 페이지 보호·backward-compat). 점수는 **tier 내 정렬에만** 사용(이 버킷은 자문용 = `distill_queue.md`에 줄만 쓰고 아무것도 안 옮김 → 보존 결정 못 함).
+- **plug-in ② rescue — 실제 archive 게이트(`run_lifecycle`: `age>ttl AND inbound==0`, + `_purge`):** 여기가 페이지를 루프에서 *실제로* 들어내는 곳(Claude#2 HIGH). `run_distill` 자문 버킷이 아님. **rescue 규칙(상대):** archive 후보 집합에서 `memory_score` **상위 N%** 는 archive 제외 → promote/keep-review. **상대 임계 이유(#4):** 출시 직후 express/episode 이력이 비어 재사용 가중치(60%)가 ~0이라 절대 임계는 과녁이 움직임. **술어 불일치 해소:** distill(access==0·age>90) vs lifecycle(inbound==0·age>ttl)이 달라 — PRD가 걱정하는 "재사용되나 inbound 0인 orphan"이 정확히 lifecycle 대상이므로 rescue를 lifecycle에 걸어야 보존이 실제로 작동.
 - `distill_queue.md`·`curate_report.md`에 점수+사유 기입(top promote / merge-review / archive-review / decay).
-- `config.yaml` 부재 시 옛 임계 동작으로 fallback(backward-compat).
+- `config.yaml` **부재** 시 옛 임계 동작 fallback. **부분/오류 키**(누락 weight·CAP, 0/음수 CAP, 타입오류)도 안전 처리(Codex C4): 누락=기본 상수, 오류=해당 항 기본값 + stderr warn(조용한 flaky/crash 금지). 결정성 테스트는 `now`를 고정 주입.
 
 ## §D — 보안 경계 (one-way door)
 
@@ -727,4 +728,6 @@ score = 35·norm(express_reuse) + 25·norm(episode_ref) + 15·norm(centrality)
 - **방어 이중망**: `schema/okf_export.yaml` `exclude_paths`에 `episodes/**`·`procedures/**` 명시(향후 wiki/ 밑 오배치 대비). 게이트는 탐지형이 아니라 규칙형이라 명시 규칙만이 누출을 막는다.
 - 새 메모리 필드 → keep 모드 `x-llmbrain-*` / `--strip-internal` 전부 제거. **외부 공유는 strip 필수**.
 - `.gitignore`: `episodes/` 전체. 예외 = `examples/episode-schema-example.jsonl` 1개만 커밋(문서·테스트용).
-- 커밋 전 dry-run ceremony(기존)에 점검 항목 추가: export 목록에 `episodes`/`procedures` 미등장 확인.
+- 커밋 전 dry-run ceremony(기존)에 점검 항목 추가: export 목록에 `episodes`/`procedures`/`memory_health_report` 미등장 단언.
+- 🔴 **memory_health 리포트 누출 차단(Claude#1·Codex C1, HIGH):** `memory_health.py`는 `wiki/memory_health_report.md`에 쓰는데 `okf_export.py`가 `wiki/`를 rglob 스캔하고 현 `META_FILES`에 이 파일이 **없다**(episode 요약 = 격리한 사적 운영맥락의 파생). → ① `memory_health_report.md`를 okf `META_FILES`에 **명시 추가**(루트 직속 skip 작동; title-부재 skip은 취약해 의존 금지) ② 리포트는 **집계 수치만**(verbatim episode 본문 금지). 이 확장은 리포트를 도입하는 **Phase 3에서 동반**.
+- **Phase 0 "무변경" 단서(Codex C8):** okf config 2줄·파서 유틸 추가는 *episodes/·procedures/가 wiki/ 밖일 때만* no-op. Phase 0 테스트는 export 결과뿐 아니라 **okf config 값 자체**를 단언.

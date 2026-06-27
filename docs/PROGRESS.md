@@ -43,13 +43,41 @@
 - **[2026-06-27] episode 저장 = 월별 샤드 `episodes/YYYY-MM.jsonl` + episodes/ 전체 gitignore(예시 1개만 커밋)** — Rule 9(one-way door; 운영 맥락 누출 방지). 가역. 검증: okf wiki/-only 스캔 실측 + 루트 배치 구조적 격리.
 - **[2026-06-27] one-way door 봉인 = episodes/·procedures/ repo 루트 + okf `exclude_paths` 방어 2줄 + strip 모드 외부공유** — Rule 8·9. public 누출(비가역)을 폴더 위치 + gitignore + 규칙으로 3중 봉인. 가역(설정). 검증: `okf_export.py` wiki/-only rglob 실측.
 
+- **[2026-06-27] Claude·Codex 2-렌즈 적대 크로스체크 → SOUND-WITH-CHANGES (HIGH 3 + MED 5 + LOW 2 설계 반영)** — Rule 4(단일 에이전트 불신)·8. 두 렌즈가 *서로 다른* HIGH 포착: Claude=**rescue 게이트 오배선**(자문용 `run_distill`에 걸림, 실제 게이트는 `run_lifecycle` inbound==0), Codex=**점수 이중계산**(express 런이 express_reuse+episode_ref 동시 +1), 공통=**memory_health 누출**(wiki/→okf). 반영: ①memory_health→okf `META_FILES`+집계만 ②rescue를 `run_lifecycle`/`_purge`(상대 top-N%) ③episode_ref에서 express 제외 ④cold-start 상대화 ⑤curate→`episode.append` ⑥config 부분/오류 키 안전 ⑦ai_answer `finally` 양 핸들러 ⑧brain_context degree tie-breaker+rglob 정렬 ⑨frontmatter_utils '단일출처' 프레이밍 교정 ⑩Phase0 무변경 단서. 가역(설계 문서). 검증: 양 렌즈 실측 코드 대조(okf `wiki/` rglob·`run_lifecycle` inbound==0·`META_FILES`에 health 부재) → SPEC §C/§D 반영 완료. HIGH 3 미수정 시 빌드 금지.
+
+### 변경 표면 (AS-IS → TO-BE)
+> 코드 레벨 line-by-line diff(curate `run_distill`·frontmatter·express·okf)는 `SPEC.md` §C·§D 참조 — 여기선 구조 요약만(중복 drift 방지). **신규 4파일 + 변경 6파일 + 신규 2디렉터리.**
+
+```
+260516_llm_brain/
+  raw/ wiki/ express/ okf/         [기존]  변경 0 (wiki = semantic 기억 그대로)
+  scripts/
+    ingest.py     ~ 저장 성공 후 episode.append (status=pending)
+    curate.py     ~ compute_memory_score + rescue (run_distill 343–356)
+    express.py    ~ 재사용 frontmatter + save_draft 후 episode.append
+    okf_export.py / export_graph.py / sync_raw.py   [기존]  무접촉
++   lib/frontmatter_utils.py   파싱 단일 출처 (read_fm/write_fm, fail-loud)
++   episode.py                 에피소드 원장 (append/read_recent)
++   brain_context.py           작업기억 팩 조립
++   memory_health.py           읽기전용 건강 리포트
+  wiki_app/api.py   ~ AI답변 _collect_context 직후 episode.append
+  schema/config.yaml       ~ memory_score 가중치·CAP·RESCUE_THRESHOLD
+  schema/okf_export.yaml   ~ exclude_paths += episodes/**, procedures/**
++ episodes/        루트·gitignored   YYYY-MM.jsonl (월별 샤드)
++ procedures/      루트              *.md (memory_type: procedural)
++ examples/episode-schema-example.jsonl   커밋되는 스키마 예시 1개
+  .gitignore       ~ episodes/ 추가
+```
+
+**데이터 흐름:** AS-IS = `raw→wiki→express/okf` 선형(되먹임 0, 읽기=매번 index 전체검색, 폐기=access 임계만). TO-BE = ① `brain_context` 작업기억 팩 읽기 → ② 각 실행이 `episode.append` → ③ `curate.memory_score`가 보존/폐기 결정(rescue: 인용 많으면 archive→promote) → 건강한 wiki만 다음 ①에 읽힘(**순환**).
+
 ### 구현 단계 (유지→변경→신규, 코어 루프 우선)
 | Phase | 성격 | 내용 | 루프 효과 | PRD US |
 |---|---|---|---|---|
 | **0 토대** | 신규·저위험 | `frontmatter_utils` + `episode.py` + episodes/ gitignore + okf 방어 2줄 + `examples/episode-schema-example.jsonl` | 기존 동작 무변경(호출 0) | 001 |
 | **1 쓰기측** | 변경 | `episode.append` 배선(express→ingest→wiki_app) + express 재사용 메타 | ② 턴 이후 쓰기 ON | 002·007 |
-| **2 읽기+제어** | 신규+변경 | `brain_context.py` + curate `memory_score` | ①읽기+③제어 ON → **루프 닫힘** | 005·006 |
-| **3 주변** | 신규 | `procedures/`+loader + `memory_health` + memory_type 문서(SPEC·README) | 저장 기질 보강 | 004·008·003 |
+| **2 읽기+제어** | 신규+변경 | `brain_context.py`(degree tie-breaker) + curate `memory_score`·**rescue(`run_lifecycle`/`_purge`)**·**curate→episode.append** | ①읽기+③제어 ON → **루프 닫힘** | 005·006·002 |
+| **3 주변** | 신규 | `procedures/`+loader + `memory_health`(**+okf `META_FILES` 동반**) + memory_type 문서(SPEC·README) | 저장 기질 보강 | 004·008·003 |
 
 각 Phase: 품질 게이트(`uv run pytest` · `curate.py --audit` · `okf_export.py --dry-run` · wiki_app 기동) 그린 후 다음. 결정은 본 로그에 누적.
 
@@ -61,6 +89,15 @@
 - `memory_score`: 결정적 값 · **rescue 케이스**(저 access + 고 reuse → 구조) · config 부재 fallback.
 - `memory_health`: 픽스처 리포트 생성 · 읽기전용(파일 미이동).
 - `okf`: 기존 보안 스위트 + **episodes/procedures가 export 목록에 미등장** 신규 테스트.
+
+**리뷰 반영 테스트(2-렌즈 크로스체크):**
+- **rescue@lifecycle**: 재사용↑·inbound==0·age>ttl 페이지가 `run_lifecycle`/`_purge`에서 archive 제외(보존) — 상대 top-N%.
+- **episode_ref dedup**: `express_*` 에피소드가 `episode_ref`에 미집계(이중계산 0).
+- **config robustness**: 누락 키=기본·0/음수 CAP·타입오류=fallback+warn; 테스트는 `now` 고정.
+- **ai_answer**: 스트림·비스트림 둘 다 episode 기록 + 최종 status(done/timeout/error) 캡처.
+- **memory_health 누출**: `memory_health_report.md`가 okf export 목록 미등장(`META_FILES`) + 리포트에 verbatim episode 본문 0.
+- **okf config 값 단언**: `exclude_paths`에 `episodes/**`·`procedures/**` 존재(결과뿐 아니라 설정값).
+- **brain_context**: graph degree tie-breaker + `find_wiki_file` 정렬로 결정적 순서.
 
 ### 비범위 — ②
 벡터 DB 도입 · raw→wiki 컴파일러 모델 교체 · 메모리 자동 삭제 · OKF 기본 episode/procedure 공개 · 멀티에이전트 오케스트레이션 플랫폼 · (v1) resonance 점수 입력.
