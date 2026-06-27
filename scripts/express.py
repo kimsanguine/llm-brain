@@ -17,6 +17,8 @@ import sys
 from datetime import datetime, timedelta
 from pathlib import Path
 
+import episode  # scripts/ 가 sys.path 에 있음(스크립트 직접 실행·테스트 모두)
+
 WIKI_ROOT = Path(__file__).parent.parent
 WIKI_DIR = WIKI_ROOT / "wiki"
 INDEX_FILE = WIKI_ROOT / "index.md"
@@ -155,6 +157,60 @@ def save_draft(output_path: Path, content: str) -> None:
     print(f"[express] 저장: {output_path.relative_to(WIKI_ROOT)}")
 
 
+def _reuse_meta_block(output_type: str, pages: list[tuple[Path, str]]) -> str:
+    """US-007 재사용 메타 frontmatter 블록을 (닫는 newline 없이) 만든다.
+
+    source_pages 는 페이지 slug(파일 stem)의 기계 판독 가능한 YAML 리스트.
+    소스가 0개면 `source_pages: []`(유효한 빈 리스트). 나머지는 생성 시점 기본값.
+    """
+    slugs = [p.stem for p, _ in pages]
+    if slugs:
+        source_pages = "source_pages:\n" + "\n".join(f"  - {s}" for s in slugs)
+    else:
+        source_pages = "source_pages: []"
+    return (
+        f"output_type: {output_type}\n"
+        f"published_url: null\n"
+        f"{source_pages}\n"
+        f"derived_insight: null\n"
+        f"reuse_as: []"
+    )
+
+
+def _record_express_episode(
+    task_type: str,
+    user_goal: str,
+    inputs: dict,
+    pages: list[tuple[Path, str]],
+    out_path: Path,
+    procedure: str,
+) -> None:
+    """save_draft 성공 직후 에피소드 원장에 기록한다(US-002).
+
+    **fail-soft**: 헬퍼는 fail-loud(EpisodeSchemaError) 지만, 메인 명령 경로가
+    원장 실패로 깨지면 안 되므로 여기서 try/except 로 감싸 warn+continue 한다.
+    timestamp 는 tz-aware(astimezone) — naive 면 read_recent 의 교차-TZ 정렬이 깨진다.
+    """
+    try:
+        record = {
+            "timestamp": datetime.now().astimezone().isoformat(),
+            "task_type": task_type,
+            "user_goal": user_goal,
+            "inputs": inputs,
+            "read_pages": [str(p.relative_to(WIKI_ROOT)) for p, _ in pages],
+            "procedures_used": [procedure],
+            "outputs": {
+                "draft_path": str(out_path.relative_to(WIKI_ROOT)),
+                "source_count": len(pages),
+            },
+            "status": "draft_ready",
+            "notes": "",
+        }
+        episode.append(record)
+    except (episode.EpisodeSchemaError, Exception) as e:  # noqa: B014 — 명시적 fail-soft
+        print(f"[express] episode 기록 실패(무시): {e}", file=sys.stderr)
+
+
 # ── 서브커맨드 핸들러 ────────────────────────────────────────────────────────
 
 def cmd_blog(topic: str) -> None:
@@ -170,6 +226,7 @@ type: blog
 topic: {topic}
 created: {date_str}
 status: draft
+{_reuse_meta_block("blog", pages)}
 sources:
 {chr(10).join(f'  - {p.relative_to(WIKI_ROOT)}' for p, _ in pages) or '  - (없음)'}
 ---
@@ -192,6 +249,9 @@ sources:
     shutil.copy2(out_path, raw_dst)
     print(f"[express] 복사 (raw/blog/): {raw_dst.relative_to(WIKI_ROOT)}")
 
+    _record_express_episode(
+        "express_blog", topic, {"topic": topic}, pages, out_path, "collect_related_pages"
+    )
     _print_synthesis_hint("blog", topic, out_path, pages)
 
 
@@ -209,6 +269,7 @@ topic: {topic}
 slides: {slides}
 created: {date_str}
 status: draft
+{_reuse_meta_block("lecture", pages)}
 sources:
 {chr(10).join(f'  - {p.relative_to(WIKI_ROOT)}' for p, _ in pages) or '  - (없음)'}
 ---
@@ -224,6 +285,14 @@ sources:
 
     out_path = TYPE_DIR["lecture"] / filename
     save_draft(out_path, draft)
+    _record_express_episode(
+        "express_lecture",
+        topic,
+        {"topic": topic, "slides": slides},
+        pages,
+        out_path,
+        "collect_related_pages",
+    )
     _print_synthesis_hint("lecture", topic, out_path, pages, extra=f"슬라이드 {slides}장 구성")
 
 
@@ -244,6 +313,7 @@ type: summary
 period: {label}
 created: {date_str}
 status: draft
+{_reuse_meta_block("summary", pages)}
 page_count: {len(pages)}
 sources:
 {chr(10).join(f'  - {p.relative_to(WIKI_ROOT)}' for p, _ in pages) or '  - (없음)'}
@@ -260,6 +330,14 @@ sources:
 
     out_path = TYPE_DIR["summary"] / filename
     save_draft(out_path, draft)
+    _record_express_episode(
+        "express_summary",
+        f"{label} summary",
+        {"period": label, "days": days},
+        pages,
+        out_path,
+        "collect_recent_pages",
+    )
     _print_synthesis_hint("summary", f"{label} ({days}일)", out_path, pages)
 
 
@@ -276,6 +354,7 @@ type: report
 topic: {topic}
 created: {date_str}
 status: draft
+{_reuse_meta_block("report", pages)}
 sources:
 {chr(10).join(f'  - {p.relative_to(WIKI_ROOT)}' for p, _ in pages) or '  - (없음)'}
 ---
@@ -291,6 +370,9 @@ sources:
 
     out_path = TYPE_DIR["report"] / filename
     save_draft(out_path, draft)
+    _record_express_episode(
+        "express_report", topic, {"topic": topic}, pages, out_path, "collect_related_pages"
+    )
     _print_synthesis_hint("report", topic, out_path, pages)
 
 

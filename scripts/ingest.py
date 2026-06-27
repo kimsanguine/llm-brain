@@ -23,6 +23,8 @@ from pathlib import Path
 import httpx
 from markdownify import markdownify
 
+import episode  # scripts/ 가 sys.path 에 있음(스크립트 직접 실행·테스트 모두)
+
 WIKI_ROOT = Path(__file__).parent.parent
 RAW_DIR = WIKI_ROOT / "raw"
 STATE_FILE = WIKI_ROOT / ".ingest_state.json"
@@ -229,6 +231,32 @@ def save_note(text: str, resonance: str | None = None) -> Path:
     return out_file
 
 
+def _record_ingest_episode(
+    task_type: str, source: str, resonance: str | None, saved: Path
+) -> None:
+    """저장 성공 직후 staging 에피소드(status=pending_wiki_compilation)를 기록한다(US-002).
+
+    **fail-soft**: 원장 실패가 ingest 명령 경로(종료 코드 계약 포함)를 깨면 안 되므로
+    try/except 로 감싸 warn+continue. timestamp 는 tz-aware(astimezone).
+    read_pages/procedures_used 는 ingest 단계(아직 wiki 컴파일 전)라 빈 리스트.
+    """
+    try:
+        record = {
+            "timestamp": datetime.now().astimezone().isoformat(),
+            "task_type": task_type,
+            "user_goal": str(source),
+            "inputs": {"source": str(source), "resonance": resonance},
+            "read_pages": [],
+            "procedures_used": [],
+            "outputs": {"saved_path": str(saved.relative_to(WIKI_ROOT))},
+            "status": "pending_wiki_compilation",
+            "notes": "",
+        }
+        episode.append(record)
+    except (episode.EpisodeSchemaError, Exception) as e:  # noqa: B014 — 명시적 fail-soft
+        print(f"[ingest] episode 기록 실패(무시): {e}", file=sys.stderr)
+
+
 def mark_done() -> None:
     state = load_state()
     all_files = [
@@ -267,12 +295,15 @@ def main() -> None:
     if args.url:
         saved = scrape_url(args.url, resonance=args.resonance)
         is_duplicate(saved)
+        _record_ingest_episode("ingest_url", args.url, args.resonance, saved)
     elif args.file:
         saved = ingest_file(Path(args.file), resonance=args.resonance)
         is_duplicate(saved)
+        _record_ingest_episode("ingest_file", args.file, args.resonance, saved)
     elif args.note:
         saved = save_note(args.note, resonance=args.resonance)
         is_duplicate(saved)
+        _record_ingest_episode("ingest_note", args.note, args.resonance, saved)
 
     # 미처리 파일 목록 출력
     pending = find_unprocessed(priority_only=args.priority_only)
