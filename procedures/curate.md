@@ -1,6 +1,7 @@
 ---
 title: curate 절차 — wiki 품질 관리(감사·압축·수명)
 memory_type: procedural
+version: "1.0"
 tags:
   - curate
   - wiki

@@ -39,3 +39,12 @@ def read_procedure(slug: str, procedures_dir: Path = PROCEDURES_DIR) -> tuple[di
     procedures_dir = Path(procedures_dir)
     text = (procedures_dir / f"{slug}.md").read_text(encoding="utf-8")
     return frontmatter_utils.read_fm(text)
+
+
+def procedure_version(slug: str, procedures_dir: Path = PROCEDURES_DIR) -> str:
+    """절차의 version(frontmatter `version`). 미선언 시 '1.0' (이미지 절차층 '버전').
+
+    워크플로우가 바뀌면 이 값을 올려 재현·추적한다. 항상 str 로 정규화한다.
+    """
+    fm, _ = read_procedure(slug, procedures_dir)
+    return str(fm.get("version", "1.0"))

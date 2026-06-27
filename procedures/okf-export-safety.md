@@ -1,6 +1,7 @@
 ---
 title: okf export 안전 절차 — 커밋 전 dry-run 보안 게이트
 memory_type: procedural
+version: "1.0"
 tags:
   - okf
   - export

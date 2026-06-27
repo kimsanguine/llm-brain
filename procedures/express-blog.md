@@ -1,6 +1,7 @@
 ---
 title: express blog 절차 — wiki 기반 블로그 초안 생성
 memory_type: procedural
+version: "1.0"
 tags:
   - express
   - blog

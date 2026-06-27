@@ -1,6 +1,7 @@
 ---
 title: ingest 절차 — raw 소스를 wiki 로 컴파일
 memory_type: procedural
+version: "1.0"
 tags:
   - ingest
   - wiki
