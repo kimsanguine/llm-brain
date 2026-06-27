@@ -257,6 +257,40 @@ uv run python -m wiki_app
 
 ---
 
+### 🧠 Agent Memory OS — 5층 기억 *5-Layer Memory*
+
+지금까지의 `wiki/`는 **의미 기억(semantic)** — "무엇을 아는가"만 담는다. Agent Memory OS는 여기에 **에피소드·절차·작업기억·메타** 4개 층을 더해, 한 번의 실행이 다음 실행을 더 똑똑하게 만드는 되먹임 루프를 완성한다.
+
+*`wiki/` is semantic memory ("what you know"). Memory OS adds episodic · procedural · working · meta layers so each run makes the next one smarter.*
+
+```
+작업기억(읽기) → 실행(ingest·express·query·curate) → 에피소드(쓰기) → 메타(건강 진단) → 더 나은 작업기억
+```
+
+새로 얻는 것 *What you gain*:
+
+| 기능 | 설명 |
+|---|---|
+| 📒 **episode 자동 기록** | `ingest`·`express`·`query` 실행이 `episodes/YYYY-MM.jsonl`에 운영 이력으로 남는다 (fail-soft — 기록이 실패해도 본 작업은 안 멈춤 · gitignored 사적 데이터) |
+| 🧩 **brain_context** | 작업 직전 "작업기억 팩"(관련 semantic + 최근 episode + 후보 procedure + 제약)을 결정적 순서로 한 번에 조립 |
+| 🩺 **memory_health** | 읽기전용 메모리 건강 리포트 — wiki 페이지는 건드리지 않고 리포트(`wiki/memory_health_report.md`)만 쓴다 |
+| 🔁 **procedures/** | 재사용 절차(워크플로우) 메모리 (예: `ingest`·`express-blog`·`okf-export-safety`) |
+| 🏷️ **memory_type** | 페이지의 메모리 역할(`semantic`·`episodic`·`procedural`·`meta`·`working`)을 선언하는 frontmatter 필드 (선택) |
+
+바로 써보기 *Try it*:
+
+```bash
+# 작업 직전 "작업기억 팩" 생성 (관련 페이지 + 최근 이력 + 절차 + 제약)
+uv run python scripts/brain_context.py --task "RAG 블로그 초안" --topic "rag retrieval" --type express
+
+# 읽기전용 메모리 건강 리포트 → wiki/memory_health_report.md
+uv run python scripts/memory_health.py --report
+```
+
+> 전부 **optional 레이어**다 — 이 명령들을 한 번도 안 써도 `ingest`·`curate`·`express`·`query`는 그대로 동작한다. 상세 스펙: `SPEC.md`의 "Agent Memory OS" 절.
+
+---
+
 ## LLM 엔진 선택 *LLM Engine*
 
 ```yaml
@@ -340,7 +374,11 @@ llm-brain/
 │   ├── curate.py              # 감사·압축·lifecycle (--health, --suggest-bridges)
 │   ├── export_graph.py        # wikilink 그래프 export → wiki/graph.json
 │   ├── okf_export.py          # wiki → OKF v0.1 호환 번들 okf/ export
-│   └── express.py             # wiki → 창작물 출력
+│   ├── express.py             # wiki → 창작물 출력
+│   ├── episode.py             # 🧠 append-only 에피소드 원장 (episodes/YYYY-MM.jsonl)
+│   ├── brain_context.py       # 🧠 작업기억 팩 조립 (semantic+episode+procedure+제약)
+│   ├── procedures.py          # 🧠 재사용 절차 메모리 로더
+│   └── memory_health.py       # 🧠 읽기전용 메모리 건강 리포트
 ├── wiki_app/                  # 🌐 HTML 검색·페이지뷰 (FastAPI)
 │   ├── api.py                 # 6 endpoints
 │   ├── search.py              # 검색 인덱스 + B/C 알고리즘
@@ -353,6 +391,8 @@ llm-brain/
 ├── raw/                       # 원본 소스 (.gitignore)
 ├── wiki/                      # LLM 정제 결과 (.gitignore)
 ├── express/                   # 창작물 출력 (.gitignore)
+├── episodes/                  # 🧠 에피소드 원장 YYYY-MM.jsonl (.gitignore · 사적)
+├── procedures/                # 🧠 재사용 절차 메모리 (Git 커밋 대상)
 └── okf/                       # OKF v0.1 호환 번들 (okf_export.py 생성, Git 커밋 대상)
 ```
 
