@@ -13,8 +13,10 @@ import argparse
 import fcntl
 import json
 import logging
+import math
 import os
 import re
+import sys
 import tempfile
 from collections import defaultdict
 from datetime import datetime, timedelta
@@ -227,6 +229,331 @@ def ensure_distill_fields(page: Path) -> dict | None:
     return fm
 
 
+# ── Memory score (US-006, 재사용 우선·결정적) ──────────────────────────
+#
+# SPEC §C4: meta-memory 점수. 재사용 신호(express_reuse·episode_ref)에 가중치
+# 60%를 둬 "실제로 다시 쓰인" 페이지를 보존 우선한다. 사람이 튜닝하는 가중치·CAP은
+# DEFAULT 상수 + 선택적 schema/config.yaml override(Rule 5). config는 gitignored이고
+# 부재/부분/오류 시 항별 기본값으로 안전 폴백한다(크래시·flaky 금지).
+#
+# norm(x) = min(x / CAP, 1.0). score = Σ weight·norm(signal).
+
+MEMORY_SCORE_WEIGHTS_DEFAULT: dict[str, float] = {
+    "express_reuse": 35.0,
+    "episode_ref": 25.0,
+    "centrality": 15.0,
+    "access_count": 10.0,
+    "recency": 10.0,
+    "source_count": 5.0,
+}
+# 정규화 분모(이 값에서 norm=1.0 포화). 0/음수 금지.
+MEMORY_SCORE_CAPS_DEFAULT: dict[str, float] = {
+    "express_reuse": 5.0,
+    "episode_ref": 10.0,
+    "centrality": 20.0,
+    "access_count": 20.0,
+    "source_count": 5.0,
+}
+# centrality = w_inbound·inbound_degree + w_betweenness·betweenness.
+# graph.json은 현재 betweenness 필드를 저장하지 않으므로 부재 시 0으로 본다.
+MEMORY_SCORE_CENTRALITY_WEIGHTS_DEFAULT: dict[str, float] = {
+    "inbound": 1.0,
+    "betweenness": 10.0,
+}
+# recency: age <= FULL → 1.0, >= ZERO → 0.0, 그 사이 선형.
+RECENCY_FULL_DAYS = 30
+RECENCY_ZERO_DAYS = 365
+# rescue: archive 후보 중 memory_score 상위 비율만큼 보존(상대 임계, SPEC §C4 plug-in ②).
+RESCUE_TOP_PCT_DEFAULT = 0.20
+
+_REASON_LABEL = {
+    "express_reuse": "express 재사용",
+    "episode_ref": "episode 참조",
+    "centrality": "그래프 중심성",
+    "access_count": "조회수",
+    "recency": "최근성",
+    "source_count": "출처수",
+}
+
+
+def _as_num(x) -> float:
+    """안전한 수치 변환. bool/None/비수치는 0.0."""
+    if isinstance(x, bool) or x is None:
+        return 0.0
+    if isinstance(x, (int, float)):
+        return float(x)
+    return 0.0
+
+
+def _norm(x, cap) -> float:
+    """min(x/CAP, 1.0). CAP<=0 이면 0.0 (ZeroDivision/flaky 방지 — 방어선)."""
+    cap = _as_num(cap)
+    if cap <= 0:
+        return 0.0
+    return min(_as_num(x) / cap, 1.0)
+
+
+def _recency_score(age_days) -> float:
+    """age 감쇠: <=FULL → 1.0, >=ZERO → 0.0, 그 사이 선형."""
+    age = _as_num(age_days)
+    if age <= RECENCY_FULL_DAYS:
+        return 1.0
+    if age >= RECENCY_ZERO_DAYS:
+        return 0.0
+    span = RECENCY_ZERO_DAYS - RECENCY_FULL_DAYS
+    return max(0.0, 1.0 - (age - RECENCY_FULL_DAYS) / span)
+
+
+def _merge_numeric(target: dict, override, label: str, *, allow_zero: bool) -> None:
+    """override(dict)의 수치 값만 target에 병합. 타입오류·금지값은 기본값 유지 + stderr warn.
+
+    allow_zero=False(=CAP)면 0/음수 금지, True(=weight)면 음수만 금지.
+    """
+    if override is None:
+        return
+    if not isinstance(override, dict):
+        print(f"  [memory_score] config {label} 타입 오류(dict 기대) — 기본값 사용",
+              file=sys.stderr)
+        return
+    for key, default_val in list(target.items()):
+        if key not in override:
+            continue
+        val = override[key]
+        if isinstance(val, bool) or not isinstance(val, (int, float)):
+            print(f"  [memory_score] config {label}.{key} 타입 오류 — 기본값 {default_val} 사용",
+                  file=sys.stderr)
+            continue
+        if not allow_zero and val <= 0:
+            print(f"  [memory_score] config {label}.{key}={val} (0/음수 금지) — 기본값 {default_val} 사용",
+                  file=sys.stderr)
+            continue
+        if allow_zero and val < 0:
+            print(f"  [memory_score] config {label}.{key}={val} (음수 금지) — 기본값 {default_val} 사용",
+                  file=sys.stderr)
+            continue
+        target[key] = float(val)
+
+
+def _load_memory_score_config(config_file: Path | None = None) -> tuple[dict, dict, dict]:
+    """(weights, caps, centrality_weights) 해석. schema/config.yaml의 선택적
+    `memory_score:` 섹션으로 override. 부재/부분/오류는 항별 기본값으로 안전 폴백."""
+    weights = dict(MEMORY_SCORE_WEIGHTS_DEFAULT)
+    caps = dict(MEMORY_SCORE_CAPS_DEFAULT)
+    cw = dict(MEMORY_SCORE_CENTRALITY_WEIGHTS_DEFAULT)
+
+    if config_file is None:
+        config_file = SCHEMA_DIR / "config.yaml"
+    if not config_file.exists():
+        return weights, caps, cw
+    try:
+        raw = yaml.safe_load(config_file.read_text(encoding="utf-8")) or {}
+    except yaml.YAMLError as exc:
+        print(f"  [memory_score] config.yaml 파싱 실패 — 기본값 사용 ({exc})", file=sys.stderr)
+        return weights, caps, cw
+    section = raw.get("memory_score") if isinstance(raw, dict) else None
+    if not isinstance(section, dict):
+        return weights, caps, cw  # memory_score 섹션 없음 → 기본값
+
+    _merge_numeric(weights, section.get("weights"), "weights", allow_zero=True)
+    _merge_numeric(caps, section.get("caps"), "caps", allow_zero=False)
+    _merge_numeric(cw, section.get("centrality_weights"), "centrality_weights", allow_zero=True)
+    return weights, caps, cw
+
+
+def build_centrality_index(graph_json) -> dict[str, dict]:
+    """graph.json 원본 → {slug: node} 인덱스 (page 노드만). 1회 빌드해 재사용."""
+    if not isinstance(graph_json, dict):
+        return {}
+    return {n["id"]: n for n in graph_json.get("nodes", [])
+            if isinstance(n, dict) and n.get("kind") == "page" and "id" in n}
+
+
+def load_graph_index(graph_path: Path | None = None) -> dict[str, dict]:
+    """wiki/graph.json 을 읽어 centrality 인덱스 반환. 부재/오류 시 빈 dict (graceful)."""
+    if graph_path is None:
+        graph_path = WIKI_DIR / "graph.json"
+    if not graph_path.exists():
+        return {}
+    try:
+        return build_centrality_index(json.loads(graph_path.read_text(encoding="utf-8")))
+    except (json.JSONDecodeError, OSError):
+        return {}
+
+
+def _centrality_node(graph, slug: str) -> dict:
+    """graph 가 원본 json({"nodes":[...]})이든 사전 인덱스({slug:node})든 노드 dict 반환."""
+    if not isinstance(graph, dict):
+        return {}
+    nodes = graph.get("nodes")
+    if isinstance(nodes, list):  # 원본 graph.json (소규모 테스트 경로)
+        for n in nodes:
+            if isinstance(n, dict) and n.get("id") == slug:
+                return n
+        return {}
+    node = graph.get(slug)  # 사전 인덱스 (운영 경로)
+    return node if isinstance(node, dict) else {}
+
+
+def _slug_from_path(value) -> str:
+    """'wiki/concepts/foo.md' / 'foo.md' / 'foo' → 'foo' (stem)."""
+    if not isinstance(value, str):
+        return ""
+    return Path(value.strip()).stem
+
+
+def build_express_reuse_index(express_dir: Path | None = None) -> dict[str, int]:
+    """express/ 산출물을 스캔해 {slug: 인용한 산출물 수} 반환.
+
+    한 산출물이 같은 slug 를 여러 번 인용해도 +1 (산출물 단위 dedup). 인용 경로:
+    frontmatter `sources`/`source_pages`(파일경로 → stem) + 본문 `[[wikilink]]`.
+    """
+    if express_dir is None:
+        express_dir = WIKI_ROOT / "express"
+    express_dir = Path(express_dir)
+    counts: dict[str, int] = defaultdict(int)
+    if not express_dir.exists():
+        return {}
+    for md in sorted(express_dir.rglob("*.md")):
+        try:
+            content = md.read_text(encoding="utf-8")
+        except OSError:
+            continue
+        for slug in _express_cited_slugs(content):
+            counts[slug] += 1
+    return dict(counts)
+
+
+def _express_cited_slugs(content: str) -> set[str]:
+    """한 express 산출물이 인용한 slug 집합 (산출물 단위 dedup용)."""
+    try:
+        fm, body = parse_frontmatter(content)
+    except FrontmatterParseError:
+        fm, body = {}, content
+    slugs: set[str] = set()
+    if isinstance(fm, dict):
+        for key in ("source_pages", "sources"):
+            vals = fm.get(key)
+            if isinstance(vals, list):
+                for v in vals:
+                    slug = _slug_from_path(v)
+                    if slug:
+                        slugs.add(slug)
+    slugs |= extract_wikilinks(body)
+    return slugs
+
+
+def build_episode_ref_index(episodes_dir: Path | None = None) -> dict[str, int]:
+    """episodes/ 샤드를 스캔해 {slug: 참조 에피소드 수} 반환.
+
+    task_type=express_* 에피소드는 제외(express_reuse 와 이중계산 방지, Codex C3).
+    에피소드 1건의 read_pages 안 중복 slug 는 1회만 집계(에피소드 단위 dedup).
+    """
+    if episodes_dir is None:
+        episodes_dir = WIKI_ROOT / "episodes"
+    episodes_dir = Path(episodes_dir)
+    counts: dict[str, int] = defaultdict(int)
+    if not episodes_dir.exists():
+        return {}
+    for shard in sorted(episodes_dir.glob("*.jsonl")):
+        try:
+            lines = shard.read_text(encoding="utf-8").splitlines()
+        except OSError:
+            continue
+        for raw in lines:
+            raw = raw.strip()
+            if not raw:
+                continue
+            try:
+                rec = json.loads(raw)
+            except json.JSONDecodeError:
+                continue
+            if not isinstance(rec, dict):
+                continue
+            task_type = str(rec.get("task_type", ""))
+            if task_type == "express" or task_type.startswith("express_"):
+                continue  # express_* 제외
+            read_pages = rec.get("read_pages", [])
+            if not isinstance(read_pages, list):
+                continue
+            seen: set[str] = set()
+            for p in read_pages:
+                slug = _slug_from_path(p)
+                if slug and slug not in seen:
+                    seen.add(slug)
+                    counts[slug] += 1
+    return dict(counts)
+
+
+def _age_days_from_fm(fm, now: datetime | None = None) -> int:
+    """frontmatter `created` 와 now 로 age(일) 계산. created 부재/오류 시 0."""
+    if now is None:
+        now = datetime.now()
+    created = fm.get("created") if isinstance(fm, dict) else None
+    if not created:
+        return 0
+    try:
+        created_dt = datetime.strptime(str(created), "%Y-%m-%d")
+    except (ValueError, TypeError):
+        return 0
+    return (now - created_dt).days
+
+
+def _score_terms(entry: dict, graph, fm, weights: dict, caps: dict,
+                 centrality_weights: dict, now: datetime | None) -> dict[str, float]:
+    """항별 가중 기여(weight·norm(signal))를 dict로 반환. compute_memory_score/이유 공용."""
+    slug = entry.get("slug", "")
+    node = _centrality_node(graph, slug)
+    inbound = _as_num(node.get("inbound", 0))
+    betweenness = _as_num(node.get("betweenness", 0.0))
+    centrality = (centrality_weights["inbound"] * inbound
+                  + centrality_weights["betweenness"] * betweenness)
+
+    age_days = entry.get("age_days")
+    if age_days is None:
+        age_days = _age_days_from_fm(fm, now)
+    source_count = len(fm.get("sources") or []) if isinstance(fm, dict) else 0
+
+    return {
+        "express_reuse": weights["express_reuse"] * _norm(entry.get("express_reuse", 0), caps["express_reuse"]),
+        "episode_ref": weights["episode_ref"] * _norm(entry.get("episode_ref", 0), caps["episode_ref"]),
+        "centrality": weights["centrality"] * _norm(centrality, caps["centrality"]),
+        "access_count": weights["access_count"] * _norm(entry.get("access_count", 0), caps["access_count"]),
+        "recency": weights["recency"] * _recency_score(age_days),
+        "source_count": weights["source_count"] * _norm(source_count, caps["source_count"]),
+    }
+
+
+def compute_memory_score(entry: dict, graph, fm: dict, *, weights: dict | None = None,
+                         caps: dict | None = None, centrality_weights: dict | None = None,
+                         now: datetime | None = None) -> float:
+    """slug 1개의 meta-memory 점수(0~100, 재사용 우선·결정적). SPEC §C4.
+
+    entry: 호출측이 채운 신호 묶음 {slug, access_count, age_days, express_reuse,
+           episode_ref}. 누락 신호는 0으로 본다.
+    graph: graph.json 원본 dict({"nodes":..}) 또는 사전 인덱스({slug: node}).
+    fm:    페이지 frontmatter dict — source_count = len(sources).
+    weights/caps/centrality_weights 미지정 시 config(또는 기본값) 1회 로드.
+    now:   age_days 부재 시 recency 계산에만 사용(주입으로 결정성 보장).
+    """
+    if weights is None and caps is None and centrality_weights is None:
+        weights, caps, centrality_weights = _load_memory_score_config()
+    else:
+        weights = {**MEMORY_SCORE_WEIGHTS_DEFAULT, **(weights or {})}
+        caps = {**MEMORY_SCORE_CAPS_DEFAULT, **(caps or {})}
+        centrality_weights = {**MEMORY_SCORE_CENTRALITY_WEIGHTS_DEFAULT, **(centrality_weights or {})}
+
+    terms = _score_terms(entry, graph, fm, weights, caps, centrality_weights, now)
+    return round(sum(terms.values()), 4)
+
+
+def memory_reason(terms: dict[str, float]) -> str:
+    """기여가 가장 큰 신호를 사람이 읽는 사유 라벨로. 전부 0이면 '신호 없음'."""
+    if not terms or max(terms.values()) <= 0:
+        return "신호 없음"
+    top = max(terms, key=lambda k: (terms[k], k))
+    return _REASON_LABEL.get(top, top)
+
+
 # ── Audit ─────────────────────────────────────────────────────────────
 
 def find_all_wiki_pages() -> list[Path]:
@@ -305,6 +632,13 @@ def run_distill(pages: list[Path]) -> list[str]:
     now = datetime.now()
     stats = load_wiki_stats()
 
+    # plug-in ① (US-006): tier 내 정렬용 memory_score 입력 인덱스를 1회 빌드.
+    # 임계 게이트(아래 access≥10 등)는 유지 — 점수는 tier '내부 정렬'에만 쓴다.
+    graph_index = load_graph_index()
+    express_idx = build_express_reuse_index()
+    episode_idx = build_episode_ref_index()
+    ms_weights, ms_caps, ms_cw = _load_memory_score_config()
+
     urgent: list[dict] = []    # access_count >= 10 AND distill_level < 3
     priority: list[dict] = []  # access_count >= 5  AND distill_level < 2
     lifecycle_via_distill: list[dict] = []  # access_count == 0 AND 90일+
@@ -346,7 +680,13 @@ def run_distill(pages: list[Path]) -> list[str]:
             "distill_level": distill_level,
             "access_count": access_count,
             "age_days": age_days,
+            "express_reuse": express_idx.get(slug, 0),
+            "episode_ref": episode_idx.get(slug, 0),
         }
+        # plug-in ①: tier 내 정렬용 memory_score + 사유 (임계 게이트는 그대로 유지).
+        terms = _score_terms(entry, graph_index, fm, ms_weights, ms_caps, ms_cw, now)
+        entry["memory_score"] = round(sum(terms.values()), 4)
+        entry["memory_reason"] = memory_reason(terms)
 
         if access_count >= 10 and distill_level < 3:
             urgent.append(entry)
@@ -360,27 +700,31 @@ def run_distill(pages: list[Path]) -> list[str]:
     lines = [f"# Distill Queue — {ts}\n",
              "> 이 파일은 `curate --distill`이 생성합니다. Claude Code가 읽고 순서대로 압축을 실행하세요.\n"]
 
+    # plug-in ①: tier 내 정렬은 memory_score 내림차순(동점은 slug 오름차순으로 결정적).
+    def _by_score(entries: list[dict]) -> list[dict]:
+        return sorted(entries, key=lambda x: (-x["memory_score"], x["slug"]))
+
     lines.append(f"\n## 긴급 후보 (access ≥ 10, distill_level < 3) — {len(urgent)}개")
-    lines.append("우선순위 1: 즉시 압축 필요\n")
-    for e in sorted(urgent, key=lambda x: x["access_count"], reverse=True):
+    lines.append("우선순위 1: 즉시 압축 필요 (정렬: memory_score 내림차순)\n")
+    for e in _by_score(urgent):
         lines.append(
-            f"- [ ] `{e['path']}` — "
+            f"- [ ] `{e['path']}` — score={e['memory_score']:.1f} ({e['memory_reason']}), "
             f"access={e['access_count']}, level={e['distill_level']}, age={e['age_days']}일"
         )
 
     lines.append(f"\n## 우선 후보 (access ≥ 5, distill_level < 2) — {len(priority)}개")
-    lines.append("우선순위 2: 다음 사이클에 압축\n")
-    for e in sorted(priority, key=lambda x: x["access_count"], reverse=True):
+    lines.append("우선순위 2: 다음 사이클에 압축 (정렬: memory_score 내림차순)\n")
+    for e in _by_score(priority):
         lines.append(
-            f"- [ ] `{e['path']}` — "
+            f"- [ ] `{e['path']}` — score={e['memory_score']:.1f} ({e['memory_reason']}), "
             f"access={e['access_count']}, level={e['distill_level']}, age={e['age_days']}일"
         )
 
     lines.append(f"\n## Lifecycle 후보 (access=0, 90일+) — {len(lifecycle_via_distill)}개")
-    lines.append("우선순위 3: `curate --lifecycle` 또는 삭제 검토\n")
-    for e in sorted(lifecycle_via_distill, key=lambda x: x["age_days"], reverse=True):
+    lines.append("우선순위 3: `curate --lifecycle` 또는 삭제 검토 (정렬: memory_score 내림차순)\n")
+    for e in _by_score(lifecycle_via_distill):
         lines.append(
-            f"- [ ] `{e['path']}` — "
+            f"- [ ] `{e['path']}` — score={e['memory_score']:.1f} ({e['memory_reason']}), "
             f"age={e['age_days']}일, access=0"
         )
 
@@ -415,6 +759,12 @@ def run_lifecycle(pages: list[Path]) -> dict:
     now = datetime.now()
     _, inbound = build_link_graph(pages)
 
+    # plug-in ② (US-006): rescue 판정용 memory_score 입력 인덱스 1회 빌드.
+    graph_index = load_graph_index()
+    express_idx = build_express_reuse_index()
+    episode_idx = build_episode_ref_index()
+    ms_weights, ms_caps, ms_cw = _load_memory_score_config()
+
     archive_candidates, delete_candidates = [], []
 
     for page in pages:
@@ -445,7 +795,59 @@ def run_lifecycle(pages: list[Path]) -> dict:
                 "inbound": in_count,
             })
 
-    return {"archive": archive_candidates, "delete": delete_candidates}
+    # plug-in ② rescue: archive 후보(age>ttl AND inbound==0)에 memory_score 를 매겨
+    # 상위 N%(상대 임계)는 archive 에서 *제외* → 보존(promote/keep-review). "재사용되나
+    # inbound 0인 orphan"이 영구 소실되는 것을 막는 핵심 지점(SPEC §C4). 점수 0(=재사용
+    # 신호 전무)은 보존하지 않아 정상 decay 페이지의 무한 적체를 막는다.
+    rescued, archive_candidates = _rescue_split(
+        archive_candidates, graph_index, express_idx, episode_idx,
+        ms_weights, ms_caps, ms_cw, now,
+    )
+    rescued_paths = {r["path"] for r in rescued}
+    # 보존된 페이지는 delete 후보에서도 빼준다(같은 orphan 이 delete 게이트로 다시 잡힐 수 있음).
+    delete_candidates = [d for d in delete_candidates if d["path"] not in rescued_paths]
+
+    return {"archive": archive_candidates, "delete": delete_candidates, "rescued": rescued}
+
+
+def _rescue_split(candidates: list[dict], graph_index, express_idx: dict,
+                  episode_idx: dict, weights: dict, caps: dict, centrality_weights: dict,
+                  now: datetime, top_pct: float = RESCUE_TOP_PCT_DEFAULT,
+                  ) -> tuple[list[dict], list[dict]]:
+    """archive 후보를 memory_score 로 (rescued, kept_archive) 로 가른다.
+
+    각 후보에 memory_score·memory_reason 을 주석한다. 상대 임계: score 내림차순
+    상위 ceil(top_pct·N) 중 score>0 인 것만 rescue(전부 0이면 아무도 보존 안 함).
+    """
+    if not candidates:
+        return [], []
+    for c in candidates:
+        page = WIKI_ROOT / c["path"]
+        slug = Path(c["path"]).stem
+        try:
+            fm, _ = parse_frontmatter(page.read_text(encoding="utf-8"))
+        except (OSError, FrontmatterParseError):
+            fm = {}
+        entry = {
+            "slug": slug,
+            "access_count": fm.get("access_count", 0) if isinstance(fm, dict) else 0,
+            "age_days": c.get("age_days"),
+            "express_reuse": express_idx.get(slug, 0),
+            "episode_ref": episode_idx.get(slug, 0),
+        }
+        terms = _score_terms(entry, graph_index, fm, weights, caps, centrality_weights, now)
+        c["memory_score"] = round(sum(terms.values()), 4)
+        c["memory_reason"] = memory_reason(terms)
+
+    ordered = sorted(candidates, key=lambda x: (-x["memory_score"], x["path"]))
+    k = max(1, math.ceil(top_pct * len(ordered)))
+    rescued, kept = [], []
+    for i, c in enumerate(ordered):
+        if i < k and c["memory_score"] > 0:
+            rescued.append(c)
+        else:
+            kept.append(c)
+    return rescued, kept
 
 
 # ── Report ─────────────────────────────────────────────────────────────
@@ -476,7 +878,10 @@ def write_report(audit: dict, distilled: list, lifecycle: dict) -> None:
     archive = lifecycle.get("archive", [])
     lines.append(f"### Archive 후보 ({len(archive)}개)")
     for a in archive:
-        lines.append(f"- {a['path']} — {a['age_days']}일 경과, inbound {a['inbound']}")
+        lines.append(
+            f"- {a['path']} — {a['age_days']}일 경과, inbound {a['inbound']}"
+            + _score_suffix(a)
+        )
 
     delete = lifecycle.get("delete", [])
     lines.append(f"\n### Delete 후보 ({len(delete)}개)")
@@ -484,6 +889,17 @@ def write_report(audit: dict, distilled: list, lifecycle: dict) -> None:
         lines.append(f"- {d['path']} — {d['age_days']}일 경과, inbound {d['inbound']}")
     if delete:
         lines.append("\n> 삭제 실행: `python scripts/curate.py --purge`")
+
+    # plug-in ② rescue: 보존된 페이지는 Lifecycle 섹션 *밖*(별도 ## 섹션)에 기록한다.
+    # do_purge 는 'Lifecycle 후보' 섹션만 스캔하므로 여기 둬야 purge 에 안 잡힌다.
+    rescued = lifecycle.get("rescued", [])
+    lines.append(f"\n## Rescued — 재사용 보존 ({len(rescued)}개)")
+    lines.append("> archive 후보였으나 memory_score 상위라 보존됨 (promote/keep-review).")
+    for r in rescued:
+        lines.append(
+            f"- {r['path']} — {r['age_days']}일 경과, inbound {r['inbound']}"
+            + _score_suffix(r)
+        )
 
     REPORT_FILE.write_text("\n".join(lines))
     print(f"\n[curate] 리포트 저장: wiki/curate_report.md")
@@ -494,8 +910,17 @@ def write_report(audit: dict, distilled: list, lifecycle: dict) -> None:
         f"- stale_links: {len(stale)}개\n"
         f"- distill 큐: {len(distilled)}개\n"
         f"- archive 후보: {len(archive)}개\n"
+        f"- rescued(보존): {len(rescued)}개\n"
     )
     LOG_FILE.open("a").write(log_entry)
+
+
+def _score_suffix(item: dict) -> str:
+    """리포트 라인에 붙일 memory_score 주석(있을 때만)."""
+    if "memory_score" not in item:
+        return ""
+    reason = item.get("memory_reason", "")
+    return f", score={item['memory_score']:.1f} ({reason})"
 
 
 # ── Graph Health ──────────────────────────────────────────────────────
@@ -651,12 +1076,34 @@ def suggest_bridges(n: int) -> None:
 
 # ── Purge ──────────────────────────────────────────────────────────────
 
+def _lifecycle_section(content: str) -> str:
+    """'## Lifecycle 후보' 섹션 텍스트만 추출(Archive·Delete 하위 포함).
+
+    do_purge 의 `- wiki/..md` 매치 범위를 이 섹션으로 좁힌다 — audit Orphan·Distill·
+    Rescued 섹션의 경로를 purge 가 잘못 이동시키지 않게 한다(rescue 보존의 실효성 확보).
+    """
+    out: list[str] = []
+    in_section = False
+    for line in content.splitlines():
+        if line.startswith("## Lifecycle 후보"):
+            in_section = True
+            continue
+        if in_section and line.startswith("## "):  # 다음 top-level 섹션에서 종료
+            break
+        if in_section:
+            out.append(line)
+    return "\n".join(out)
+
+
 def do_purge() -> None:
-    """curate_report.md의 Archive 후보를 wiki/archive/로 이동."""
+    """curate_report.md의 'Lifecycle 후보' 섹션 경로를 wiki/archive/로 이동.
+
+    Orphan·Distill·Rescued 섹션은 대상에서 제외한다(과잉 이동·rescue 무력화 방지).
+    """
     if not REPORT_FILE.exists():
         print("[purge] curate_report.md 없음. curate --lifecycle 먼저 실행.")
         return
-    content = REPORT_FILE.read_text()
+    content = _lifecycle_section(REPORT_FILE.read_text())
     archive_dir = WIKI_DIR / "archive"
     archive_dir.mkdir(exist_ok=True)
     moved = 0
