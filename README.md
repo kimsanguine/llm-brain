@@ -67,6 +67,7 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 
 - `/llm-brain:...` 처럼 **슬래시로 시작**하는 명령 → **Claude Code 입력창**(대화창)에 입력
 - `uv run ...` · `git clone ...` · `cp ...` 같은 명령 → **터미널**(명령줄, 곧 CLI)에 입력
+  - 💡 터미널 여는 법: macOS는 `⌘+Space` → `Terminal` 검색 → 실행. (Windows는 `PowerShell`.)
 
 > 아래 모든 코드 블록 옆에 ▶ 표시로 "어디에 입력하는지"를 적어 둔다.
 
@@ -89,7 +90,7 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 
 ## 빠른 시작 *Quick Start*
 
-[설치](#설치-install)로 커맨드를 받은 뒤, 자기 지식 데이터로 운영하려면 레포를 클론한다:
+[설치](#설치-install)로 커맨드를 받은 뒤, 레포를 클론한다:
 
 ▶ **터미널**에 입력:
 
@@ -97,28 +98,33 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 git clone https://github.com/kimsanguine/llm-brain.git && cd llm-brain
 ```
 
-그다음 Claude Code 세션에서 슬래시 커맨드로 운영한다 — 핵심 흐름은 **넣기 → 물어보기 → 꺼내쓰기** 3단계다:
+### 1) 먼저 1분 체험 — 데모 위키 둘러보기 (추천)
 
-▶ **Claude Code 입력창**에 입력:
-
-```
-1. schema/sources.yaml(소스 등록 설정 파일) 에 내 raw/ 위치 등록
-2. /llm-brain:ingest               # ① 넣기: raw → wiki 자동 정리
-3. /llm-brain:query "..."          # ② 물어보기: wiki 기반 답변
-4. /llm-brain:express blog "..."   # ③ 꺼내쓰기: 글 초안 생성
-```
-
-데모 시드로 즉시 체험(선택) — 예시 위키를 복사해 바로 둘러본다:
+설정 없이 동작을 먼저 본다. 예시 위키를 복사해 로컬 화면으로 바로 둘러보기:
 
 ▶ **터미널**에 입력:
 
 ```bash
 cp -r examples/seed-wiki/wiki ./wiki            # 데모 wiki 복사
 cp examples/seed-wiki/index.md ./index.md       # 데모 목차(index.md) 생성
-uv run python -m wiki_app                       # 로컬 HTML UI → localhost:8000
+uv run python -m wiki_app                        # 로컬 HTML UI → http://localhost:8000
 ```
 
-Obsidian으로 열려면 이 폴더를 "Open folder as vault".
+(Obsidian으로 열려면 이 폴더를 "Open folder as vault".)
+
+### 2) 내 메모로 운영하기
+
+핵심 흐름은 **넣기 → 물어보기 → 꺼내쓰기** 3단계다.
+
+**먼저, 내 메모가 어디 있는지 알려준다.** `schema/sources.yaml`(소스 등록 설정 파일)을 열어 내 메모 폴더 경로를 적는다. 파일 편집이 막막하면 **Claude Code 입력창에 자연어로** "내 옵시디언 폴더를 `schema/sources.yaml`에 등록해줘"라고 부탁해도 된다. (`raw/` = 아직 정리 안 된 원본 메모가 모이는 폴더.)
+
+그다음 ▶ **Claude Code 입력창**에 입력:
+
+```
+/llm-brain:ingest               # ① 넣기: raw → wiki 자동 정리
+/llm-brain:query "..."          # ② 물어보기: wiki 기반 답변
+/llm-brain:express blog "..."   # ③ 꺼내쓰기: 글 초안 생성
+```
 
 ---
 
