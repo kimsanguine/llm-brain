@@ -42,5 +42,4 @@ express/
 
 # Agent Memory OS — 에피소드 원장(운영 맥락, one-way door). 전체 제외, 스키마 예시 1개만 examples/에 커밋
 episodes/
-# 절차 메모리 — Phase 0 에선 보수적 gitignore(가역). US-004 export(Codex/OpenClaw skill) 결정 시 재검토
-procedures/
+# 절차 메모리(procedures/)는 git-tracked(공유 워크플로우, US-004 예시 커밋) + OKF 제외 — gitignore 안 함(결정 2026-06-27)
