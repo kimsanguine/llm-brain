@@ -425,10 +425,19 @@ access_count: 0           # 웹 페이지뷰(wiki_app)가 갱신; CLI curate --r
 last_accessed: null       # YYYY-MM-DD
 last_distilled: null      # YYYY-MM-DD
 resonance: high | medium | low   # ingest 시 수동 지정 (선택)
+# --- Agent Memory OS (US-003) — 아래 6필드는 전부 optional·null-safe, 없어도 기존 페이지 유효 ---
+memory_type: semantic | episodic | procedural | meta | working   # (선택)
+retention: durable | seasonal | ephemeral   # decay 힌트 (선택)
+confidence: 0.9            # 0..1 float (선택)
+source_count: 6            # len(sources) 캐시 (선택)
+last_verified: YYYY-MM-DD  # 최종 검증일 (선택)
+decay_policy: default      # 명명된 정책 키 (선택)
 ---
 ```
 
 `distill_level`, `access_count`, `last_accessed`, `last_distilled`는 `curate.py`의 `ensure_distill_fields()`가 없으면 자동으로 기본값을 추가한다.
+
+`memory_type`·`retention`·`confidence`·`source_count`·`last_verified`·`decay_policy`는 **Agent Memory OS(US-003)**가 추가하는 optional 필드다 — 전부 null-safe하며, 없는 기존 페이지도 그대로 유효하다(python-frontmatter 관용 파싱, 무파손). 상세 시맨틱은 "Agent Memory OS Upgrade — 설계" §C2 참고.
 
 ---
 

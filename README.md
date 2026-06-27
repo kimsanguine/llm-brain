@@ -176,6 +176,8 @@ access_count: 12      # 웹 페이지뷰(wiki_app)는 frontmatter와 wiki_stats.
 
 > `access_count`의 실제 집계는 `wiki_stats.json` 사이드카가 정본이다. `distill` 실행 시 frontmatter 값과 `wiki_stats.json` 값 중 큰 값으로 동기화된다.
 
+> wiki 페이지는 이 외에 Agent Memory OS의 optional 필드(`memory_type`, `retention`, `confidence`, `source_count`, `last_verified`, `decay_policy`)를 선언할 수 있다. 전부 선택이라 없어도 기존 페이지는 그대로 유효하다. (상세: `SPEC.md`)
+
 `export_graph.py`는 `[[wikilink]]` 인바운드 수를 분석해 `wiki/graph.json`을 생성한다.
 허브·고립 페이지 판단은 `wiki_app`의 `/api/page/{slug}/graph` 엔드포인트로 조회 가능하다.
 
