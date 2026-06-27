@@ -29,9 +29,12 @@
 > 요구사항: `docs/PRD.md` (US-001~008) · 설계(HOW): `SPEC.md` "Agent Memory OS Upgrade — 설계" 절.
 
 ### 현재 체크포인트 (2026-06-27)
-- **상태**: brainstorming 설계 확정 → `SPEC.md` 통합 완료 · `docs/PRD.md` 이관 완료. **구현 미착수.**
-- **범위 결정**: 전체 아키텍처 1개 설계서(SPEC 흡수) + 단계형 플랜, 코어 루프(에피소드·작업기억·메타점수) 우선.
-- **다음**: writing-plans로 Phase별 구현 플랜 → Phase 0부터 구현.
+- **상태**: 설계 확정 + 2-렌즈 크로스체크 반영(`14bf223`) → **Phase 0(토대) 구현·검증 완료**(`a539265`).
+  - `scripts/lib/frontmatter_utils.py`(공용 파서) · `scripts/episode.py`(append-only 원장) · `examples/episode-schema-example.jsonl` · `.gitignore`/`okf_export.yaml` 누출 봉인.
+  - 검증(실측): 신규 23 통과 · 전체 **218 통과**(회귀 0) · `curate --audit` exit 0 · `okf --dry-run` exit 0(episodes/procedures 미등장, excluded=13 불변).
+  - TDD: frontmatter_utils·episode·config 각각 RED(모듈/설정 없음) 관측 후 GREEN.
+- **범위 결정**: 전체 아키텍처 1개 설계서(SPEC 흡수) + 단계형 플랜, 코어 루프 우선.
+- **다음**: **Phase 1(쓰기측)** — `episode.append` 배선(express→ingest→wiki_app, fail-soft) + express 재사용 frontmatter. ⚠️ 기존 명령 경로 수정 = blast radius↑ → 사용자 컨펌 후 진행.
 
 ### Decision Log — ②
 > 형식: `[날짜] 결정 — 근거(룰) · 가역성 · 검증`
