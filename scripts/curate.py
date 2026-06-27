@@ -265,6 +265,18 @@ MEMORY_SCORE_CENTRALITY_WEIGHTS_DEFAULT: dict[str, float] = {
 # recency: age <= FULL → 1.0, >= ZERO → 0.0, 그 사이 선형.
 RECENCY_FULL_DAYS = 30
 RECENCY_ZERO_DAYS = 365
+# 감쇠(decay): retention 이 recency 감쇠율(age 스케일)을 조절한다 (SPEC §C2 retention).
+# effective_age = age · factor 에 표준 recency 곡선을 적용한다:
+#   durable(0.0)   → effective_age 항상 0 → recency 1.0 고정(영구기억처럼 감쇠 없음)
+#   seasonal(1.0)  → 기본 감쇠(부재 페이지와 동일)
+#   ephemeral(2.0) → age-to-zero 창 절반(빠른 감쇠) → distill/rescue 우선순위 빨리 하락
+# 사람 튜닝 = Rule 5. schema/config.yaml `memory_score.retention_decay` 로 override,
+# 부재/부분/오류는 항별 기본값 + stderr warn 으로 안전 폴백. 미지 retention 값은 1.0.
+RETENTION_DECAY_FACTORS_DEFAULT: dict[str, float] = {
+    "durable": 0.0,
+    "seasonal": 1.0,
+    "ephemeral": 2.0,
+}
 # rescue: archive 후보 중 memory_score 상위 비율만큼 보존(상대 임계, SPEC §C4 plug-in ②).
 RESCUE_TOP_PCT_DEFAULT = 0.20
 
@@ -295,15 +307,25 @@ def _norm(x, cap) -> float:
     return min(_as_num(x) / cap, 1.0)
 
 
-def _recency_score(age_days) -> float:
-    """age 감쇠: <=FULL → 1.0, >=ZERO → 0.0, 그 사이 선형."""
+def _recency_score(age_days, decay_factor: float = 1.0) -> float:
+    """age 감쇠(retention 으로 변조): effective_age = age·factor 에 표준 곡선 적용.
+
+    <=FULL → 1.0, >=ZERO → 0.0, 그 사이 선형. decay_factor 가 창을 스케일한다 —
+    0.0(durable)이면 effective_age 가 항상 0이라 1.0 고정(감쇠 없음), 2.0(ephemeral)이면
+    age-to-zero 창이 절반으로 압축(빠른 감쇠). factor 생략 시 1.0 = 기존 동작(backward-compat).
+    음수 factor 는 1.0 으로 폴백(방어선).
+    """
     age = _as_num(age_days)
-    if age <= RECENCY_FULL_DAYS:
+    factor = _as_num(decay_factor)
+    if factor < 0:
+        factor = 1.0
+    effective = age * factor
+    if effective <= RECENCY_FULL_DAYS:
         return 1.0
-    if age >= RECENCY_ZERO_DAYS:
+    if effective >= RECENCY_ZERO_DAYS:
         return 0.0
     span = RECENCY_ZERO_DAYS - RECENCY_FULL_DAYS
-    return max(0.0, 1.0 - (age - RECENCY_FULL_DAYS) / span)
+    return max(0.0, 1.0 - (effective - RECENCY_FULL_DAYS) / span)
 
 
 def _merge_numeric(target: dict, override, label: str, *, allow_zero: bool) -> None:
@@ -360,6 +382,40 @@ def _load_memory_score_config(config_file: Path | None = None) -> tuple[dict, di
     _merge_numeric(caps, section.get("caps"), "caps", allow_zero=False)
     _merge_numeric(cw, section.get("centrality_weights"), "centrality_weights", allow_zero=True)
     return weights, caps, cw
+
+
+def _load_retention_factors(config_file: Path | None = None) -> dict[str, float]:
+    """retention→decay factor 맵. schema/config.yaml `memory_score.retention_decay`로
+    override. 부재/부분/오류는 항별 기본값으로 안전 폴백(0/양수 허용, 음수만 거부 — durable
+    factor 0.0 이 유효해야 하므로 allow_zero=True)."""
+    factors = dict(RETENTION_DECAY_FACTORS_DEFAULT)
+    if config_file is None:
+        config_file = SCHEMA_DIR / "config.yaml"
+    if not config_file.exists():
+        return factors
+    try:
+        raw = yaml.safe_load(config_file.read_text(encoding="utf-8")) or {}
+    except yaml.YAMLError as exc:
+        print(f"  [retention_decay] config.yaml 파싱 실패 — 기본값 사용 ({exc})", file=sys.stderr)
+        return factors
+    section = raw.get("memory_score") if isinstance(raw, dict) else None
+    override = section.get("retention_decay") if isinstance(section, dict) else None
+    _merge_numeric(factors, override, "retention_decay", allow_zero=True)
+    return factors
+
+
+def _retention_factor(fm, factors: dict) -> float:
+    """페이지 frontmatter `retention` → decay factor. 부재 → 1.0(seasonal/기본).
+
+    미지 값(맵에 없는 retention 문자열)은 1.0 으로 폴백 + stderr warn (조용한 오분류 금지)."""
+    retention = fm.get("retention") if isinstance(fm, dict) else None
+    if retention is None:
+        return 1.0  # 부재 = 기본 감쇠(seasonal 과 동일), 경고 없음
+    key = str(retention)
+    if key in factors:
+        return float(factors[key])
+    print(f"  [retention_decay] 미지 retention 값 '{key}' — 기본 감쇠(1.0) 사용", file=sys.stderr)
+    return 1.0
 
 
 def build_centrality_index(graph_json) -> dict[str, dict]:
@@ -501,8 +557,14 @@ def _age_days_from_fm(fm, now: datetime | None = None) -> int:
 
 
 def _score_terms(entry: dict, graph, fm, weights: dict, caps: dict,
-                 centrality_weights: dict, now: datetime | None) -> dict[str, float]:
-    """항별 가중 기여(weight·norm(signal))를 dict로 반환. compute_memory_score/이유 공용."""
+                 centrality_weights: dict, now: datetime | None,
+                 retention_factors: dict | None = None) -> dict[str, float]:
+    """항별 가중 기여(weight·norm(signal))를 dict로 반환. compute_memory_score/이유 공용.
+
+    retention_factors 미지정 시 기본 감쇠 맵 사용. recency 항은 페이지 `retention`
+    (frontmatter)으로 감쇠율이 변조된다(durable=감쇠 없음, ephemeral=빠른 감쇠)."""
+    if retention_factors is None:
+        retention_factors = RETENTION_DECAY_FACTORS_DEFAULT
     slug = entry.get("slug", "")
     node = _centrality_node(graph, slug)
     inbound = _as_num(node.get("inbound", 0))
@@ -514,13 +576,14 @@ def _score_terms(entry: dict, graph, fm, weights: dict, caps: dict,
     if age_days is None:
         age_days = _age_days_from_fm(fm, now)
     source_count = len(fm.get("sources") or []) if isinstance(fm, dict) else 0
+    decay_factor = _retention_factor(fm, retention_factors)
 
     return {
         "express_reuse": weights["express_reuse"] * _norm(entry.get("express_reuse", 0), caps["express_reuse"]),
         "episode_ref": weights["episode_ref"] * _norm(entry.get("episode_ref", 0), caps["episode_ref"]),
         "centrality": weights["centrality"] * _norm(centrality, caps["centrality"]),
         "access_count": weights["access_count"] * _norm(entry.get("access_count", 0), caps["access_count"]),
-        "recency": weights["recency"] * _recency_score(age_days),
+        "recency": weights["recency"] * _recency_score(age_days, decay_factor),
         "source_count": weights["source_count"] * _norm(source_count, caps["source_count"]),
     }
 
@@ -539,12 +602,14 @@ def compute_memory_score(entry: dict, graph, fm: dict, *, weights: dict | None =
     """
     if weights is None and caps is None and centrality_weights is None:
         weights, caps, centrality_weights = _load_memory_score_config()
+        retention_factors = _load_retention_factors()
     else:
         weights = {**MEMORY_SCORE_WEIGHTS_DEFAULT, **(weights or {})}
         caps = {**MEMORY_SCORE_CAPS_DEFAULT, **(caps or {})}
         centrality_weights = {**MEMORY_SCORE_CENTRALITY_WEIGHTS_DEFAULT, **(centrality_weights or {})}
+        retention_factors = dict(RETENTION_DECAY_FACTORS_DEFAULT)
 
-    terms = _score_terms(entry, graph, fm, weights, caps, centrality_weights, now)
+    terms = _score_terms(entry, graph, fm, weights, caps, centrality_weights, now, retention_factors)
     return round(sum(terms.values()), 4)
 
 
@@ -622,6 +687,105 @@ def run_audit(pages: list[Path]) -> dict:
     return {"orphans": orphans, "stale_links": stale_links, "contradictions": contradictions}
 
 
+# ── Merge-review (US-006, 결정적 근접 중복 표면화 — 임베딩 없음) ──────────
+#
+# 같은 카테고리 디렉토리 안의 페이지 쌍을 (소문자 제목 토큰 ∪ 소문자 태그) 집합의
+# Jaccard 유사도로 비교해 임계 이상이면 후보로 표면화한다. **자동 병합 금지(Rule 9)** —
+# write_report 의 별도 섹션에 후보만 나열하고 사람이 병합을 판단한다. 카테고리 경계는
+# 넘지 않는다(카테고리 분리는 의도된 의미 구분 — 교차 카테고리 동명은 거짓양성).
+
+MERGE_SIMILARITY_DEFAULT = 0.6
+_MERGE_TOKEN_RE = re.compile(r"\w+", re.UNICODE)
+
+
+def _load_merge_threshold(config_file: Path | None = None) -> float:
+    """merge-review Jaccard 임계. schema/config.yaml `merge_review.similarity_threshold`
+    로 override. 부재/타입오류/범위 밖(0..1)이면 기본값 + stderr warn (조용한 오작동 금지)."""
+    if config_file is None:
+        config_file = SCHEMA_DIR / "config.yaml"
+    if not config_file.exists():
+        return MERGE_SIMILARITY_DEFAULT
+    try:
+        raw = yaml.safe_load(config_file.read_text(encoding="utf-8")) or {}
+    except yaml.YAMLError as exc:
+        print(f"  [merge_review] config.yaml 파싱 실패 — 기본값 사용 ({exc})", file=sys.stderr)
+        return MERGE_SIMILARITY_DEFAULT
+    section = raw.get("merge_review") if isinstance(raw, dict) else None
+    val = section.get("similarity_threshold") if isinstance(section, dict) else None
+    if val is None:
+        return MERGE_SIMILARITY_DEFAULT
+    if isinstance(val, bool) or not isinstance(val, (int, float)):
+        print(f"  [merge_review] similarity_threshold 타입 오류 — 기본값 {MERGE_SIMILARITY_DEFAULT} 사용",
+              file=sys.stderr)
+        return MERGE_SIMILARITY_DEFAULT
+    if not 0.0 <= val <= 1.0:
+        print(f"  [merge_review] similarity_threshold={val} 범위 밖(0..1) — 기본값 {MERGE_SIMILARITY_DEFAULT} 사용",
+              file=sys.stderr)
+        return MERGE_SIMILARITY_DEFAULT
+    return float(val)
+
+
+def _merge_token_set(fm) -> set[str]:
+    """페이지 비교 단위 = (소문자 제목 토큰 ∪ 소문자 태그) 집합. \\w 토큰화로 한국어 포함."""
+    tokens: set[str] = set()
+    if not isinstance(fm, dict):
+        return tokens
+    title = fm.get("title")
+    if isinstance(title, str):
+        tokens |= {t.lower() for t in _MERGE_TOKEN_RE.findall(title)}
+    tags = fm.get("tags")
+    if isinstance(tags, list):
+        for t in tags:
+            if isinstance(t, str) and t.strip():
+                tokens.add(t.strip().lower())
+    return tokens
+
+
+def find_merge_candidates(pages: list[Path], *, threshold: float | None = None) -> list[dict]:
+    """같은 카테고리 디렉토리 내 페이지 쌍의 근접 중복 후보를 결정적으로 표면화.
+
+    유사도 = (소문자 제목 토큰 ∪ 소문자 태그) 집합의 Jaccard. threshold 이상인 쌍만
+    후보. threshold 미지정 시 config(또는 기본 0.6) 로드. **카테고리(부모 디렉토리)
+    경계는 넘지 않는다** — 교차 카테고리 동명은 의도된 의미 구분이라 비교 대상 아님.
+    정렬: similarity 내림차순, 동점은 (a, b) slug 오름차순(결정성). **자동 병합하지
+    않는다(Rule 9)** — 후보만 반환하고 사람이 병합 판단.
+
+    반환: [{"a": slugA, "b": slugB, "similarity": float, "reason": str}] (a < b).
+    """
+    if threshold is None:
+        threshold = _load_merge_threshold()
+
+    by_category: dict[str, list[tuple[str, set[str]]]] = defaultdict(list)
+    for page in pages:
+        try:
+            fm, _ = parse_frontmatter(page.read_text(encoding="utf-8"))
+        except (OSError, FrontmatterParseError):
+            continue  # 읽기/파싱 실패 페이지는 비교에서 제외(원본 불간섭)
+        by_category[page.parent.name].append((page.stem, _merge_token_set(fm)))
+
+    candidates: list[dict] = []
+    for members in by_category.values():
+        for i in range(len(members)):
+            slug_i, set_i = members[i]
+            for j in range(i + 1, len(members)):
+                slug_j, set_j = members[j]
+                union = set_i | set_j
+                if not union:
+                    continue  # 둘 다 토큰 없음 → 유사도 정의 불가(0으로 본다)
+                sim = len(set_i & set_j) / len(union)
+                if sim < threshold:
+                    continue
+                a, b = sorted((slug_i, slug_j))
+                shared = ", ".join(sorted(set_i & set_j))
+                candidates.append({
+                    "a": a, "b": b,
+                    "similarity": round(sim, 4),
+                    "reason": f"제목·태그 유사 (공통 {len(set_i & set_j)}개: {shared})",
+                })
+    candidates.sort(key=lambda c: (-c["similarity"], c["a"], c["b"]))
+    return candidates
+
+
 # ── Distill ────────────────────────────────────────────────────────────
 
 def run_distill(pages: list[Path]) -> list[str]:
@@ -640,6 +804,7 @@ def run_distill(pages: list[Path]) -> list[str]:
     express_idx = build_express_reuse_index()
     episode_idx = build_episode_ref_index()
     ms_weights, ms_caps, ms_cw = _load_memory_score_config()
+    ms_retention = _load_retention_factors()
 
     urgent: list[dict] = []    # access_count >= 10 AND distill_level < 3
     priority: list[dict] = []  # access_count >= 5  AND distill_level < 2
@@ -686,7 +851,7 @@ def run_distill(pages: list[Path]) -> list[str]:
             "episode_ref": episode_idx.get(slug, 0),
         }
         # plug-in ①: tier 내 정렬용 memory_score + 사유 (임계 게이트는 그대로 유지).
-        terms = _score_terms(entry, graph_index, fm, ms_weights, ms_caps, ms_cw, now)
+        terms = _score_terms(entry, graph_index, fm, ms_weights, ms_caps, ms_cw, now, ms_retention)
         entry["memory_score"] = round(sum(terms.values()), 4)
         entry["memory_reason"] = memory_reason(terms)
 
@@ -766,6 +931,7 @@ def run_lifecycle(pages: list[Path]) -> dict:
     express_idx = build_express_reuse_index()
     episode_idx = build_episode_ref_index()
     ms_weights, ms_caps, ms_cw = _load_memory_score_config()
+    ms_retention = _load_retention_factors()
 
     archive_candidates, delete_candidates = [], []
 
@@ -803,7 +969,7 @@ def run_lifecycle(pages: list[Path]) -> dict:
     # 신호 전무)은 보존하지 않아 정상 decay 페이지의 무한 적체를 막는다.
     rescued, archive_candidates = _rescue_split(
         archive_candidates, graph_index, express_idx, episode_idx,
-        ms_weights, ms_caps, ms_cw, now,
+        ms_weights, ms_caps, ms_cw, now, ms_retention,
     )
     rescued_paths = {r["path"] for r in rescued}
     # 보존된 페이지는 delete 후보에서도 빼준다(같은 orphan 이 delete 게이트로 다시 잡힐 수 있음).
@@ -814,7 +980,8 @@ def run_lifecycle(pages: list[Path]) -> dict:
 
 def _rescue_split(candidates: list[dict], graph_index, express_idx: dict,
                   episode_idx: dict, weights: dict, caps: dict, centrality_weights: dict,
-                  now: datetime, top_pct: float = RESCUE_TOP_PCT_DEFAULT,
+                  now: datetime, retention_factors: dict | None = None,
+                  top_pct: float = RESCUE_TOP_PCT_DEFAULT,
                   ) -> tuple[list[dict], list[dict]]:
     """archive 후보를 memory_score 로 (rescued, kept_archive) 로 가른다.
 
@@ -837,7 +1004,8 @@ def _rescue_split(candidates: list[dict], graph_index, express_idx: dict,
             "express_reuse": express_idx.get(slug, 0),
             "episode_ref": episode_idx.get(slug, 0),
         }
-        terms = _score_terms(entry, graph_index, fm, weights, caps, centrality_weights, now)
+        terms = _score_terms(entry, graph_index, fm, weights, caps, centrality_weights, now,
+                             retention_factors)
         c["memory_score"] = round(sum(terms.values()), 4)
         c["memory_reason"] = memory_reason(terms)
 
@@ -854,7 +1022,8 @@ def _rescue_split(candidates: list[dict], graph_index, express_idx: dict,
 
 # ── Report ─────────────────────────────────────────────────────────────
 
-def write_report(audit: dict, distilled: list, lifecycle: dict) -> None:
+def write_report(audit: dict, distilled: list, lifecycle: dict,
+                 merge_candidates: list | None = None) -> None:
     now = datetime.now().strftime("%Y-%m-%d %H:%M")
     lines = [f"# Curate Report — {now}\n"]
 
@@ -868,6 +1037,18 @@ def write_report(audit: dict, distilled: list, lifecycle: dict) -> None:
     lines.append(f"\n### Stale 링크 ({len(stale)}개)")
     for s in stale:
         lines.append(f"- {s['source']} → [[{s['missing_target']}]] (페이지 없음)")
+
+    # Merge-review (US-006): 같은 카테고리 내 근접 중복 쌍. **자동 병합 금지(Rule 9)** —
+    # 후보 목록만 제공해 사람이 병합 판단. do_purge 가 스캔하는 'Lifecycle 후보' 섹션과
+    # 분리(별도 top-level 섹션) + `- wiki/..md` 형식이 아니라 purge 정규식에도 안 잡힌다.
+    merge = merge_candidates or []
+    lines.append("\n## Merge-review 후보 (유사 페이지 — 사람이 병합 판단)")
+    lines.append("> 같은 카테고리 내 제목·태그 Jaccard 유사 쌍. **자동 병합하지 않음** — 사람이 검토 후 병합.")
+    lines.append(f"### 후보 쌍 ({len(merge)}개)")
+    for m in merge:
+        lines.append(
+            f"- [[{m['a']}]] ↔ [[{m['b']}]] — similarity {m['similarity']:.2f} ({m.get('reason', '')})"
+        )
 
     lines.append(f"\n## Distill 결과")
     lines.append(f"- 큐에 추가된 페이지: {len(distilled)}개")
@@ -911,6 +1092,7 @@ def write_report(audit: dict, distilled: list, lifecycle: dict) -> None:
         f"- orphan: {len(orphans)}개\n"
         f"- stale_links: {len(stale)}개\n"
         f"- distill 큐: {len(distilled)}개\n"
+        f"- merge-review 후보: {len(merge)}개\n"
         f"- archive 후보: {len(archive)}개\n"
         f"- rescued(보존): {len(rescued)}개\n"
     )
@@ -1188,8 +1370,10 @@ def main() -> None:
     audit_result = run_audit(pages) if (run_all or args.audit) else {}
     distilled = run_distill(pages) if (run_all or args.distill) else []
     lifecycle_result = run_lifecycle(pages) if (run_all or args.lifecycle) else {}
+    # merge-review 는 audit 류 분석(근접 중복 표면화)이라 audit 게이트와 함께 돈다.
+    merge_candidates = find_merge_candidates(pages) if (run_all or args.audit) else []
 
-    write_report(audit_result, distilled, lifecycle_result)
+    write_report(audit_result, distilled, lifecycle_result, merge_candidates)
 
     mode = "all" if run_all else "+".join(
         m for m, on in [("audit", args.audit), ("distill", args.distill), ("lifecycle", args.lifecycle)] if on
