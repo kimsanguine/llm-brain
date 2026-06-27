@@ -8,6 +8,7 @@ import os
 import re
 import shutil
 import signal
+import sys
 import time
 from pathlib import Path
 from typing import Annotated
@@ -18,6 +19,18 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import AfterValidator, BaseModel, Field
 
 from wiki_app import access, pages, render, search
+
+# scripts/ 를 sys.path 에 추가해 episode 원장 모듈을 import 한다 (access.py 와 동일
+# 컨벤션). wiki_app 은 `python -m wiki_app` 로 실행돼 scripts/ 가 sys.path 에 없을
+# 수 있으므로 __file__ 기준 repo 루트에서 경로를 계산한다.
+_REPO_ROOT = Path(__file__).resolve().parent.parent
+_SCRIPTS_DIR = _REPO_ROOT / "scripts"
+if str(_SCRIPTS_DIR) not in sys.path:
+    sys.path.insert(0, str(_SCRIPTS_DIR))
+try:
+    import episode  # noqa: E402  append-only 에피소드 원장 (PRD US-001/US-002)
+except Exception:  # pragma: no cover — 방어적: episode 부재 시 기록만 비활성, 앱은 계속
+    episode = None
 
 
 # 한 segment 내부 허용 문자: 한글/영문/숫자/하이픈/언더스코어만.
@@ -158,6 +171,40 @@ def create_app(wiki_root: Path | None = None) -> FastAPI:
     index = search.Index.build(wiki_root=wiki_root)
     built_at = _dt.datetime.now(_dt.timezone.utc).isoformat()
 
+    # 에피소드 원장은 wiki/ 옆(repo 루트의 episodes/)에 둔다 — 기본 production
+    # 경로(repo/episodes)와 동일하고, test 는 tmp wiki_root 로 자동 격리된다.
+    _episodes_dir = wiki_root.parent / "episodes"
+
+    def _record_ai_episode(question: str, valid_slugs: list, answer_status: str) -> None:
+        """AI 답변 1건을 episode 원장에 append (PRD US-002, **fail-soft**).
+
+        episode 기록 실패는 절대 AI 답변 응답을 깨거나 바꾸지 않는다(US-002 AC·FR-8):
+        episode 모듈 부재·스키마 위반·디스크 오류 등 모든 예외를 삼킨다. 양 핸들러의
+        `finally` 에서 호출돼 timeout·error·정상 어느 경로든 *최종* status 를 남긴다.
+        """
+        if episode is None:
+            return
+        try:
+            episode.append(
+                {
+                    # tz-aware ISO (월별 샤드 도출 + read_recent 정렬에 오프셋 보존)
+                    "timestamp": _dt.datetime.now().astimezone().isoformat(),
+                    "task_type": "ai_answer",
+                    "user_goal": question,
+                    "inputs": {"question": question},
+                    "read_pages": [f"wiki/{slug}.md" for slug in valid_slugs],
+                    "procedures_used": [],
+                    "outputs": {"answer_status": answer_status},
+                    # 엔드포인트 status → C1 스키마 status 매핑
+                    "status": "ok" if answer_status == "done" else answer_status,
+                    "notes": "",
+                },
+                episodes_dir=_episodes_dir,
+            )
+        except Exception:
+            # fail-soft: 원장 기록 실패가 응답 경로를 절대 깨지 않는다.
+            pass
+
     @app.get("/api/index")
     def api_index():
         cats = sorted({e.category for e in index.by_slug.values()})
@@ -280,6 +327,7 @@ def create_app(wiki_root: Path | None = None) -> FastAPI:
         )
 
         proc = None
+        answer_status = "error"  # finally 에서 기록할 최종 status (성공 시 done 으로 갱신)
         try:
             # start_new_session=True: child 를 새 process group/session 의 leader 로
             # 띄워 cleanup 시 process group 전체(descendant 포함)를 종료할 수 있게 한다.
@@ -293,7 +341,9 @@ def create_app(wiki_root: Path | None = None) -> FastAPI:
             stdout, _stderr = await asyncio.wait_for(
                 proc.communicate(), timeout=_AI_ANSWER_TIMEOUT
             )
+            answer_status = "done"  # finally 전에 확정 — finally 가 done 을 기록
         except asyncio.TimeoutError:
+            answer_status = "timeout"
             return {
                 "status": "timeout",
                 "message": f"AI 답변 생성이 {_AI_ANSWER_TIMEOUT}초를 초과해 중단됐어요.",
@@ -303,6 +353,7 @@ def create_app(wiki_root: Path | None = None) -> FastAPI:
                 "sources": valid_slugs,
             }
         except Exception as e:
+            answer_status = "error"
             return {
                 "status": "error",
                 "message": f"claude CLI 호출 중 오류: {type(e).__name__}",
@@ -314,6 +365,8 @@ def create_app(wiki_root: Path | None = None) -> FastAPI:
         finally:
             # timeout·error·정상 어디서든 살아있는 child 는 반드시 정리
             await _terminate_proc(proc)
+            # 최종 status 로 episode 기록 (fail-soft — 응답에 영향 없음)
+            _record_ai_episode(req.question, valid_slugs, answer_status)
 
         answer = stdout.decode("utf-8", errors="replace").strip()
         return {
@@ -356,6 +409,7 @@ def create_app(wiki_root: Path | None = None) -> FastAPI:
 
             proc = None
             stderr_task = None
+            answer_status = "error"  # finally 에서 기록할 최종 status (결과 확정 시 갱신)
             try:
                 # start_new_session=True: process group leader 로 띄워 cleanup 시
                 # group 전체(claude 가 spawn 한 descendant 포함) 종료 가능.
@@ -382,10 +436,12 @@ def create_app(wiki_root: Path | None = None) -> FastAPI:
                     if time.monotonic() >= deadline:
                         yield f"event: error\ndata: {_json.dumps({'message': f'AI 답변이 {_AI_STREAM_DEADLINE}초 제한을 초과해 중단됐어요.'}, ensure_ascii=False)}\n\n"
                         terminated_early = True
+                        answer_status = "timeout"
                         break
                     if chunk_count >= _AI_STREAM_MAX_CHUNKS or byte_count >= _AI_STREAM_MAX_BYTES:
                         yield f"event: error\ndata: {_json.dumps({'message': 'AI 답변 출력 한도를 초과해 중단됐어요.'}, ensure_ascii=False)}\n\n"
                         terminated_early = True
+                        answer_status = "error"
                         break
                     # readline 에 idle timeout — claude hang 시 영원히 대기 방지
                     line = await asyncio.wait_for(
@@ -407,18 +463,22 @@ def create_app(wiki_root: Path | None = None) -> FastAPI:
                     await proc.wait()
                     stderr_bytes = await stderr_task
                     if proc.returncode not in (0, None):
+                        answer_status = "error"
                         msg = stderr_bytes.decode("utf-8", errors="replace").strip() \
                             or f"claude exited with code {proc.returncode}"
                         yield f"event: error\ndata: {_json.dumps({'message': msg}, ensure_ascii=False)}\n\n"
                     else:
+                        answer_status = "done"
                         yield "event: done\ndata: {}\n\n"
             except asyncio.TimeoutError:
+                answer_status = "timeout"
                 yield f"event: error\ndata: {_json.dumps({'message': 'AI 답변 생성이 지연돼 중단됐어요.'}, ensure_ascii=False)}\n\n"
             except asyncio.CancelledError:
-                # 클라이언트 disconnect — proc 정리 후 전파
+                # 클라이언트 disconnect — proc 정리 후 전파 (answer_status 는 직전 값 유지)
                 await _terminate_proc(proc)
                 raise
             except Exception as e:
+                answer_status = "error"
                 yield f"event: error\ndata: {_json.dumps({'message': f'{type(e).__name__}: {e}'}, ensure_ascii=False)}\n\n"
             finally:
                 # timeout·error·정상·disconnect 어디서든 살아있는 child 정리
@@ -430,6 +490,8 @@ def create_app(wiki_root: Path | None = None) -> FastAPI:
                         await stderr_task
                     except (asyncio.CancelledError, Exception):
                         pass
+                # 최종 status 로 episode 기록 (fail-soft — 스트림에 영향 없음)
+                _record_ai_episode(req.question, valid_slugs, answer_status)
 
         return StreamingResponse(event_gen(), media_type="text/event-stream")
 
