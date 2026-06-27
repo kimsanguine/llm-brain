@@ -61,6 +61,8 @@
 
 - **[2026-06-28] Wave 3 검증(5 페르소나 + 코드 직접검증) → 문서 최신화 + US-002 갭 수정 + index.md 봉인** — Rule 4(기술+페르소나 양 렌즈)·8·9. 페르소나 5/5 NEEDS-UPDATE: 문서(README·SPEC 현재형·CLAUDE.md·PROGRESS 라벨)가 신규 코드 미반영 → 일괄 최신화. **PM 페르소나가 over-claim 포착**: US-002 curate→episode.append 미배선(ingest·express·wiki_app 3개만 done) → TDD로 수정 + 실경로 기록 검증. **보안 페르소나가 index.md business 누출 포착**(public GitHub, okf 옆문) → 사용자 결정 'gitignore+추적해제'(history scrub는 별도). 코드 4 위험점(fail-soft 래핑·_express_rooted try/finally·memory_health write 1곳·rescue Lifecycle 섹션밖) 직접 실측 SOUND. mailbox 코드리뷰어(cr-claude·cr-codex) flaky 미응답 → 직접 검증 대체. 가역. 검증: 신규 3 RED→GREEN, curate episode 실경로 기록(orphans=2).
 
+- **[2026-06-28] 코드리뷰 cr-claude → SOUND(차단 0); cr-codex 회수불가(정직 보고)** — Rule 4·8. cr-claude: fail-soft 3배선·rescue/do_purge·_express_rooted·memory_health 읽기전용 전부 통과. **반가운 발견**: A3의 do_purge 축소가 실은 Distill 후보(고access) 페이지를 archive로 옮기던 *기존 버그 수정*이었음(테스트 증명). minor 7(전부 LOW/latent) → deferred: ① `_express_rooted` CLI-전용·동시성 비안전(주석 추가) ② api `_record_ai_episode` silent except 로그 ③ express/ingest import 비방어 ④ "wiki_root" 동명이의 ⑤ memory_health config 재로드 perf 등. cr-codex는 mailbox flaky로 Codex 결과 미회수 — cr-claude SOUND + 직접검증 + 288 테스트로 코드 신뢰 충분. 가역. 검증: cr-claude verbatim 인용.
+
 ### 변경 표면 (AS-IS → TO-BE)
 > 코드 레벨 line-by-line diff(curate `run_distill`·frontmatter·express·okf)는 `SPEC.md` §C·§D 참조 — 여기선 구조 요약만(중복 drift 방지). **신규 4파일 + 변경 6파일 + 신규 2디렉터리.**
 

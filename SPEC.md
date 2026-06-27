@@ -271,7 +271,7 @@ score = Σ weight·norm(signal),  norm(x) = min(x / CAP, 1.0)
 
 실제 archive 게이트는 `run_lifecycle()`(`age>ttl AND inbound==0`)이다. 여기서 `_rescue_split()`이 archive 후보에 `memory_score`를 매겨 **상위 `RESCUE_TOP_PCT_DEFAULT`(0.20) 중 score>0**인 페이지를 archive에서 제외해 보존한다(상대 임계 — 출시 직후 재사용 이력이 비어 절대 임계는 과녁이 움직임). 보존 페이지는 `curate_report.md`의 별도 `## Rescued` 섹션에 기록되고, `delete` 후보와 `--purge` 이동 대상(Lifecycle 섹션 한정 정규식)에서도 제외된다. `run_lifecycle()` 반환: `{"archive": [...], "delete": [...], "rescued": [...]}`.
 
-> ⚠ **잔여(§B 미배선):** §B 모듈 지도의 curate 행은 "`run_*` 후 `episode.append`"(curate 자신의 에피소드 기록)도 계획하나, 현 `curate.py`는 episode를 **읽기만**(`build_episode_ref_index`) 하고 `episode.append`는 아직 배선하지 않았다(PROGRESS Phase 2 완료 기록 = memory_score·rescue만). 이 한 항목은 §B 잔여 설계 항목이다.
+> ✅ **curate episode 기록(US-002, 배선됨):** `curate.py`는 run(audit/distill/lifecycle) 후 `_record_curate_episode`가 실행 요약(orphans·stale_links·distill_queued·archive/delete/rescued 카운트)을 episode로 기록한다(fail-soft). 4 배선점(ingest·express·wiki_app·curate) 모두 완료. (curate는 점수용으로 episode를 읽기도 함 — `build_episode_ref_index`.)
 
 ---
 
@@ -771,8 +771,8 @@ response = client.messages.create(
 > 현재형 인터페이스는 위 "스크립트 인터페이스"(`frontmatter_utils`·`episode`·`procedures`·
 > `brain_context`·`memory_health`)·"스키마 명세"·"커맨드 라우팅 테이블" 절로 이관 완료. 본 §A~§D는
 > 설계 근거(제어 루프·격리·점수 공식·보안 경계)의 단일 출처로 남는다.
-> **잔여**: §B 모듈 지도의 curate "`run_*` 후 `episode.append`" 1항목은 미배선(curate는 episode를
-> 읽기만 함 — §C4 plug-in 참고).
+> **US-002 완료**: curate `run_*` 후 `episode.append`(실행 요약)까지 배선됨 — 4 배선점
+> (ingest·express·wiki_app·curate) 전부. (curate는 점수용 episode 읽기도 병행 — §C4 plug-in.)
 > **요구사항(WHAT)**: `docs/PRD.md` (llm-brain Agent Memory OS Upgrade).
 > **진행·결정 로그**: `docs/PROGRESS.md` → "Agent Memory OS Upgrade" 이니셔티브.
 > **근거 모델**: AI 에이전트 메모리 5층 구조(작업·에피소드·의미·절차·메타).

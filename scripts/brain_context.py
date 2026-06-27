@@ -69,6 +69,10 @@ def _express_rooted(wiki_root: Path):
 
     collect_related_pages 가 모듈 전역에 의존하므로(주입 파라미터 없음) 테스트에서
     tmp wiki 를 읽히려면 이 방식이 필요하다. try/finally 로 원복해 in-process 누수 방지.
+
+    ⚠ 동시성 비안전(코드리뷰 cr-claude MED-latent): express 모듈 전역을 변이하므로
+    **CLI/단일 스레드 전용**이다. brain_context 를 FastAPI/async 에서 동시 호출하면 레이스.
+    웹 배선 전에는 collect_related_pages 에 경로 주입 파라미터를 추가해 이 swap 을 제거할 것.
     """
     saved = (express.WIKI_ROOT, express.WIKI_DIR, express.INDEX_FILE)
     express.WIKI_ROOT = wiki_root
