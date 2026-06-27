@@ -40,7 +40,9 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 
 # 최상위 메타 파일은 export 대상에서 제외 (계약 §3). export_graph의 집합을 재사용해 drift를
 # 줄이고, okf 운영 산출물 curate_report.md를 추가(미등재 시 "title 부재"로 skip되는 노이즈).
-META_FILES = _EG_META_FILES | {"curate_report.md"}
+# memory_health_report.md 도 추가(SPEC §D 누출 봉인): episode 집계 = 격리한 사적 운영맥락의
+# 파생이라 공개 OKF 번들에 절대 새면 안 된다(Claude#1·Codex C1, Phase 3 US-008 동반).
+META_FILES = _EG_META_FILES | {"curate_report.md", "memory_health_report.md"}
 
 # OKF 예약 필드 순서 (계약 §4). x-llmbrain 보존에서 제외할 소스 키 집합도 여기서 파생.
 RESERVED_ORDER = ["type", "title", "description", "resource", "tags", "timestamp"]
