@@ -248,7 +248,9 @@ uv run python -m wiki_app
 
 ### 🧠 Agent Memory OS — 5층 기억 *5-Layer Memory*
 
-![AI 에이전트 메모리 5층 구조](./assets/agent-memory-5layers.jpg)
+<p align="center">
+  <img src="./assets/agent-memory-5layers.jpg" alt="AI 에이전트 메모리 5층 구조" width="440">
+</p>
 
 사람의 기억이 여러 종류로 나뉘듯, AI 에이전트도 여러 층의 기억이 필요하다. 지금까지의 `wiki/`는 그중 **의미 기억(semantic, '무엇을 아는가')** 하나였다. 여기에 4개 층을 더해, 한 번의 실행이 다음 실행을 더 똑똑하게 만드는 되먹임 루프를 완성한다 — **5개 층 모두 구현 완료(✅)**.
 
