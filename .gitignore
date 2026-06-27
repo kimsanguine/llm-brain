@@ -39,3 +39,6 @@ wiki_stats.json
 .obsidian/graph.json
 *.canvas
 express/
+
+# Agent Memory OS — 에피소드 원장(운영 맥락, one-way door). 전체 제외, 스키마 예시 1개만 examples/에 커밋
+episodes/
