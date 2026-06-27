@@ -6,6 +6,8 @@
 > LLM을 컴파일러(메모를 자동으로 정리해 주는 AI)처럼 써서, 흩어진 raw 메모를 구조화된 위키로 바꾼다.
 > *Build your Second Brain with LLM as the compiler.*
 
+**📌 매일 메모는 쌓이는데 한 달 뒤엔 어디 있는지 모르겠다면 — 그 메모를 AI가 정리·연결·검색·재활용해 주는 도구입니다. 코딩 지식이 없어도 됩니다.**
+
 ![Python](https://img.shields.io/badge/Python-3.11+-3776AB?logo=python&logoColor=white)
 ![License](https://img.shields.io/badge/License-MIT-green)
 ![Claude Code](https://img.shields.io/badge/Claude_Code-CLI-orange)
@@ -13,9 +15,66 @@
 
 ---
 
+## 왜 만들었나 *Why this exists*
+
+매일 TIL(Today I Learned, 오늘 배운 것 메모)을 쓰고, 회의록을 남기고, 논문을 클리핑한다.
+그런데 한 달 뒤, 그 지식은 어디 있는가?
+
+*You write notes every day — but where does that knowledge go after a month?*
+
+흩어진 메모는 쌓이기만 할 뿐 다시 꺼내 쓰기 어렵다. llm-brain은 이 메모들을 **AI가 자동으로 정리·연결**해 검색 가능한 위키로 만들고, 필요할 때 **글로 다시 꺼내 쓰게** 한다.
+
+---
+
+## 미리보기 *Preview*
+
+로컬 HTML 검색·페이지뷰 (브라우저에서 위키를 둘러보는 화면, `uv run python -m wiki_app`):
+
+| 검색 + 페이지 뷰 | 본문 grep 자동 확장 |
+|---|---|
+| ![검색](docs/screenshots/dod-3-korean-search.png) | ![확장](docs/screenshots/dod-4-resnet-expansion.png) |
+
+| 결과 0개 → AI CTA | AI 답변 모달 (live) |
+|---|---|
+| ![empty](docs/screenshots/dod-5-zero-results.png) | ![ai](docs/screenshots/dod-9-ai-modal.png) |
+
+> 한국어/영문 검색 · 결과 < 3개일 때 본문 grep(본문 전체 텍스트 검색) 자동 확장 · 페이지 뷰 + wikilink SPA 네비게이션(새로고침 없이 이동) · AI 답변 옵션 토글
+
+---
+
+## 준비물 *Prerequisites*
+
+비전공자도 따라 할 수 있게, 필요한 **세 가지**를 하나씩 풀어 둔다.
+
+**1. Claude Code** — 터미널에서 대화로 코드를 다뤄 주는 AI 도구. 이 위키의 'AI 컴파일러' 역할을 한다.
+설치·안내(공식): <https://docs.claude.com/claude-code>
+
+**2. uv** — 파이썬을 알아서 설치·실행해 주는 도구(복잡한 파이썬 환경 설정을 대행). 터미널에 아래 한 줄을 입력하면 설치된다:
+
+```bash
+curl -LsSf https://astral.sh/uv/install.sh | sh
+```
+
+**3. git** — 인터넷의 코드 저장소를 내 컴퓨터로 내려받는 도구. macOS·Linux는 보통 기본 설치돼 있다(macOS에 없으면 `xcode-select --install`).
+
+용어 풀이:
+- **레포(repository)** = 코드가 모여 있는 온라인 저장소. 이 프로젝트가 사는 '집'.
+- **클론(clone)** = 그 레포를 통째로 내 컴퓨터에 복제하는 것. 명령은 `git clone <주소>`.
+
+### 명령을 어디에 입력하나 *Where to type*
+
+이 문서에는 두 종류의 명령이 섞여 나온다 — **입력하는 곳이 다르다.**
+
+- `/llm-brain:...` 처럼 **슬래시로 시작**하는 명령 → **Claude Code 입력창**(대화창)에 입력
+- `uv run ...` · `git clone ...` · `cp ...` 같은 명령 → **터미널**(명령줄, 곧 CLI)에 입력
+
+> 아래 모든 코드 블록 옆에 ▶ 표시로 "어디에 입력하는지"를 적어 둔다.
+
+---
+
 ## 설치 *Install*
 
-Claude Code 플러그인으로 설치한다:
+▶ **Claude Code 입력창**에 입력 — 플러그인으로 설치한다:
 
 ```
 /plugin marketplace add kimsanguine/llm-brain
@@ -28,104 +87,38 @@ Claude Code 플러그인으로 설치한다:
 
 ---
 
-## 미리보기 *Preview*
+## 빠른 시작 *Quick Start*
 
-로컬 HTML 검색·페이지뷰 (`uv run python -m wiki_app`):
+[설치](#설치-install)로 커맨드를 받은 뒤, 자기 지식 데이터로 운영하려면 레포를 클론한다:
 
-| 검색 + 페이지 뷰 | 본문 grep 자동 확장 |
-|---|---|
-| ![검색](docs/screenshots/dod-3-korean-search.png) | ![확장](docs/screenshots/dod-4-resnet-expansion.png) |
+▶ **터미널**에 입력:
 
-| 결과 0개 → AI CTA | AI 답변 모달 (live) |
-|---|---|
-| ![empty](docs/screenshots/dod-5-zero-results.png) | ![ai](docs/screenshots/dod-9-ai-modal.png) |
-
-> 한국어/영문 검색 · 결과 < 3개일 때 본문 grep 자동 확장 · 페이지 뷰 + wikilink SPA 네비게이션 · AI 답변 옵션 토글
-
----
-
-## 왜 만들었나 *Why this exists*
-
-매일 TIL(Today I Learned, 오늘 배운 것 메모)을 쓰고, 회의록을 남기고, 논문을 클리핑한다.
-그런데 한 달 뒤, 그 지식은 어디 있는가?
-
-*You write notes every day — but where does that knowledge go after a month?*
-
----
-
-## Andrej Karpathy의 LLM Wiki 패턴 *Karpathy's LLM Wiki Pattern*
-
-Karpathy는 이 문제에 대해 명쾌한 답을 제시했다.
-
-> **"LLM을 컴파일러처럼 써라. raw 메모를 넣으면 구조화된 위키가 나온다."**
-
-```
-raw/   →   [LLM 컴파일러]   →   wiki/
-원본                              정제된 지식
+```bash
+git clone https://github.com/kimsanguine/llm-brain.git && cd llm-brain
 ```
 
-### 장점 *Strengths*
+그다음 Claude Code 세션에서 슬래시 커맨드로 운영한다 — 핵심 흐름은 **넣기 → 물어보기 → 꺼내쓰기** 3단계다:
 
-| | 설명 |
-|---|---|
-| ✅ | **LLM이 구조화를 담당** — 사람이 직접 편집할 필요 없음 |
-| ✅ | **raw / wiki 분리** — 원본은 보존, 정제본은 별도 관리 |
-| ✅ | **wikilink(페이지끼리 연결하는 링크) 연결** — 지식이 그래프로 이어짐 |
-| ✅ | **오염 방지** — raw 출처 없이 wiki 수정 금지 원칙으로 할루시네이션(AI가 없는 사실을 지어내는 것) 차단 |
-
----
-
-## 그러나 4가지가 빠져 있다 *But 4 things are missing*
-
-LLM Wiki는 아이디어 수준에 머물렀다.
-실제로 운영해 보면 이 4가지 벽에 부딪힌다.
-
-| 한계 | 증상 |
-|---|---|
-| ❌ **Express 없음** | 지식이 wiki에 쌓이기만 한다. 꺼내 쓸 방법이 없다 |
-| ❌ **Capture 필터 없음** | 뭐든 ingest하면 노이즈가 차오른다 |
-| ❌ **단발성 압축** | 자주 쓰는 지식이 더 깊이 정제되지 않는다 |
-| ❌ **그래프 맹목** | Obsidian에서 보이는 연결 구조를 curate에 활용하지 않는다 |
-
----
-
-## Tiago Forte의 Second Brain *Tiago Forte's Second Brain*
-
-Forte는 같은 문제를 다른 각도에서 풀었다.
-
-> **"뇌는 아이디어를 떠올리는 곳이지, 저장하는 곳이 아니다."**
-> *"Your brain is for having ideas, not storing them."*
-
-그의 **CODE 프레임워크**는 지식의 전체 생애주기를 다룬다.
+▶ **Claude Code 입력창**에 입력:
 
 ```
-C apture  →  O rganize  →  D istill  →  E xpress
-  수집           정리           정제          출력
+1. schema/sources.yaml(소스 등록 설정 파일) 에 내 raw/ 위치 등록
+2. /llm-brain:ingest               # ① 넣기: raw → wiki 자동 정리
+3. /llm-brain:query "..."          # ② 물어보기: wiki 기반 답변
+4. /llm-brain:express blog "..."   # ③ 꺼내쓰기: 글 초안 생성
 ```
 
-Second Brain의 핵심은 **Distill과 Express**다.
-자주 꺼내볼수록 더 압축되고, 결국 창작물로 나와야 한다.
+데모 시드로 즉시 체험(선택) — 예시 위키를 복사해 바로 둘러본다:
 
-그러나 이 두 단계는 **사람이 직접** 해야 했다. 시간이 가장 많이 드는 곳이다.
+▶ **터미널**에 입력:
 
----
-
-## llm-brain = LLM Wiki + Second Brain
-
-두 패턴의 결합이 이 프로젝트다.
-
-```
-         LLM Wiki          +        Second Brain
-    ─────────────────────────────────────────────
-    raw → wiki 컴파일       +    CODE 전체 생애주기
-    할루시네이션 방지         +    Distill → LLM 대행
-    wikilink 그래프          +    Express → 창작물 출력
-                             +    lifecycle → TTL(보관 기한) 관리
+```bash
+cp -r examples/seed-wiki/wiki ./wiki            # 데모 wiki 복사
+cp examples/seed-wiki/index.md ./index.md       # 데모 목차(index.md) 생성
+uv run python -m wiki_app                       # 로컬 HTML UI → localhost:8000
 ```
 
-**Distill은 LLM이 대행한다. 당신은 Express에만 집중하라.**
-
-*LLM handles Distill. You focus only on Express.*
+Obsidian으로 열려면 이 폴더를 "Open folder as vault".
 
 ---
 
@@ -137,17 +130,19 @@ Second Brain의 핵심은 **Distill과 Express**다.
 
 **한 줄로: 지식을 시스템에 '넣기'.** 메모·문서·웹페이지를 raw/(원본 보관함)에 모은다.
 
+▶ `cp`는 **터미널**, `/llm-brain:ingest`는 **Claude Code 입력창**에 입력:
+
 ```bash
-# 채널 1: 수동 투입 (MD · TXT · PDF · DOCX · PPTX)
+# 채널 1: 수동 투입 (MD · TXT · PDF · DOCX · PPTX) — 터미널
 cp paper.pdf raw/docs/
 
-# 채널 2: /llm-brain:ingest 슬래시 명령 (Claude Code 세션 내에서만 동작)
+# 채널 2: /llm-brain:ingest 슬래시 명령 (Claude Code 입력창)
 /llm-brain:ingest https://example.com --resonance high
 /llm-brain:ingest ~/Downloads/paper.pdf
 /llm-brain:ingest "오늘 배운 것: ..."
 
-# 채널 3: Obsidian vault 자동 미러링 (schema/sources.yaml 등록)
-# 채널 4: Claude Code Routines 크론 등록
+# 채널 3 [고급·선택]: Obsidian vault 자동 미러링 (schema/sources.yaml = 소스 등록 설정 파일)
+# 채널 4 [고급·선택]: Claude Code Routines 크론(예약 자동 실행) 등록
 ```
 
 `--resonance high/medium/low`(중요도 태그)로 자료 중요도를 표시하고, index.md(전체 목차) 기반 중복 검사로 위키에 불필요한 중복이 쌓이는 것을 막는다.
@@ -157,6 +152,8 @@ cp paper.pdf raw/docs/
 ### 🔁 curate — 정리: 압축·수명 관리 *Curate · Progressive Summarization*
 
 **한 줄로: 쌓인 지식을 '정리'하기.** 자주 보는 페이지일수록 더 짧게 압축(distill, 압축 정리)하고, 오래 안 본 페이지는 archive(보관) 후보로 내린다.
+
+▶ **Claude Code 입력창**에 입력:
 
 ```
 /llm-brain:curate --distill     # 자주 본 페이지를 한 단계 더 압축
@@ -173,6 +170,8 @@ cp paper.pdf raw/docs/
 ### 📤 express — 꺼내쓰기: wiki → 창작물 *Express · Wiki to Output*
 
 **한 줄로: 정리된 지식을 글로 '꺼내 쓰기'.** Second Brain의 존재 이유 — 블로그·강의안·요약·리포트 초안을 자동 생성한다.
+
+▶ **Claude Code 입력창**에 입력:
 
 ```
 /llm-brain:express blog "AI 에이전트 설계 패턴"
@@ -193,6 +192,8 @@ wiki/ → express/blog/ → raw/blog/ → wiki/   ← 피드백 루프
 
 **한 줄로: 내 지식에 '물어보기'.** wiki에 있는 내용만 근거로 답한다 — 없으면 솔직히 "없다"고 한다(지어내지 않는다).
 
+▶ **Claude Code 입력창**에서 자연어로 물어본다:
+
 ```
 사용자: "RAG 구현할 때 뭐가 중요했지?"
 Claude: wiki/ 내용 기반으로만 답변
@@ -205,25 +206,29 @@ Claude: wiki/ 내용 기반으로만 답변
 
 **한 줄로: 위 query를 브라우저에서.** 검색창·페이지 보기·wikilink 클릭으로 위키를 둘러본다.
 
+▶ **터미널**에 입력:
+
 ```bash
 uv run python -m wiki_app
 # → http://localhost:8000
 ```
 
-- **검색**: 제목 + description + tags + page_title 점수 매칭, 결과 < 3개일 때 본문 grep 자동 확장
-- **페이지뷰**: 마크다운 렌더링 + `[[wikilink]]` 클릭 SPA 네비게이션, 좌측 결과 리스트 유지
+- **검색**: 제목 + description + tags + page_title 점수 매칭, 결과 < 3개일 때 본문 grep(본문 전체 텍스트 검색) 자동 확장
+- **페이지뷰**: 마크다운 렌더링 + `[[wikilink]]` 클릭 SPA 네비게이션(페이지 새로고침 없이 이동), 좌측 결과 리스트 유지
 - **AI 답변 토글**: 결과 부족도에 비례해 CTA 강조 차등 (작은 버튼 / 노란 박스 / 큰 검정 버튼)
 - **URL hash**: `#q=...&page=...` 형태로 검색·페이지 상태 보존, 새로고침 시 복원
 
 스크린샷: `docs/screenshots/dod-*.png`
 
-> AI 답변은 `claude -p` CLI로 라이브 동작 (2026-05-23 연결, 05-26 SSE 스트리밍 추가). Claude Code 미설치 시 `status: unavailable`로 graceful 처리.
+> AI 답변은 `claude -p` CLI(명령줄 도구)로 라이브 동작하며 SSE 스트리밍(실시간 출력)을 지원한다. Claude Code 미설치 시 `status: unavailable`로 graceful 처리(없으면 조용히 비활성).
 
 ---
 
 ### 📦 okf — 내보내기: wiki → OKF 호환 번들 *Export · Wiki to OKF Bundle*
 
 **한 줄로: 위키를 표준 포맷으로 '내보내기'.** 동료나 다른 AI 도구가 그대로 읽을 수 있는 OKF(Google Open Knowledge Format, 공개 지식 표준) 번들 `okf/`로 변환한다. 내부 포맷은 그대로 두고 경계에서만 바꾼다.
+
+▶ **Claude Code 입력창**에 입력:
 
 ```
 /llm-brain:okf                  # 먼저 dry-run 검토 후 okf/ 번들 생성
@@ -251,7 +256,7 @@ uv run python -m wiki_app
 
 > 메타 층의 4가지 정리 동작 — **보관(archive)·중복제거(merge)·폐기(purge)·감쇠(decay)** — 도 전부 구현되어 있다.
 
-바로 써보기 *Try it*:
+바로 써보기 *Try it* — ▶ **터미널**에 입력:
 
 ```bash
 # 작업 직전 "작업기억 팩" 생성 (관련 페이지 + 최근 이력 + 절차 + 제약)
@@ -262,6 +267,68 @@ uv run python scripts/memory_health.py --report
 ```
 
 > 전부 **optional 레이어**다 — 이 명령들을 한 번도 안 써도 `ingest`·`curate`·`express`·`query`는 그대로 동작한다. 상세 스펙: `SPEC.md`의 "Agent Memory OS" 절.
+
+---
+
+## 작동 원리 *How it works (배경 이론)*
+
+> 💡 **바로 쓰는 데는 안 읽어도 됩니다.** 이 도구가 *왜* 이렇게 설계됐는지 관심 있다면 읽어 보세요.
+
+llm-brain은 검증된 두 아이디어를 합친 것이다 — **Karpathy의 LLM Wiki**와 **Forte의 Second Brain**.
+
+### ① LLM Wiki — "LLM을 컴파일러처럼" (AI 연구자 Andrej Karpathy)
+
+> **"LLM을 컴파일러처럼 써라. raw 메모를 넣으면 구조화된 위키가 나온다."**
+
+```
+raw/   →   [LLM 컴파일러]   →   wiki/
+원본                              정제된 지식
+```
+
+| | 장점 |
+|---|---|
+| ✅ | **LLM이 구조화를 담당** — 사람이 직접 편집할 필요 없음 |
+| ✅ | **raw / wiki 분리** — 원본은 보존, 정제본은 별도 관리 |
+| ✅ | **wikilink(페이지끼리 잇는 링크) 연결** — 지식이 그래프로 이어짐 |
+| ✅ | **오염 방지** — raw 출처 없이 wiki 수정 금지 → 할루시네이션(AI가 없는 사실을 지어내는 것) 차단 |
+
+하지만 이 아이디어만으로는 실제로 운영해 보면 **4가지 벽**에 부딪힌다.
+
+| 빠진 것 | 쉬운 말 | 증상 |
+|---|---|---|
+| ❌ **Express 없음** | 꺼내 쓰기 없음 | 지식이 wiki에 쌓이기만 하고, 꺼내 쓸 방법이 없다 |
+| ❌ **Capture 필터 없음** | 받아들이기 필터 없음 | 뭐든 넣으면 노이즈가 차오른다 |
+| ❌ **단발성 압축** | 한 번만 압축 | 자주 쓰는 지식이 더 깊이 정제되지 않는다 |
+| ❌ **그래프 맹목** | 연결 구조 못 봄 | 페이지 간 연결 구조를 정리(curate)에 활용하지 않는다 |
+
+### ② Second Brain — "뇌는 저장소가 아니다" (생산성 전문가 Tiago Forte)
+
+> **"뇌는 아이디어를 떠올리는 곳이지, 저장하는 곳이 아니다."**
+> *"Your brain is for having ideas, not storing them."*
+
+Forte의 **CODE 프레임워크**는 지식의 전체 생애주기를 다룬다.
+
+```
+C apture  →  O rganize  →  D istill  →  E xpress
+  수집           정리           정제          출력
+```
+
+핵심은 **Distill(정제)과 Express(출력)** — 자주 꺼내볼수록 더 압축되고, 결국 창작물로 나와야 한다. 그런데 이 두 단계는 늘 **사람이 직접** 해야 했다. 가장 시간이 많이 드는 곳이다.
+
+### ①+② = llm-brain
+
+```
+         LLM Wiki          +        Second Brain
+    ─────────────────────────────────────────────
+    raw → wiki 컴파일       +    CODE 전체 생애주기
+    할루시네이션 방지         +    Distill → LLM 대행
+    wikilink 그래프          +    Express → 창작물 출력
+                             +    lifecycle → TTL(보관 기한) 관리
+```
+
+**Distill은 LLM이 대행한다. 당신은 Express에만 집중하라.**
+
+*LLM handles Distill. You focus only on Express.*
 
 ---
 
@@ -280,35 +347,6 @@ llm:
 |---|---|---|
 | `cli` (기본) | 토큰 비용 없음 | Claude Code 설치 필요 |
 | `api` | API 과금 | `ANTHROPIC_API_KEY` 필요 |
-
----
-
-## 빠른 시작 *Quick Start*
-
-[설치](#설치-install)로 커맨드를 받은 뒤, 자기 지식 데이터로 운영하려면 레포를 클론한다:
-
-```bash
-git clone https://github.com/kimsanguine/llm-brain.git && cd llm-brain
-```
-
-그다음 Claude Code 세션에서 슬래시 커맨드로 운영한다 — 핵심 흐름은 **넣기 → 물어보기 → 꺼내쓰기** 3단계다:
-
-```
-1. schema/sources.yaml 에 내 raw/ 위치 등록
-2. /llm-brain:ingest               # ① 넣기: raw → wiki 자동 정리
-3. /llm-brain:query "..."          # ② 물어보기: wiki 기반 답변
-4. /llm-brain:express blog "..."   # ③ 꺼내쓰기: 글 초안 생성
-```
-
-데모 시드로 즉시 체험(선택) — 예시 위키를 복사해 바로 둘러본다:
-
-```bash
-cp -r examples/seed-wiki/wiki ./wiki            # 데모 wiki 복사
-cp examples/seed-wiki/index.md ./index.md       # 데모 목차(index.md) 생성
-uv run python -m wiki_app                       # 로컬 HTML UI → localhost:8000
-```
-
-Obsidian으로 열려면 이 폴더를 "Open folder as vault".
 
 ---
 
@@ -375,7 +413,7 @@ llm-brain/
 
 ## 패키지명 참고 *Package Name Note*
 
-배포 패키지명은 `llm-wiki` (`pyproject.toml` name 필드), 제품·저장소명은 `llm-brain`이다. 두 이름이 혼용되지 않도록 주의: `uv sync`·`pip install` 시에는 `llm-wiki`, GitHub/Obsidian 참조 시에는 `llm-brain`을 사용한다.
+> 이름이 두 개로 보일 수 있다 — **배포 패키지명만 `llm-wiki`**(`pyproject.toml`의 name 필드), **나머지(제품·저장소·문서)는 전부 `llm-brain`**. `uv sync`·`pip install` 시에만 `llm-wiki`로 읽으면 된다.
 
 ---
 
