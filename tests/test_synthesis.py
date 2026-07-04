@@ -226,3 +226,30 @@ def test_target_is_frozen():
         assert False, "frozen dataclass 인데 변경 허용됨"
     except dataclasses.FrozenInstanceError:
         pass
+
+
+# ── limit(top-N 큐 상한) — 조밀 wiki 실용화 (실데이터 관측 후 추가) ──
+def test_select_synthesis_targets_limit_returns_top_n():
+    """limit=N 이면 점수 상위 N개만. 정렬(점수 desc·slug asc)은 유지."""
+    from lib.gates import ExistingPage
+    pages = [
+        ExistingPage(slug=f"p{i:02d}",
+                     frontmatter={"sources": [f"raw/{j}.md" for j in range(i + 2)]},
+                     body="x")
+        for i in range(10)
+    ]
+    graph = {p.slug: () for p in pages}
+    full = select_synthesis_targets(pages, graph, min_sources=2)
+    top3 = select_synthesis_targets(pages, graph, min_sources=2, limit=3)
+    assert len(top3) == 3
+    assert top3 == full[:3]  # 상위 3개 = 전체 정렬의 앞 3개
+    # limit=None(기본) 하위호환: 전체 반환
+    assert select_synthesis_targets(pages, graph, min_sources=2, limit=None) == full
+
+
+def test_select_synthesis_targets_limit_larger_than_pool():
+    """limit 이 대상 수보다 크면 있는 만큼만(에러 없음)."""
+    from lib.gates import ExistingPage
+    pages = [ExistingPage(slug="a", frontmatter={"sources": ["raw/1.md", "raw/2.md"]}, body="x")]
+    got = select_synthesis_targets(pages, {"a": ()}, min_sources=2, limit=99)
+    assert len(got) == 1

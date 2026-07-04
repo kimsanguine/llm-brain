@@ -132,7 +132,8 @@ def count_repeat_signals(page: ExistingPage,
 def select_synthesis_targets(pages: Sequence[ExistingPage],
                              link_graph: Mapping[str, Collection[str]],
                              *,
-                             min_sources: int = 2) -> list[SynthesisTarget]:
+                             min_sources: int = 2,
+                             limit: int | None = None) -> list[SynthesisTarget]:
     """종합(Synthesis) 대상을 결정적으로 선정 (schema/curate.md 단일 출처).
 
     선정 기준 (둘 중 하나면 대상):
@@ -147,6 +148,10 @@ def select_synthesis_targets(pages: Sequence[ExistingPage],
 
     정렬(결정성): 점수 desc, 동점은 slug asc. 점수 = 교차소스수 + inbound차수 +
     반복신호수 (교차 밀도의 결정적 합 — 실제 우선순위 재판단은 LLM Step).
+
+    limit: 상위 N개만 반환(정렬 후 슬라이스). None=전체(하위호환). 조밀하게
+        연결된 실 wiki 는 자격 기준만으론 대부분이 대상이 되므로(임계 상향 효과 미미),
+        우선순위 큐로 쓰려면 점수 상위 N개로 잘라 실용화한다(실측 근거).
     """
     targets: list[SynthesisTarget] = []
     for i, page in enumerate(pages):
@@ -182,6 +187,8 @@ def select_synthesis_targets(pages: Sequence[ExistingPage],
         -(len(t.crossing_sources) + t.inbound_degree + t.signal_count),
         t.slug,
     ))
+    if limit is not None:
+        return targets[:limit]
     return targets
 
 

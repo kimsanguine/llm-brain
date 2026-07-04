@@ -75,6 +75,9 @@ DISTILL_QUEUE_FILE = WIKI_DIR / "distill_queue.md"
 # 흘러가지 못해 실제 wiki/ 로 쓰기가 새기 때문.
 CONTRADICTION_QUEUE_NAME = "contradiction_queue.md"  # WS-5 모순 후보 큐 (후보 0이면 미생성)
 SYNTHESIS_SNAPSHOT_NAME = ".synthesis_snapshot.json"  # WS-1 shrink 가드 대상 한정 스냅샷(gitignored)
+# 종합 큐 상한 — 조밀하게 연결된 실 wiki 는 자격 기준만으론 대부분이 종합 대상이 되어
+# 우선순위 신호가 희석된다(실측: 109p 중 103p). 점수 상위 N개만 큐잉해 실용화한다.
+SYNTHESIS_QUEUE_LIMIT = 15
 WIKI_STATS_FILE = WIKI_ROOT / "wiki_stats.json"
 # lifecycle 제외 도메인 (ttl_days: 0인 것들) + gates 관리 폴더(observing·rejected —
 # 만료는 gates 가 자체 관리하므로 TTL decay 대상이 아니다. SPEC v0.3 §D 3점 방어)
@@ -1069,7 +1072,8 @@ def run_reweave(*, fix: bool = False, dry_run: bool = False,
     syn_pages = find_all_wiki_pages()
     projections = _project_pages(syn_pages)
     _, syn_inbound = build_link_graph(syn_pages)
-    synthesis_targets = synthesis.select_synthesis_targets(projections, syn_inbound)
+    synthesis_targets = synthesis.select_synthesis_targets(
+        projections, syn_inbound, limit=SYNTHESIS_QUEUE_LIMIT)
     proj_by_slug = {p.slug: p for p in projections}
     shrink_warnings, new_snapshot = _detect_synthesis_shrink(synthesis_targets, proj_by_slug)
 
