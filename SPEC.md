@@ -259,7 +259,9 @@ wiki 전체를 감사(audit) + 압축(distill) + 수명 관리(lifecycle)하는 
 |------|----------|
 | `wiki/curate_report.md` | 항상 생성 (audit·distill·lifecycle·reweave 결과 통합) |
 | `wiki/distill_queue.md` | `--distill` 또는 `--all` 실행 시 |
-| `wiki/reweave_queue.md` | `--reweave` 실행 시 (판단 필요분 체크박스 큐 — LLM 컴파일러가 `commands/curate.md` Step 3에서 소비. `--dry-run` 시 미작성) |
+| `wiki/reweave_queue.md` | `--reweave` 실행 시 (판단 필요분 큐 `## 판단 필요분` + 종합 대상 큐 `## 종합 대상`(v0.3.1 WS-1) — LLM 컴파일러가 `commands/curate.md` Step 3에서 소비. `--dry-run` 시 미작성) |
+| `wiki/contradiction_queue.md` | `--audit`/`--all` 실행 시 **모순 후보가 1건 이상일 때만**(v0.3.1 WS-5 — 후보 0이면 미생성, 오탐 남발 방지). 가장 최근 raw × 기존 페이지를 `reconcile.detect_contradiction_candidates`로 대조. 화해 서술은 `commands/curate.md` Step |
+| `wiki/.synthesis_snapshot.json` | `--reweave`(비 dry-run) 실행 시 — synthesis 대상 본문·근거 스냅샷. 다음 run 에서 `synthesis.guard_no_shrink`로 축소 감지(WARN shrink). gitignored·wiki 페이지 아님 |
 
 #### memory_score — 메타 기억 점수 (US-006, 재사용 우선·결정적)
 
@@ -942,9 +944,10 @@ score = 35·norm(express_reuse) + 25·norm(episode_ref) + 15·norm(centrality)
 > **v0.3.0 범위는 구현 완료**: §B의 `lib/memory_score.py` 추출 · `lib/gates.py`(G-1~G-4) ·
 > `curate --reweave`(위 "스크립트 인터페이스" curate 절 "#### reweave" 참조) ·
 > `memory_health --fix` · ingest hard dedup · sync_raw capture 필터, §C의 observing/rejected·
-> reweave_queue, §D 3점 방어. **계획으로 남은 것**: §B `lib/llm_client.py`(v0.3.2) ·
-> §C `contradiction_queue.md`(v0.3.1) · §E `run_daily.sh` 배치 개정 · v0.3.1+(WS-1 synthesis ·
-> WS-5 reconciliation).
+> reweave_queue, §D 3점 방어. **v0.3.1 구현 완료**: WS-1 synthesis 대상 선정(→ reweave_queue.md
+> `## 종합 대상`) + shrink 가드(`synthesis.guard_no_shrink` — 대상 한정 스냅샷) · WS-5 모순 후보
+> 탐지(→ `contradiction_queue.md`, 후보 0이면 미생성). **계획으로 남은 것**: §B `lib/llm_client.py`
+> (v0.3.2) · §E `run_daily.sh` 배치 개정.
 
 ## §A — 척추: LLM 실행 경계 (v0.2.0 계약 불변)
 
@@ -978,7 +981,7 @@ scripts/
 ## §C — 파일·frontmatter 계약 (v0.3 신규)
 
 - 신규 폴더: `wiki/observing/`(7일 유예) · `wiki/rejected/`(사유 분류 기각). **gitignored**.
-- 신규 큐: `wiki/reweave_queue.md`(구현됨) · `wiki/contradiction_queue.md`(v0.3.1) — `distill_queue.md`와 동일 체크박스 패턴. 공개 번들 봉인의 **활성 기전은 `okf_export.collect()`의 "frontmatter title 부재 → skip"**(큐 파일은 title이 없음), `schema/okf_export.yaml` `exclude_paths`의 `reweave_queue.md`는 큐가 title을 얻는 경우 대비 **백스톱**이다(okf `META_FILES` 등재로의 이관은 okf_export.py 접촉 시 — v0.3.0은 무수정). 실증(V1): okf `--dry-run` 에서 `skipped=[('reweave_queue.md','frontmatter title 부재')]`, observing/rejected 는 `excluded`.
+- 신규 큐: `wiki/reweave_queue.md`(구현됨 — v0.3.1 `## 종합 대상` 섹션 추가) · `wiki/contradiction_queue.md`(구현됨, v0.3.1 — 후보 ≥1일 때만 생성) — `distill_queue.md`와 동일 체크박스 패턴. 공개 번들 봉인의 **활성 기전은 `okf_export.collect()`의 "frontmatter title 부재 → skip"**(큐 파일은 title이 없음), `schema/okf_export.yaml` `exclude_paths`의 `reweave_queue.md`는 큐가 title을 얻는 경우 대비 **백스톱**이다(okf `META_FILES` 등재로의 이관은 okf_export.py 접촉 시 — v0.3.0은 무수정). 실증(V1): okf `--dry-run` 에서 `skipped=[('reweave_queue.md','frontmatter title 부재')]`, observing/rejected 는 `excluded`.
 - frontmatter 신규(전부 optional): `gate_status: created|enriched|observing|rejected`(episodes JSONL `status`와 충돌 회피 개명) · `observation_expires` · `recurrence: N` · `angles: [..]` · `signal_count: N` · `synthesis_updated` · `superseded_claims: [..]` · `last_reconciled` · [v0.3.2] `owner` · `scope: private|shared`.
 - frontmatter 쓰기: `lib/frontmatter_utils` 경유(body 무손상; fm 블록 yaml 재직렬화 허용 — "raw write" 정의 확정, PROGRESS ③). 파서 신설 금지.
 

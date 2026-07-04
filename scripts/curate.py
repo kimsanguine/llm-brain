@@ -27,6 +27,10 @@ import yaml
 
 import episode  # 로컬 모듈 (scripts/ on sys.path) — US-002 curate 실행 episode 기록
 from lib import frontmatter_utils, gates  # v0.3 reweave — 만료 판정(gates)·body 무손상 쓰기
+# v0.3.1 Wave 6 — 순수 결정적 코어 배선(import만, 로직 수정 금지).
+#   reconcile: 모순 후보 탐지 → contradiction_queue.md (WS-5 결정적 부분)
+#   synthesis: 종합 대상 선정·shrink 가드 → reweave_queue.md synthesis 섹션 (WS-1 결정적 부분)
+from lib import reconcile, synthesis
 from lib import memory_score  # 점수 코어 (v0.3 선행 추출 — lib/gates.py 와 공유)
 # merge-review 유사도 토큰 — lib/gates.py 와 단일 구현 공유 (중복 제거, parity 테스트 유지).
 from lib.gates import _merge_token_set  # noqa: F401
@@ -66,6 +70,11 @@ SCHEMA_DIR = WIKI_ROOT / "schema"
 LOG_FILE = WIKI_ROOT / "log.md"
 REPORT_FILE = WIKI_DIR / "curate_report.md"
 DISTILL_QUEUE_FILE = WIKI_DIR / "distill_queue.md"
+# v0.3.1 큐/스냅샷 — 파일명 상수만 두고 경로는 WIKI_DIR/WIKI_ROOT 로 **동적 결합**한다
+# (REWEAVE_QUEUE_NAME 선례). 모듈 로드 시 경로를 굳히면 테스트 monkeypatch(WIKI_DIR)가
+# 흘러가지 못해 실제 wiki/ 로 쓰기가 새기 때문.
+CONTRADICTION_QUEUE_NAME = "contradiction_queue.md"  # WS-5 모순 후보 큐 (후보 0이면 미생성)
+SYNTHESIS_SNAPSHOT_NAME = ".synthesis_snapshot.json"  # WS-1 shrink 가드 대상 한정 스냅샷(gitignored)
 WIKI_STATS_FILE = WIKI_ROOT / "wiki_stats.json"
 # lifecycle 제외 도메인 (ttl_days: 0인 것들) + gates 관리 폴더(observing·rejected —
 # 만료는 gates 가 자체 관리하므로 TTL decay 대상이 아니다. SPEC v0.3 §D 3점 방어)
@@ -320,6 +329,7 @@ def find_all_wiki_pages() -> list[Path]:
         "distill_queue.md",
         "graph_report.md",
         "reweave_queue.md",
+        "contradiction_queue.md",  # v0.3.1 WS-5 운영 큐 — 정규 스캔에서 격리
     }
     # observing/·rejected/ 는 gates 관리 폴더(사적 판단 로그) — 정규 audit/distill/
     # lifecycle/merge-review 스캔에서 격리한다 (SPEC v0.3 §D 3점 방어 중 코드 측).
@@ -345,11 +355,82 @@ def build_link_graph(pages: list[Path]) -> tuple[dict, dict]:
     return outbound, dict(inbound)
 
 
+def _project_pages(pages: list[Path]) -> list[gates.ExistingPage]:
+    """wiki 페이지들을 gates.ExistingPage(slug·frontmatter·body) 로 투영한다.
+
+    reconcile/synthesis 순수 코어가 요구하는 입력 형태(SPEC §A: I/O 는 호출측이 수행해
+    주입). frontmatter 파싱 실패 페이지는 fail-loud 로 건너뛴다(원본 불간섭 — find_merge_
+    candidates 와 동일 방침). slug=파일 stem."""
+    out: list[gates.ExistingPage] = []
+    for page in pages:
+        try:
+            fm, body = parse_frontmatter(page.read_text(encoding="utf-8"))
+        except (OSError, FrontmatterParseError):
+            continue
+        out.append(gates.ExistingPage(slug=page.stem, frontmatter=fm, body=body))
+    return out
+
+
+def _latest_raw_source() -> reconcile.NewSource | None:
+    """raw/ 에서 가장 최근(mtime) ingest 된 .md/.txt 를 신규 근거로 투영한다.
+
+    reconcile.detect_contradiction_candidates 의 new_source 재료. raw/ 부재·후보 없음이면
+    None(→ 모순 후보 0 → 큐 미생성, 보수적). frontmatter 파싱 실패는 frontmatter 없음으로
+    간주({}, 전체 본문) — 주제 겹침 토큰이 비면 어차피 후보가 안 잡힌다(오탐 방지)."""
+    raw_dir = WIKI_ROOT / "raw"
+    if not raw_dir.is_dir():
+        return None
+    candidates = [p for p in raw_dir.rglob("*")
+                  if p.is_file() and p.suffix in {".md", ".txt"}]
+    if not candidates:
+        return None
+    latest = max(candidates, key=lambda p: p.stat().st_mtime)
+    try:
+        fm, body = parse_frontmatter(latest.read_text(encoding="utf-8"))
+    except (OSError, FrontmatterParseError):
+        try:
+            fm, body = {}, latest.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            return None
+    return reconcile.NewSource(
+        source_ref=str(latest.relative_to(WIKI_ROOT)),
+        text=body,
+        frontmatter=fm if isinstance(fm, dict) else {},
+    )
+
+
+def _write_contradiction_queue(candidates: list, now: datetime) -> None:
+    """모순 후보를 contradiction_queue.md 로 직렬화 (distill_queue.md 동일 체크박스 패턴).
+
+    LLM 컴파일러가 `commands/curate.md` Step 에서 소비해 `schema/curate.md`
+    `## Reconciliation Rules` 에 따라 `## 반론/갱신` 을 작성한다. 후보 0이면 이 함수는
+    호출되지 않는다(run_audit 이 미생성 — 오탐 시 남발 방지, 보수적)."""
+    ts = now.strftime("%Y-%m-%d %H:%M")
+    lines = [
+        f"# Contradiction Queue — {ts}\n",
+        "> 이 파일은 `curate --audit`가 생성합니다. Claude Code가 읽고 "
+        "`schema/curate.md`의 `## Reconciliation Rules`에 따라 해당 페이지에 "
+        "`## 반론/갱신 (YYYY-MM-DD)` 3요소를 append 하세요 (자동 편집 아님 — 사람/LLM 판단).\n",
+        f"\n## 모순 후보 ({len(candidates)}개)",
+        "> 신호 = 상반 극 · 겹침 = 주제 토큰 교집합 · 우선순위 = 리뷰 힌트. "
+        "옛 주장 삭제 금지 — `superseded_claims` 표시만.\n",
+    ]
+    for c in candidates:
+        overlap = ", ".join(c.overlap_terms)
+        lines.append(
+            f"- [ ] [[{c.existing_slug}]] ↔ {c.new_source_ref} — "
+            f"신호 {c.signal} · 겹침 {overlap} · 우선순위 {c.confidence_hint}"
+        )
+        lines.append(f'      기존 주장: "{c.existing_claim}"')
+        lines.append(f'      신규 근거: "{c.new_claim}"')
+    (WIKI_DIR / CONTRADICTION_QUEUE_NAME).write_text("\n".join(lines))
+
+
 def run_audit(pages: list[Path]) -> dict:
     _, inbound = build_link_graph(pages)
     now = datetime.now()
 
-    orphans, stale_links, contradictions = [], [], []
+    orphans, stale_links = [], []
 
     for page in pages:
         name = page.stem
@@ -375,6 +456,17 @@ def run_audit(pages: list[Path]) -> dict:
                 "source": str(page.relative_to(WIKI_ROOT)),
                 "missing_target": m,
             })
+
+    # 모순 후보 탐지 (v0.3.1 WS-5 결정적 부분) — 가장 최근 raw 근거 × 기존 페이지 대조.
+    #   reconcile 순수 코어에 위임(정밀도 우선·보수적). 후보 0이면 큐 미생성(오탐 남발 방지).
+    contradictions: list = []
+    new_source = _latest_raw_source()
+    if new_source is not None:
+        contradictions = reconcile.detect_contradiction_candidates(
+            new_source, _project_pages(pages))
+    if contradictions:
+        _write_contradiction_queue(contradictions, now)
+        print(f"  [audit] 모순 후보 {len(contradictions)}개 → wiki/contradiction_queue.md 저장")
 
     return {"orphans": orphans, "stale_links": stale_links, "contradictions": contradictions}
 
@@ -775,8 +867,13 @@ def _process_observing_expiry(today, *, dry_run: bool) -> tuple[list[dict], list
 
 def _write_reweave_queue(queue_path: Path, weak_entries: list[tuple[str, list[str]]],
                          now: datetime, *, body_min: int, min_sources: int,
-                         min_h2: int) -> None:
-    """판단 필요분 큐 — distill_queue.md 와 동일 체크박스 패턴."""
+                         min_h2: int,
+                         synthesis_targets: list | None = None) -> None:
+    """판단 필요분 큐 + 종합 대상 큐 — distill_queue.md 와 동일 체크박스 패턴.
+
+    weak_entries = 보강 판단 필요분(본문·근거 부족). synthesis_targets = WS-1 종합 대상
+    (2+ 소스 교차 / inbound 허브). 둘은 **다른 라벨의 별도 섹션**으로 구분한다 —
+    LLM Step(commands/curate.md Step 3)이 보강과 종합을 다른 규칙으로 처리하기 때문."""
     ts = now.strftime("%Y-%m-%d %H:%M")
     lines = [
         f"# Reweave Queue — {ts}\n",
@@ -788,7 +885,84 @@ def _write_reweave_queue(queue_path: Path, weak_entries: list[tuple[str, list[st
     ]
     for rel, issues in weak_entries:
         lines.append(f"- [ ] `wiki/{rel}` — {'; '.join(issues)}")
+
+    targets = synthesis_targets or []
+    lines.append(f"\n## 종합 대상 (2+ 소스 교차 / inbound 허브) — {len(targets)}개")
+    lines.append(
+        "> `schema/curate.md`의 `## Synthesis Rules` 적용 — `## 인사이트 (종합)` "
+        "섹션 생성·갱신 + frontmatter angles/signal_count/synthesis_updated. "
+        "**불변식: 기존 본문·sources 삭제·단축 금지(append/갱신만)**.\n"
+    )
+    for t in targets:
+        crossing = ", ".join(t.crossing_sources)
+        lines.append(
+            f"- [ ] [[{t.slug}]] — {t.reason} · 반복신호 {t.signal_count} · 소스 {crossing}"
+        )
     queue_path.write_text("\n".join(lines))
+
+
+# ── synthesis shrink 스냅샷 (WS-1 shrink 가드 (a) 변형 — 대상 한정) ────────
+#
+# 배경: synthesis 서술은 LLM Step 이 파일에 쓴다(스크립트는 큐만 생성) — 스크립트는
+# LLM 저장 순간을 가로챌 수 없다. 그래서 **synthesis 대상의 본문·sources 를 run 간
+# 스냅샷**해 두고, 다음 run 에서 `synthesis.guard_no_shrink` 로 축소를 감지해
+# `curate_report.md` 에 `WARN shrink` 로 표면화한다(자동 차단 아님 — 사람/LLM 검토).
+# 감지 범위를 synthesis 대상으로 한정한 이유: audit 전역 스냅샷은 distill(의도적 본문
+# 압축)에 매번 오탐하기 때문(distill 은 본문을 일부러 줄인다). synthesis 는 "축소 금지"가
+# 불변식이므로 대상 한정 스냅샷에서만 축소가 진짜 위반 신호다.
+
+
+def _load_synthesis_snapshot() -> dict:
+    """이전 run 의 synthesis 대상 본문·sources 스냅샷 로드. 없으면 빈 dict."""
+    snap_file = WIKI_DIR / SYNTHESIS_SNAPSHOT_NAME
+    if snap_file.exists():
+        try:
+            data = json.loads(snap_file.read_text(encoding="utf-8"))
+            return data if isinstance(data, dict) else {}
+        except (json.JSONDecodeError, OSError):
+            return {}
+    return {}
+
+
+def _save_synthesis_snapshot(snapshot: dict) -> None:
+    """현재 synthesis 대상 스냅샷을 결정적 바이트로 저장(동일 입력 → 동일 파일)."""
+    (WIKI_DIR / SYNTHESIS_SNAPSHOT_NAME).write_text(
+        json.dumps(snapshot, ensure_ascii=False, indent=2, sort_keys=True))
+
+
+def _fm_sources_list(fm) -> list:
+    """frontmatter sources 를 list 로(비-list 는 빈 list). 스냅샷·guard 입력용."""
+    src = fm.get("sources") if isinstance(fm, dict) else None
+    return list(src) if isinstance(src, (list, tuple)) else []
+
+
+def _detect_synthesis_shrink(targets: list,
+                             proj_by_slug: dict) -> tuple[list[tuple[str, tuple]], dict]:
+    """이전 스냅샷 대비 synthesis 대상의 본문·근거 축소를 감지 (guard_no_shrink 배선점).
+
+    반환: (shrink_warnings, new_snapshot). shrink_warnings = [(slug, reasons)] —
+    guard 가 blocked 판정한 대상만. new_snapshot = 이번 run 대상의 {body, sources}.
+    guard_no_shrink 순수 함수를 **실제 호출**하는 유일 배선 경로다.
+    """
+    prev = _load_synthesis_snapshot()
+    warnings: list[tuple[str, tuple]] = []
+    new_snapshot: dict = {}
+    for t in targets:
+        page = proj_by_slug.get(t.slug)
+        if page is None:
+            continue
+        cur_sources = _fm_sources_list(page.frontmatter)
+        new_snapshot[t.slug] = {"body": page.body, "sources": cur_sources}
+        before = prev.get(t.slug)
+        if not isinstance(before, dict):
+            continue  # 이전 스냅샷 없음 — 첫 등장, 비교 대상 없음
+        verdict = synthesis.guard_no_shrink(
+            {"sources": before.get("sources", [])}, before.get("body", ""),
+            {"sources": cur_sources}, page.body,
+        )
+        if verdict.blocked:
+            warnings.append((t.slug, verdict.reasons))
+    return warnings, new_snapshot
 
 
 def _reweave_weekly_summary(now: datetime, current_weak_refs: list[str]) -> dict:
@@ -889,12 +1063,24 @@ def run_reweave(*, fix: bool = False, dry_run: bool = False,
     weak_entries.sort(key=lambda x: x[0])
     alerts.sort(key=lambda x: (x[0], x[1]))
 
-    # 3) 판단 필요분 큐 — LLM 컴파일러(commands/curate.md Step 3)가 소비.
+    # 2b) 종합 대상 선정 (WS-1 결정적 부분) — synthesis 순수 코어에 위임.
+    #     find_all_wiki_pages 투영(gate 폴더·큐 제외)에서 2+ 소스 교차/inbound 허브를 선정.
+    #     동시에 이전 run 대비 synthesis 대상 축소를 guard_no_shrink 로 감지(shrink 가드 배선).
+    syn_pages = find_all_wiki_pages()
+    projections = _project_pages(syn_pages)
+    _, syn_inbound = build_link_graph(syn_pages)
+    synthesis_targets = synthesis.select_synthesis_targets(projections, syn_inbound)
+    proj_by_slug = {p.slug: p for p in projections}
+    shrink_warnings, new_snapshot = _detect_synthesis_shrink(synthesis_targets, proj_by_slug)
+
+    # 3) 판단 필요분 + 종합 대상 큐 — LLM 컴파일러(commands/curate.md Step 3)가 소비.
     if not dry_run:
         _write_reweave_queue(WIKI_DIR / REWEAVE_QUEUE_NAME, weak_entries, now,
                              body_min=memory_health.WEAK_BODY_MIN_CHARS,
                              min_sources=memory_health.WEAK_MIN_SOURCES,
-                             min_h2=memory_health.WEAK_MIN_H2)
+                             min_h2=memory_health.WEAK_MIN_H2,
+                             synthesis_targets=synthesis_targets)
+        _save_synthesis_snapshot(new_snapshot)
 
     # 4) --weekly-summary: 4주 누적 반복 weak → 통합/삭제 후보.
     weekly = None
@@ -903,7 +1089,8 @@ def run_reweave(*, fix: bool = False, dry_run: bool = False,
 
     tag = " (dry-run — 파일 무변경)" if dry_run else ""
     print(f"  [reweave] fixed={len(fixed)}, alert={len(alerts)}, "
-          f"expired={len(expired)}, 큐={len(weak_entries)}개{tag}")
+          f"expired={len(expired)}, 큐={len(weak_entries)}개, "
+          f"종합={len(synthesis_targets)}개, shrink경고={len(shrink_warnings)}개{tag}")
     if dry_run:
         for rel, actions in fixed:
             print(f"    fix 계획: {rel} — {'; '.join(actions)}")
@@ -912,7 +1099,8 @@ def run_reweave(*, fix: bool = False, dry_run: bool = False,
 
     return {"fixed": fixed, "alerts": alerts, "weak": weak_entries,
             "expired": expired, "expiry_errors": expiry_errors,
-            "weekly": weekly, "dry_run": dry_run}
+            "weekly": weekly, "synthesis": synthesis_targets,
+            "shrink_warnings": shrink_warnings, "dry_run": dry_run}
 
 
 # ── Report ─────────────────────────────────────────────────────────────
@@ -933,6 +1121,20 @@ def write_report(audit: dict, distilled: list, lifecycle: dict,
     lines.append(f"\n### Stale 링크 ({len(stale)}개)")
     for s in stale:
         lines.append(f"- {s['source']} → [[{s['missing_target']}]] (페이지 없음)")
+
+    # 모순 후보 (v0.3.1 WS-5) — reconcile 가 표면화한 후보 카운트. 화해 서술은 LLM Step.
+    contradictions = audit.get("contradictions", [])
+    lines.append(f"\n### 모순 후보 ({len(contradictions)}개)")
+    for c in contradictions:
+        lines.append(
+            f"- [[{c.existing_slug}]] ↔ {c.new_source_ref} — "
+            f"신호 {c.signal} · 우선순위 {c.confidence_hint}"
+        )
+    if contradictions:
+        lines.append(
+            "\n> 상세 큐: `wiki/contradiction_queue.md` — 화해 서술은 "
+            "`commands/curate.md` Step(`## 반론/갱신`)."
+        )
 
     # Merge-review (US-006): 같은 카테고리 내 근접 중복 쌍. **자동 병합 금지(Rule 9)** —
     # 후보 목록만 제공해 사람이 병합 판단. do_purge 가 스캔하는 'Lifecycle 후보' 섹션과
@@ -1002,6 +1204,20 @@ def write_report(audit: dict, distilled: list, lifecycle: dict,
             lines.append(f"\n### Observing 처리 경고 ({len(r_errors)}개)")
             for rel, reason in r_errors:
                 lines.append(f"- `{rel}` — {reason}")
+        # 종합 대상 (v0.3.1 WS-1) — 상세 큐는 reweave_queue.md `## 종합 대상`.
+        r_synthesis = reweave.get("synthesis", [])
+        lines.append(f"\n### 종합 대상 ({len(r_synthesis)}개)")
+        lines.append("> 2+ 소스 교차 / inbound 허브 — 상세 큐: `wiki/reweave_queue.md` (`## 종합 대상`)")
+        # WARN shrink (WS-1 불변식) — 이전 run 대비 synthesis 대상 축소 감지(자동 차단 아님).
+        r_shrink = reweave.get("shrink_warnings", [])
+        lines.append(f"\n### WARN shrink — 종합 대상 축소 감지 ({len(r_shrink)}개)")
+        if r_shrink:
+            lines.append(
+                "> 이전 run 대비 본문·근거가 줄었다 — synthesis 불변식(축소 금지) "
+                "위반 가능. 사람/LLM 검토 필수."
+            )
+        for slug, reasons in r_shrink:
+            lines.append(f"- [[{slug}]] — {'; '.join(reasons)}")
         weekly = reweave.get("weekly")
         if weekly is not None:
             cands = weekly.get("candidates", [])
@@ -1259,6 +1475,7 @@ def _curate_episode_record(mode: str, audit: dict, distilled: list, lifecycle: d
         "outputs": {
             "orphans": len(audit.get("orphans", [])),
             "stale_links": len(audit.get("stale_links", [])),
+            "contradictions": len(audit.get("contradictions", [])),
             "distill_queued": len(distilled),
             "archive_candidates": len(lifecycle.get("archive", [])),
             "delete_candidates": len(lifecycle.get("delete", [])),
@@ -1298,6 +1515,8 @@ def _reweave_episode_record(result: dict, *, fix: bool, weekly_summary: bool,
             "alerts": len(result.get("alerts", [])),
             "expired": len(result.get("expired", [])),
             "queued": len(result.get("weak", [])),
+            "synthesis_targets": len(result.get("synthesis", [])),
+            "shrink_warnings": len(result.get("shrink_warnings", [])),
         },
         "status": "ok",
         "notes": "",

@@ -38,7 +38,7 @@ uv run python scripts/curate.py $ARGUMENTS
 
 ## Step 3: reweave 실행 (--reweave 일 때)
 
-Step 1의 스크립트가 산출한 `wiki/reweave_queue.md`(weak-node 판단 필요분, distill_queue와 동일 체크박스 패턴 — synthesis 대상 큐잉은 v0.3.1)와 `curate_report.md`의 `## Reweave` 섹션 alert(판단 필요분: 본문·근거 부족 — 자동 fix 불가분)를 읽고 처리합니다:
+Step 1의 스크립트가 산출한 `wiki/reweave_queue.md`(weak-node 판단 필요분 `## 판단 필요분` + 종합 대상 `## 종합 대상`(v0.3.1 WS-1), distill_queue와 동일 체크박스 패턴)와 `curate_report.md`의 `## Reweave` 섹션 alert(판단 필요분: 본문·근거 부족 — 자동 fix 불가분)를 읽고 처리합니다:
 
 1. **보강 (weak-node 판단 필요분)**: 각 대상 페이지에 대해
    - 페이지 본문과 frontmatter `sources`의 raw/ 파일 읽기
@@ -49,7 +49,10 @@ Step 1의 스크립트가 산출한 `wiki/reweave_queue.md`(weak-node 판단 필
 4. 불변식: 기존 본문·sources 삭제·단축 금지(append/갱신만) · raw 출처 없는 서술 금지
 
 `--weekly-summary` 시: 4주 누적 weak의 통합/삭제 후보는 **목록 보고만** — 실제 이동·삭제는 사용자 승인 필수.
-모순 후보(`wiki/contradiction_queue.md`)의 화해 서술은 v0.3.1 — `schema/curate.md`의 `## Reconciliation Rules` 참조.
+
+## Step 3.5: 모순 후보 화해 (`wiki/contradiction_queue.md` 존재 시)
+
+`--audit`/`--all` 이 모순 후보를 감지하면 `wiki/contradiction_queue.md`(후보 ≥1일 때만 생성)를 읽고, `schema/curate.md`의 `## Reconciliation Rules`에 따라 각 대상 페이지에 `## 반론/갱신 (YYYY-MM-DD)` 3요소(기존 주장·반례 근거·현재 판단)를 append 하고 frontmatter `superseded_claims`/`last_reconciled`를 갱신합니다. **옛 주장 삭제 금지**(본문 유지 + 표시만) · 오탐이면 반론 미생성 · raw/ 출처 뒷받침 범위까지만 서술.
 
 ## Step 4: 결과 요약 출력
 

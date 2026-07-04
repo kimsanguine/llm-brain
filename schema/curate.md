@@ -209,7 +209,7 @@ synthesis_updated: YYYY-MM-DD          # 마지막 종합 갱신일
 
 ## Reconciliation Rules
 
-> WS-5 (v0.3.1) 대비 골격 + 핵심 규칙. 결정적 모순 후보 탐지(→ `wiki/contradiction_queue.md`)는 스크립트가 수행하고,
+> WS-5 (v0.3.1 구현됨). 결정적 모순 후보 탐지(→ `wiki/contradiction_queue.md`)는 스크립트(`reconcile` 코어, 후보 ≥1일 때만 큐 생성)가 수행하고,
 > 화해 서술은 아래 규칙으로 LLM 컴파일러가 수행한다 — 1단계 AUDIT "모순 감지" 리포트를 실행 규칙으로 채우는 형태.
 
 ### 화해 서술 — `## 반론/갱신 (YYYY-MM-DD)` append

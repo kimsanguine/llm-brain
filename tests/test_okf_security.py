@@ -178,6 +178,29 @@ def test_okf_config_excludes_gate_dirs_and_reweave_queue():
     assert "rejected/**" in exclude_paths
     # reweave 운영 큐(wiki/ 루트 산출물)도 공개 번들 봉인 — META_FILES 미등재 대비.
     assert "reweave_queue.md" in exclude_paths
+    # v0.3.1 WS-5 모순 후보 큐도 동일 봉인(reweave_queue 선례).
+    assert "contradiction_queue.md" in exclude_paths
+
+
+def test_contradiction_queue_not_exported(tmp_path):
+    """contradiction_queue.md 가 export 번들에 안 나와야 (WS-5 봉인 — exclude_paths 백스톱).
+
+    title 을 부여해 'title 부재 skip' 을 우회시키면 exclude_paths 가 활성 게이트가 된다
+    (reweave_queue 선례: 큐가 title 을 얻는 경우 대비 config 봉인)."""
+    wiki = tmp_path / "wiki"
+    _write(wiki, "contradiction_queue.md",
+           _page("Contradiction Queue", body="- [ ] [[clean]] ↔ raw/x.md\n"))
+    _write(wiki, "concepts/clean.md", _page("Clean"))
+
+    cfg = yaml.safe_load(_OKF_CONFIG_PATH.read_text(encoding="utf-8"))
+    stats = okf_export.export_bundle(wiki, tmp_path / "okf",
+                                     exclude_paths=cfg["exclude_paths"])
+    out = tmp_path / "okf"
+    assert not (out / "contradiction_queue.md").exists()
+    rels = [p.relative_to(out).as_posix().lower() for p in out.rglob("*.md")]
+    assert not any("contradiction_queue" in r for r in rels)
+    assert (out / "concepts" / "clean.md").exists()
+    assert "contradiction_queue.md" in stats.excluded
 
 
 def test_observing_rejected_not_exported(tmp_path):
