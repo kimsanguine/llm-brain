@@ -254,8 +254,12 @@ def test_fix_applies_memory_health_engine_and_idempotent(monkeypatch, tmp_path):
     assert snap == snap2
 
 
-def test_scan_without_fix_does_not_write_pages(monkeypatch, tmp_path):
-    """--reweave (fix 미지정): 스캔·큐만 — fixable 결손이 있어도 페이지 무변경."""
+def test_scan_without_fix_previews_but_does_not_write(monkeypatch, tmp_path):
+    """--reweave (fix 미지정): fix 가능분을 계획으로 **예고**하되 페이지는 무변경.
+
+    (구계약은 fix 미지정 시 계획 자체를 스킵해 fixed=0 → --dry-run 단독이 fixable 을
+    0 으로 잘못 보여주는 함정이 있었다. 신계약: 계획은 항상, 쓰기만 --fix 게이트.)
+    """
     wiki = _patch_paths(monkeypatch, tmp_path)
     page = _write(wiki, "concepts/fixable.md",
                   _fm_block(title="fixable", type="concept", created="2026-06-01",
@@ -265,9 +269,29 @@ def test_scan_without_fix_does_not_write_pages(monkeypatch, tmp_path):
 
     result = curate.run_reweave(fix=False, now=NOW)
 
-    assert result["fixed"] == []
-    assert page.read_bytes() == before
+    assert len(result["fixed"]) == 1  # fix 가능분(summary·source_count)을 예고한다
+    assert page.read_bytes() == before  # 핵심: --fix 없으면 파일 무변경
     assert (wiki / "reweave_queue.md").exists()  # 큐는 생성된다
+
+
+def test_fix_dry_run_previews_same_plan_but_no_write(monkeypatch, tmp_path):
+    """--fix --dry-run: --fix 와 동일한 fix 계획을 예고하되 파일은 안 쓴다(진짜 미리보기)."""
+    wiki = _patch_paths(monkeypatch, tmp_path)
+    page = _write(wiki, "concepts/fixable.md",
+                  _fm_block(title="fixable", type="concept", created="2026-06-01",
+                            updated="2026-06-01", sources=["raw/a.md", "raw/b.md"])
+                  + _healthy_body())
+    before = page.read_bytes()
+
+    preview = curate.run_reweave(fix=True, dry_run=True, now=NOW)
+    assert len(preview["fixed"]) == 1
+    assert page.read_bytes() == before  # dry-run — 무변경
+
+    applied = curate.run_reweave(fix=True, dry_run=False, now=NOW)
+    assert len(applied["fixed"]) == 1
+    assert page.read_bytes() != before  # 실제 적용 — 변경됨
+    # 미리보기 계획과 실제 적용 계획이 동일해야 미리보기가 신뢰된다
+    assert [a for _, a in preview["fixed"]] == [a for _, a in applied["fixed"]]
 
 
 def test_dry_run_changes_nothing(monkeypatch, tmp_path):

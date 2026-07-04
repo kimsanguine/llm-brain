@@ -1053,13 +1053,16 @@ def run_reweave(*, fix: bool = False, dry_run: bool = False,
         if issues:
             weak_entries.append((p.rel, issues))
             alerts.append((p.rel, "; ".join(issues) + " — 본문·근거 부족은 alert만(판단 필요분)"))
-        if not fix or not p.fm:
-            continue  # fix 미지정이면 스캔만 / frontmatter 블록 없는 페이지는 채움 범위 밖
+        if not p.fm:
+            continue  # frontmatter 블록 없는 페이지는 채움 범위 밖
+        # 계획은 항상 세운다(fix 여부 무관) — dry-run/스캔에서도 "fix 가능분"을 예고.
+        # 실제 쓰기는 --fix 이고 dry-run 이 아닐 때만(applied). 그래야 --dry-run 단독이
+        # fixed 를 0 으로 잘못 보여주지 않는다(미리보기 계약).
         new_fm, actions, unfixable = memory_health._plan_page_fixes(p.fm, p.body, now)
         for reason in unfixable:
             alerts.append((p.rel, reason))
         if actions:
-            if not dry_run:
+            if fix and not dry_run:
                 p.path.write_text(frontmatter_utils.write_fm(new_fm, p.body), encoding="utf-8")
             fixed.append((p.rel, actions))
 
@@ -1091,11 +1094,19 @@ def run_reweave(*, fix: bool = False, dry_run: bool = False,
     if weekly_summary:
         weekly = _reweave_weekly_summary(now, [f"wiki/{rel}" for rel, _ in weak_entries])
 
-    tag = " (dry-run — 파일 무변경)" if dry_run else ""
-    print(f"  [reweave] fixed={len(fixed)}, alert={len(alerts)}, "
+    # fixed 는 항상 "fix 가능분" 계획 수 — 실제 적용은 --fix 이고 dry-run 아닐 때만.
+    applied = fix and not dry_run
+    label = "fixed" if applied else "fixable"
+    if applied:
+        tag = ""
+    elif dry_run:
+        tag = " (dry-run — 파일 무변경)"
+    else:
+        tag = " (--fix 미지정 — 파일 무변경, --fix 로 적용)"
+    print(f"  [reweave] {label}={len(fixed)}, alert={len(alerts)}, "
           f"expired={len(expired)}, 큐={len(weak_entries)}개, "
           f"종합={len(synthesis_targets)}개, shrink경고={len(shrink_warnings)}개{tag}")
-    if dry_run:
+    if not applied:
         for rel, actions in fixed:
             print(f"    fix 계획: {rel} — {'; '.join(actions)}")
         for e in expired:
