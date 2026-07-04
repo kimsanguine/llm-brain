@@ -978,7 +978,7 @@ scripts/
 ## §C — 파일·frontmatter 계약 (v0.3 신규)
 
 - 신규 폴더: `wiki/observing/`(7일 유예) · `wiki/rejected/`(사유 분류 기각). **gitignored**.
-- 신규 큐: `wiki/reweave_queue.md`(구현됨) · `wiki/contradiction_queue.md`(v0.3.1) — `distill_queue.md`와 동일 체크박스 패턴. 공개 번들 봉인은 `schema/okf_export.yaml` `exclude_paths`의 `reweave_queue.md`로 수행(okf `META_FILES` 등재는 okf_export.py 접촉 시 이관 — v0.3.0은 무수정).
+- 신규 큐: `wiki/reweave_queue.md`(구현됨) · `wiki/contradiction_queue.md`(v0.3.1) — `distill_queue.md`와 동일 체크박스 패턴. 공개 번들 봉인의 **활성 기전은 `okf_export.collect()`의 "frontmatter title 부재 → skip"**(큐 파일은 title이 없음), `schema/okf_export.yaml` `exclude_paths`의 `reweave_queue.md`는 큐가 title을 얻는 경우 대비 **백스톱**이다(okf `META_FILES` 등재로의 이관은 okf_export.py 접촉 시 — v0.3.0은 무수정). 실증(V1): okf `--dry-run` 에서 `skipped=[('reweave_queue.md','frontmatter title 부재')]`, observing/rejected 는 `excluded`.
 - frontmatter 신규(전부 optional): `gate_status: created|enriched|observing|rejected`(episodes JSONL `status`와 충돌 회피 개명) · `observation_expires` · `recurrence: N` · `angles: [..]` · `signal_count: N` · `synthesis_updated` · `superseded_claims: [..]` · `last_reconciled` · [v0.3.2] `owner` · `scope: private|shared`.
 - frontmatter 쓰기: `lib/frontmatter_utils` 경유(body 무손상; fm 블록 yaml 재직렬화 허용 — "raw write" 정의 확정, PROGRESS ③). 파서 신설 금지.
 

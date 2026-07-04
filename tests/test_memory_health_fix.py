@@ -287,3 +287,26 @@ def test_fix_report_contains_fixed_alert_summary(tmp_path):
     assert f"fixed: {len(result.fixed)} / alert: {len(result.alerts)}" in text
     assert "`concepts/no-summary.md`" in text
     assert "`concepts/placeholder.md`" in text
+
+
+# ── 9. gates 관리 폴더 격리 (V1 리뷰 발견 회귀 방지) ────────────────────
+# WHY: 단독 memory_health --fix 경로가 observing/·rejected/·reweave_queue.md 를
+#      정규 페이지로 오집계·write 하면 gates 격리(SPEC v0.3 §D)가 우회된다.
+#      curate.find_all_wiki_pages 와 동일하게 이 셋을 스캔에서 제외해야 한다.
+def test_fix_skips_gates_managed_dirs_and_reweave_queue(tmp_path):
+    wiki = tmp_path / "wiki"
+    _write(wiki, "concepts/healthy.md", _healthy_page())
+    # summary 결손 = 정상 경로였다면 fix 대상 — 격리되어 미접촉이어야 함
+    obs = _write(wiki, "observing/bar.md", _healthy_page(summary=None))
+    rej = _write(wiki, "rejected/baz.md", _healthy_page(summary=None))
+    queue = _write(wiki, "reweave_queue.md", "- [ ] wiki/concepts/x.md\n")
+
+    before = {p: p.read_bytes() for p in (obs, rej, queue)}
+    result = memory_health.run_fix(wiki, now=NOW)
+
+    collected = {pi.rel for pi in memory_health._collect_pages(wiki)[0]}
+    assert collected == {"concepts/healthy.md"}
+    for p, b in before.items():
+        assert p.read_bytes() == b, f"{p} 격리 위반 — 미접촉이어야 함"
+    assert all("observing/" not in f and "rejected/" not in f and "reweave_queue" not in f
+               for f in result.fixed)

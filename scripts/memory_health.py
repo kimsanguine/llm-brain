@@ -52,7 +52,11 @@ DEFAULT_PROCEDURES_DIR = REPO_ROOT / "procedures"
 
 REPORT_FILENAME = "memory_health_report.md"
 # wiki_root 직속 메타·리포트 파일 — 페이지 집계에서 제외(curate.find_all_wiki_pages 와 정합).
-_SKIP_META = {"curate_report.md", "distill_queue.md", "graph_report.md", REPORT_FILENAME}
+_SKIP_META = {"curate_report.md", "distill_queue.md", "graph_report.md",
+              "reweave_queue.md", REPORT_FILENAME}
+# gates 관리 폴더(사적 판단 로그) + archive — 정규 진단·fix 스캔에서 격리
+# (curate.find_all_wiki_pages 의 excluded_dirs 와 정합, SPEC v0.3 §D 3점 방어).
+_SKIP_DIRS = {"archive", "observing", "rejected"}
 # memory_type 미선언 페이지의 기본값. wiki/ 자체가 의미 기억 층(SPEC §A)이므로 semantic.
 _DEFAULT_MEMORY_TYPE = "semantic"
 
@@ -132,7 +136,8 @@ def _age_days(fm: dict, fallback_path: Path | None, now: datetime) -> int:
 def _collect_pages(wiki_root: Path) -> tuple[list[_PageInfo], list[tuple[str, str]]]:
     """wiki_root/**/*.md 를 읽어 _PageInfo 리스트 + 파싱오류 목록 반환(읽기 전용).
 
-    메타·리포트 파일(루트 직속)과 archive/ 하위는 제외한다(curate 의 페이지 정의와 정합).
+    메타·리포트 파일(루트 직속)과 archive/·observing/·rejected/ 하위는 제외한다
+    (curate.find_all_wiki_pages 의 페이지 정의와 정합 — gates 관리 폴더 격리).
     frontmatter 파싱 실패는 크래시 대신 fm={} 로 폴백하고 표면화한다(Rule 8).
     """
     pages: list[_PageInfo] = []
@@ -141,7 +146,7 @@ def _collect_pages(wiki_root: Path) -> tuple[list[_PageInfo], list[tuple[str, st
         rel = md.relative_to(wiki_root).as_posix()
         if md.parent == wiki_root and md.name in _SKIP_META:
             continue
-        if "archive" in md.relative_to(wiki_root).parts:
+        if _SKIP_DIRS & set(md.relative_to(wiki_root).parts):
             continue
         try:
             text = md.read_text(encoding="utf-8")
