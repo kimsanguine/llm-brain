@@ -12,8 +12,9 @@
 ![License](https://img.shields.io/badge/License-MIT-green)
 ![Claude Code](https://img.shields.io/badge/Claude_Code-CLI-orange)
 ![Obsidian](https://img.shields.io/badge/Obsidian-Graph_View-7C3AED)
-![Version](https://img.shields.io/badge/version-0.2.0-blue)
+![Version](https://img.shields.io/badge/version-0.3.0-blue)
 
+> 🎉 **v0.3** — Quality-Driven Curation: 매일 품질 점검·자동 보강(`curate --reweave`) · 신규 페이지 승격 게이트(Promotion Gates) · 여러 메모를 교차 종합(synthesis)하고 모순을 명시적으로 화해 · 입구에서 중복 차단(hard dedup) · cli/api 엔진 선택(`llm_client`).
 > 🎉 **v0.2** — Agent Memory OS 5층 기억(작업·에피소드·의미·절차·메타) + 설치 점검 `/llm-brain:doctor` · 웹 UI `/llm-brain:wikiweb` 커맨드 추가.
 
 ---
@@ -160,19 +161,23 @@ cp paper.pdf raw/docs/
 
 ### 🔁 curate — 정리: 압축·수명 관리 *Curate · Progressive Summarization*
 
-**한 줄로: 쌓인 지식을 '정리'하기.** 자주 보는 페이지일수록 더 짧게 압축(distill, 압축 정리)하고, 오래 안 본 페이지는 archive(보관) 후보로 내린다.
+**한 줄로: 쌓인 지식을 '정리'하기.** 자주 보는 페이지일수록 더 짧게 압축(distill, 압축 정리)하고, 오래 안 본 페이지는 archive(보관) 후보로 내린다. **v0.3부터는 시간이 아니라 품질로 정리한다** — 매일 약한 페이지를 자동 점검·보강하고, 여러 메모를 하나의 판단으로 종합하며, 새 근거가 옛 결론과 충돌하면 명시적으로 화해한다.
 
 ▶ **Claude Code 입력창**에 입력:
 
 ```
-/llm-brain:curate --distill     # 자주 본 페이지를 한 단계 더 압축
+/llm-brain:curate --reweave     # (v0.3·매일 권장) 약한 페이지 점검 → 자동 보강 가능분은 즉시 수리
+/llm-brain:curate --reweave --fix   # 자동 보강까지 실제 적용 (요약·근거수 등 기계적 결손)
+/llm-brain:curate --distill     # 자주 본 페이지를 한 단계 더 압축 + 여러 소스 교차 종합
 /llm-brain:curate --lifecycle   # 보관 기한(TTL) 지난 페이지를 archive 후보로
 /llm-brain:curate --all         # 전체 실행 (점검 + 압축 + 수명 관리)
 ```
 
 각 페이지는 frontmatter(페이지 머리말 정보)에 `distill_level`(압축 단계: 0=원문 → 3=한 줄)과 `access_count`(열어본 횟수)를 기록한다. 자주 열어본 페이지일수록 자동으로 먼저 정리된다.
 
-> 압축 단계·접근 집계의 동작 방식, wikilink 그래프(`wiki/graph.json`) 분석, Agent Memory OS의 선택 필드(`memory_type` 등)는 모두 자동 처리된다. 상세: `SPEC.md`.
+**v0.3 품질 정책** — 새 페이지는 **Promotion Gates**(반복 ≥2회·본문 ≥800자·근거 ≥2건 등)를 통과해야 정식 승격되고, 미달은 `wiki/observing/`(7일 유예)·`wiki/rejected/`로 라우팅된다. `--reweave`는 약한 노드(본문<800자·근거<2건)를 매일 잡아 기계적 결손만 자동 수리하고 판단이 필요한 건 큐로 남긴다(가짜 보강 금지). 여러 메모가 같은 주제를 건드리면 `## 인사이트 (종합)`으로 교차 종합하고, 모순이 감지되면 옛 주장을 지우지 않고 `## 반론/갱신` + `superseded` 표시로 화해한다.
+
+> 압축 단계·접근 집계의 동작 방식, Promotion Gates·reweave·종합·모순 화해 규칙, wikilink 그래프(`wiki/graph.json`) 분석, Agent Memory OS의 선택 필드(`memory_type` 등)는 모두 자동 처리된다. 상세: `SPEC.md`.
 
 ---
 
@@ -229,7 +234,7 @@ uv run python -m wiki_app
 
 스크린샷: `docs/screenshots/dod-*.png`
 
-> AI 답변은 `claude -p` CLI(명령줄 도구)로 라이브 동작하며 SSE 스트리밍(실시간 출력)을 지원한다. Claude Code 미설치 시 `status: unavailable`로 graceful 처리(없으면 조용히 비활성).
+> AI 답변은 `claude -p` CLI(명령줄 도구)로 라이브 동작하며 SSE 스트리밍(실시간 출력)을 지원한다. Claude Code 미설치 시 `status: unavailable`로 graceful 처리(없으면 조용히 비활성). **v0.3:** `schema/config.yaml`의 `llm.engine`을 `cli`(기본, Claude Code) 또는 `api`(anthropic SDK)로 선택할 수 있다 — 무인 배치·서버 환경 대비.
 
 ---
 
@@ -246,6 +251,7 @@ uv run python -m wiki_app
 ```
 
 > 🔴 **보안 (한 줄):** `okf/`를 public으로 커밋하면 history가 영구로 남는다. 커밋 전 반드시 `--dry-run`으로 민감 항목이 빠졌는지(`sensitive_hits=0`) 사람이 직접 확인한다. 제외·민감 설정과 보안 게이트 동작 상세: `SPEC.md`.
+> 🔒 **v0.3:** 페이지 frontmatter에 `scope: private`를 두면 (플래그 없이도) OKF 공개 번들에서 **항상 제외**된다. `owner` 필드로 소유자를 태깅할 수 있다(팀 확장 대비).
 
 ---
 
@@ -395,14 +401,21 @@ llm-brain/
 │   ├── setup.sh               # 초기 설정
 │   ├── sync_raw.py            # 소스 미러링
 │   ├── ingest.py              # 파일 파싱 + 상태 관리
-│   ├── curate.py              # 감사·압축·lifecycle (--health, --suggest-bridges)
+│   ├── curate.py              # 감사·압축·lifecycle·reweave·종합·모순 (--reweave, --health)
 │   ├── export_graph.py        # wikilink 그래프 export → wiki/graph.json
-│   ├── okf_export.py          # wiki → OKF v0.1 호환 번들 okf/ export
+│   ├── okf_export.py          # wiki → OKF v0.1 호환 번들 okf/ export (scope:private 제외)
 │   ├── express.py             # wiki → 창작물 출력
 │   ├── episode.py             # 🧠 append-only 에피소드 원장 (episodes/YYYY-MM.jsonl)
 │   ├── brain_context.py       # 🧠 작업기억 팩 조립 (semantic+episode+procedure+제약)
 │   ├── procedures.py          # 🧠 재사용 절차 메모리 로더
-│   └── memory_health.py       # 🧠 읽기전용 메모리 건강 리포트
+│   ├── memory_health.py       # 🧠 메모리 건강 리포트 (--fix: 약한 노드 자동 보강)
+│   └── lib/                   # ⚙️ 순수 결정적 코어 (LLM 무호출·경계값 테스트)
+│       ├── frontmatter_utils.py  # frontmatter 파싱 단일 출처
+│       ├── memory_score.py       # 재사용 우선 메타 점수
+│       ├── gates.py              # ✨ Promotion Gates G-1~G-4 판정
+│       ├── synthesis.py          # ✨ 교차 종합 대상 선정 + shrink 가드
+│       ├── reconcile.py          # ✨ 모순 후보 탐지 (정밀도 우선)
+│       └── llm_client.py         # ✨ 엔진 추상화 (cli | api 분기)
 ├── wiki_app/                  # 🌐 HTML 검색·페이지뷰 (FastAPI)
 │   ├── api.py                 # 6 endpoints
 │   ├── search.py              # 검색 인덱스 + B/C 알고리즘
