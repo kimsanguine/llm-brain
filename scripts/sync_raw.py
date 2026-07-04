@@ -40,6 +40,37 @@ def should_exclude(file: Path, exclude_tags: list[str]) -> bool:
         return False
 
 
+def capture_filter_reason(file: Path, source_cfg: dict) -> str | None:
+    """capture 필터(require_keywords·min_word_count) 미달 사유를 반환한다.
+
+    통과(또는 판정 불가)면 None:
+    - require_keywords: 하나라도 본문에 포함되면 통과 (대소문자 무시)
+    - min_word_count: 공백 분리 단어 수가 이 값 미만이면 미달
+    - 두 필드 모두 미설정인 소스는 항상 통과 (기존 동작과 완전 동일)
+    - md·txt 외 형식은 텍스트 판정 불가 → 통과
+    """
+    require_keywords = source_cfg.get("require_keywords") or []
+    min_word_count = source_cfg.get("min_word_count") or 0
+    if not require_keywords and not min_word_count:
+        return None
+    if file.suffix.lower() not in {".md", ".txt"}:
+        return None
+    try:
+        text = file.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return None
+
+    if require_keywords:
+        lowered = text.lower()
+        if not any(str(k).lower() in lowered for k in require_keywords):
+            return f"require_keywords {require_keywords} 미포함"
+    if min_word_count:
+        word_count = len(text.split())
+        if word_count < min_word_count:
+            return f"단어 수 {word_count} < min_word_count {min_word_count}"
+    return None
+
+
 def sync_source(source_cfg: dict, state: dict) -> tuple[int, int]:
     src = Path(source_cfg["source"]).expanduser()
     dst = WIKI_ROOT / source_cfg["target"]
@@ -70,6 +101,11 @@ def sync_source(source_cfg: dict, state: dict) -> tuple[int, int]:
             skipped += 1
             continue
         if should_exclude(src_file, exclude_tags):
+            skipped += 1
+            continue
+        filter_reason = capture_filter_reason(src_file, source_cfg)
+        if filter_reason:
+            print(f"  [필터] {src_file.name} 건너뜀 — {filter_reason}")
             skipped += 1
             continue
 

@@ -196,6 +196,14 @@ WIKI_ROOT = Path(__file__).parent.parent  # scripts/../ → 프로젝트 루트
 
 `exclude_tags`가 설정된 경우, `python-frontmatter`로 파일 frontmatter를 파싱해 `tags`와 교집합이 있으면 건너뛴다.
 
+#### capture 필터 (require_keywords · min_word_count — v0.3.0)
+
+소스별 선택 필드로 raw/ 복사 전에 잡음을 거른다 (`capture_filter_reason(file, source_cfg)`).
+
+- `require_keywords` (list[str]): 나열된 키워드 중 **하나라도** 본문에 포함되면 통과 (대소문자 무시). 하나도 없으면 미복사 + `[필터]` 스킵 로그.
+- `min_word_count` (int): 공백 분리 단어 수가 이 값 미만이면 미복사 + 스킵 로그.
+- 두 필드 모두 미설정인 소스는 기존과 **완전 동일** 동작. `.md`·`.txt`만 본문 판정 대상이며 그 외 형식(pdf·docx·pptx)은 필터 미적용 통과.
+
 #### .sync_state.json 구조
 
 ```json
@@ -539,8 +547,8 @@ procedural 기억 로더. `procedures/`의 `.md`(각 `memory_type: procedural`)�
 | `ttl_days` | 선택 | int | lifecycle TTL. `0`이면 만료 없음 |
 | `extensions` | 선택 | list[str] | 복사할 확장자 목록. 미설정 시 전체 5종 지원 |
 | `exclude_tags` | 선택 | list[str] | frontmatter `tags`에 이 값이 포함되면 복사 제외 |
-| `require_keywords` | 선택 | list[str] | (예약) 이 키워드가 포함된 파일만 복사 |
-| `min_word_count` | 선택 | int | (예약) 최소 단어 수 미만 파일 제외 |
+| `require_keywords` | 선택 | list[str] | 하나라도 본문에 포함된 파일만 복사 (대소문자 무시, md·txt만 판정) — v0.3.0 |
+| `min_word_count` | 선택 | int | 공백 분리 단어 수 미만 파일 제외 (md·txt만 판정) — v0.3.0 |
 | `disabled` | 선택 | bool | `true`이면 해당 소스 전체 건너뜀 |
 | `note` | 선택 | str | 소스 설명 (사람이 읽는 주석) |
 

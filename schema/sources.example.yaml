@@ -40,6 +40,19 @@ sources:
     note: 블로그 발행 콘텐츠
     disabled: true
 
+  # ── 예시 5: 뉴스레터 (capture filter 적용) ────────────────────────
+  # require_keywords·min_word_count는 둘 다 선택 필드 — 미설정 소스는 기존과 동일 동작.
+  # md·txt만 본문 판정 대상이며 pdf·docx·pptx는 필터 미적용 통과.
+  - id: newsletters
+    source: ~/Documents/Newsletters/
+    target: raw/newsletters/
+    ttl_days: 90
+    extensions: [md]
+    require_keywords: [agent, LLM, RAG]   # 하나라도 본문에 포함되면 통과 (대소문자 무시)
+    min_word_count: 50                    # 공백 분리 단어 수 미만이면 raw로 미복사
+    note: AI 뉴스레터 (잡음 필터링)
+    disabled: true
+
 lifecycle:
   archive_dir: wiki/archive/
   domains:
