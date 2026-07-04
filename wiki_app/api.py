@@ -4,10 +4,8 @@ from __future__ import annotations
 import asyncio
 import datetime as _dt
 import json
-import os
 import re
 import shutil
-import signal
 import sys
 import time
 from pathlib import Path
@@ -31,6 +29,14 @@ try:
     import episode  # noqa: E402  append-only 에피소드 원장 (PRD US-001/US-002)
 except Exception:  # pragma: no cover — 방어적: episode 부재 시 기록만 비활성, 앱은 계속
     episode = None
+
+# LLM 엔진 추상화 (cli|api 분기). subprocess 수명 관리도 여기로 이관됐다.
+from lib import llm_client  # noqa: E402
+from lib.llm_client import (  # noqa: E402,F401  process 수명 훅 re-export
+    LLMError,             # stream 핸들러가 cli 비정상 종료를 event: error 로 표면화
+    _kill_process_group,  # 기존 테스트 훅 유지 (api_module._kill_process_group)
+    _terminate_proc,      # 기존 테스트 훅 유지 (api_module._terminate_proc)
+)
 
 
 # 한 segment 내부 허용 문자: 한글/영문/숫자/하이픈/언더스코어만.
@@ -115,51 +121,6 @@ def _collect_context(slugs, wiki_root):
         valid.append(slug)
     context = "\n\n---\n\n".join(chunks) if chunks else "(컨텍스트 페이지 없음)"
     return context, valid
-
-
-async def _terminate_proc(proc) -> None:
-    """proc(+descendant) 이 살아있으면 종료 후 wait — 좀비/누적/누수 방지.
-
-    timeout·error·disconnect·정상 종료 어디서 호출돼도 안전(idempotent):
-    이미 종료된 proc(returncode 설정됨)은 건드리지 않는다.
-
-    child 를 start_new_session=True 로 띄웠으므로 child 는 자기 process group 의
-    leader 다. os.killpg 로 group 전체를 SIGKILL 해 claude 가 spawn 한 descendant
-    까지 정리한다. pid 부재/플랫폼 비호환 등으로 group kill 이 실패하면 graceful
-    하게 proc.kill() 로 fallback 한다.
-    """
-    if proc is None:
-        return
-    if proc.returncode is None:
-        if not _kill_process_group(proc):
-            try:
-                proc.kill()
-            except ProcessLookupError:
-                # 이미 사라진 child — 무시
-                pass
-        # wait 자체도 무한 대기하지 않도록 timeout (SIGKILL 후 회수는 즉시여야 정상).
-        # asyncio.timeout() 사용 — endpoint 가 wait_for 를 monkeypatch 해도 영향 X.
-        try:
-            async with asyncio.timeout(10):
-                await proc.wait()
-        except (asyncio.TimeoutError, ProcessLookupError):
-            pass
-
-
-def _kill_process_group(proc) -> bool:
-    """proc 의 process group 전체를 SIGKILL. 성공 시 True.
-
-    pid 없음(fake proc)·getpgid/killpg 실패 시 False 를 돌려 호출자가
-    proc.kill() 로 fallback 하게 한다.
-    """
-    pid = getattr(proc, "pid", None)
-    if pid is None:
-        return False
-    try:
-        os.killpg(os.getpgid(pid), signal.SIGKILL)
-        return True
-    except (ProcessLookupError, PermissionError, OSError, AttributeError):
-        return False
 
 
 def create_app(wiki_root: Path | None = None) -> FastAPI:
@@ -302,12 +263,14 @@ def create_app(wiki_root: Path | None = None) -> FastAPI:
 
     @app.post("/api/ai-answer")
     async def api_ai_answer(req: AIAnswerRequest):
-        """`claude -p` CLI를 호출해 wiki 페이지 컨텍스트 기반으로 답변 생성.
+        """LLM(cli|api 엔진)을 호출해 wiki 페이지 컨텍스트 기반으로 답변 생성.
 
+        엔진 분기·subprocess 수명은 llm_client.call_llm 이 담당한다.
         context_slugs 비어있으면 결과 없음 시나리오 → 사용자 질문만 그대로 전달.
         """
-        # CLI 부재 시 graceful fallback
-        if shutil.which("claude") is None:
+        llm_config = llm_client.load_llm_config()
+        # cli 엔진 & CLI 부재 시 graceful fallback (기존 계약)
+        if llm_config["engine"] == "cli" and shutil.which("claude") is None:
             return {
                 "status": "unavailable",
                 "message": "Claude Code CLI를 찾을 수 없습니다. `claude` 명령을 PATH에 추가해주세요.",
@@ -326,22 +289,14 @@ def create_app(wiki_root: Path | None = None) -> FastAPI:
             f"# 컨텍스트\n{context}"
         )
 
-        proc = None
         answer_status = "error"  # finally 에서 기록할 최종 status (성공 시 done 으로 갱신)
         try:
-            # start_new_session=True: child 를 새 process group/session 의 leader 로
-            # 띄워 cleanup 시 process group 전체(descendant 포함)를 종료할 수 있게 한다.
-            proc = await asyncio.create_subprocess_exec(
-                "claude", "-p", prompt,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-                start_new_session=True,
+            # 90초 timeout (큰 컨텍스트 + 추론 여유). cli 는 subprocess+process-group
+            # 정리, api 는 anthropic SDK 를 llm_client 가 내부에서 처리한다.
+            answer = await llm_client.call_llm(
+                prompt, config=llm_config, timeout=_AI_ANSWER_TIMEOUT
             )
-            # 90초 timeout (큰 컨텍스트 + 추론 여유)
-            stdout, _stderr = await asyncio.wait_for(
-                proc.communicate(), timeout=_AI_ANSWER_TIMEOUT
-            )
-            answer_status = "done"  # finally 전에 확정 — finally 가 done 을 기록
+            answer_status = "done"
         except asyncio.TimeoutError:
             answer_status = "timeout"
             return {
@@ -356,19 +311,16 @@ def create_app(wiki_root: Path | None = None) -> FastAPI:
             answer_status = "error"
             return {
                 "status": "error",
-                "message": f"claude CLI 호출 중 오류: {type(e).__name__}",
+                "message": f"LLM 호출 중 오류: {type(e).__name__}",
                 "question": req.question,
                 "context_slugs": valid_slugs,
                 "answer": "",
                 "sources": [],
             }
         finally:
-            # timeout·error·정상 어디서든 살아있는 child 는 반드시 정리
-            await _terminate_proc(proc)
             # 최종 status 로 episode 기록 (fail-soft — 응답에 영향 없음)
             _record_ai_episode(req.question, valid_slugs, answer_status)
 
-        answer = stdout.decode("utf-8", errors="replace").strip()
         return {
             "status": "done",
             "message": "",
@@ -391,7 +343,8 @@ def create_app(wiki_root: Path | None = None) -> FastAPI:
         import json as _json
 
         async def event_gen():
-            if shutil.which("claude") is None:
+            llm_config = llm_client.load_llm_config()
+            if llm_config["engine"] == "cli" and shutil.which("claude") is None:
                 yield f"event: error\ndata: {_json.dumps({'message': 'Claude Code CLI 없음'}, ensure_ascii=False)}\n\n"
                 return
 
@@ -407,32 +360,20 @@ def create_app(wiki_root: Path | None = None) -> FastAPI:
                 f"# 컨텍스트\n{context}"
             )
 
-            proc = None
-            stderr_task = None
+            # 청크 소스 + subprocess 수명(process-group kill·idle timeout·stderr 동시
+            # drain)은 llm_client.stream_llm 이 담당. 여기서는 SSE 계약(meta/chunk/
+            # done/error) + *전체* absolute deadline + 누적 chunk/byte cap 만 감싼다.
+            agen = None
             answer_status = "error"  # finally 에서 기록할 최종 status (결과 확정 시 갱신)
             try:
-                # start_new_session=True: process group leader 로 띄워 cleanup 시
-                # group 전체(claude 가 spawn 한 descendant 포함) 종료 가능.
-                proc = await asyncio.create_subprocess_exec(
-                    "claude", "-p", prompt,
-                    stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.PIPE,
-                    start_new_session=True,
+                agen = llm_client.stream_llm(
+                    prompt, config=llm_config, idle_timeout=_AI_STREAM_IDLE_TIMEOUT
                 )
-                # stderr 를 stdout 과 *동시* drain — claude 가 stderr 를 많이
-                # 뱉을 때 stderr 파이프 버퍼가 차서 claude 가 막히고 stdout 진행이
-                # 멈추는 데드락 방지 (잔여1). EOF 까지 백그라운드 수집.
-                assert proc.stderr is not None
-                stderr_task = asyncio.create_task(proc.stderr.read())
-                # stdout을 라인 단위로 streaming
-                assert proc.stdout is not None
-                # idle timeout(줄 사이 hang) 외에 *전체* absolute deadline +
-                # 누적 chunk/byte cap 으로 무기한 스트림(한 줄씩 영원히 흘림)도 끊는다.
                 deadline = time.monotonic() + _AI_STREAM_DEADLINE
                 chunk_count = 0
                 byte_count = 0
                 terminated_early = False  # deadline/cap 으로 끊었는지 (정상 EOF 와 구분)
-                while True:
+                async for chunk in agen:
                     if time.monotonic() >= deadline:
                         yield f"event: error\ndata: {_json.dumps({'message': f'AI 답변이 {_AI_STREAM_DEADLINE}초 제한을 초과해 중단됐어요.'}, ensure_ascii=False)}\n\n"
                         terminated_early = True
@@ -443,53 +384,31 @@ def create_app(wiki_root: Path | None = None) -> FastAPI:
                         terminated_early = True
                         answer_status = "error"
                         break
-                    # readline 에 idle timeout — claude hang 시 영원히 대기 방지
-                    line = await asyncio.wait_for(
-                        proc.stdout.readline(), timeout=_AI_STREAM_IDLE_TIMEOUT
-                    )
-                    if not line:
-                        break
                     chunk_count += 1
-                    byte_count += len(line)
-                    text = line.decode("utf-8", errors="replace")
-                    yield f"event: chunk\ndata: {_json.dumps({'text': text}, ensure_ascii=False)}\n\n"
-                if terminated_early:
-                    # deadline/cap 으로 끊음 → error 이미 방출. child(+descendant)
-                    # 즉시 정리해 무한 출력 proc 가 계속 돌지 않게 한다.
-                    # (finally 도 정리하지만 여기서 조기 종료해 누수 시간 최소화)
-                    await _terminate_proc(proc)
-                else:
-                    # stdout EOF — 종료 대기 후 동시 drain 한 stderr 회수
-                    await proc.wait()
-                    stderr_bytes = await stderr_task
-                    if proc.returncode not in (0, None):
-                        answer_status = "error"
-                        msg = stderr_bytes.decode("utf-8", errors="replace").strip() \
-                            or f"claude exited with code {proc.returncode}"
-                        yield f"event: error\ndata: {_json.dumps({'message': msg}, ensure_ascii=False)}\n\n"
-                    else:
-                        answer_status = "done"
-                        yield "event: done\ndata: {}\n\n"
+                    byte_count += len(chunk.encode("utf-8"))
+                    yield f"event: chunk\ndata: {_json.dumps({'text': chunk}, ensure_ascii=False)}\n\n"
+                if not terminated_early:
+                    answer_status = "done"
+                    yield "event: done\ndata: {}\n\n"
             except asyncio.TimeoutError:
+                # cli readline idle timeout 등 — stream_llm 내부에서 전파
                 answer_status = "timeout"
                 yield f"event: error\ndata: {_json.dumps({'message': 'AI 답변 생성이 지연돼 중단됐어요.'}, ensure_ascii=False)}\n\n"
             except asyncio.CancelledError:
-                # 클라이언트 disconnect — proc 정리 후 전파 (answer_status 는 직전 값 유지)
-                await _terminate_proc(proc)
+                # 클라이언트 disconnect — finally 의 aclose 가 child 정리, 그 뒤 전파
                 raise
+            except LLMError as e:
+                # cli 비정상 종료(returncode≠0, stderr) 또는 api 키/패키지 오류 표면화
+                answer_status = "error"
+                yield f"event: error\ndata: {_json.dumps({'message': str(e)}, ensure_ascii=False)}\n\n"
             except Exception as e:
                 answer_status = "error"
                 yield f"event: error\ndata: {_json.dumps({'message': f'{type(e).__name__}: {e}'}, ensure_ascii=False)}\n\n"
             finally:
-                # timeout·error·정상·disconnect 어디서든 살아있는 child 정리
-                await _terminate_proc(proc)
-                # 동시 drain task 가 아직 살아있으면(비정상 경로) 취소·회수 — leak 방지
-                if stderr_task is not None and not stderr_task.done():
-                    stderr_task.cancel()
-                    try:
-                        await stderr_task
-                    except (asyncio.CancelledError, Exception):
-                        pass
+                # timeout·error·정상·disconnect 어디서든 살아있는 child 정리:
+                # aclose() 가 stream_llm 의 finally(process-group kill·stderr 회수)를 돌린다.
+                if agen is not None:
+                    await agen.aclose()
                 # 최종 status 로 episode 기록 (fail-soft — 스트림에 영향 없음)
                 _record_ai_episode(req.question, valid_slugs, answer_status)
 

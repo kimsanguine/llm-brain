@@ -593,7 +593,7 @@ procedural 기억 로더. `procedures/`의 `.md`(각 `memory_type: procedural`)�
 | 필드 | 값 예시 | 설명 |
 |------|---------|------|
 | `llm.engine` | `cli` \| `api` | LLM 호출 방식 선택 |
-| `llm.model` | `claude-opus-4-7` | API 모드에서 사용할 모델 ID |
+| `llm.model` | `claude-opus-4-8` | API 모드에서 사용할 모델 ID (기본값) |
 | `llm.api_key_env` | `ANTHROPIC_API_KEY` | API 모드에서 읽을 환경변수명 |
 | `llm.max_tokens` | `8192` | API 모드 최대 토큰 수 |
 
@@ -737,6 +737,8 @@ Label: `ai.habix.llm-wiki`
 
 ## LLM 엔진 통합
 
+**공통 진입점**: `scripts/lib/llm_client.py`의 `call_llm(prompt, *, config, max_tokens)`(비스트림, 텍스트 반환)·`stream_llm(prompt, *, config)`(스트림, 텍스트 청크)이 `schema/config.yaml`의 `llm.engine`으로 cli/api 를 분기한다. 반환 형식은 두 엔진 동일(텍스트). config 부재/부분/오류는 항별 기본값 + stderr warn 으로 안전 폴백하며(engine 미설정=cli 기본), `anthropic` 은 함수 내부 지연 import 라 cli 모드에는 미설치여도 무방하다(부재 시 api 모드만 친절한 `LLMError`). `wiki_app/api.py`의 AI 답변 2경로(비스트림·스트림)가 이 진입점을 경유한다.
+
 ### CLI 모드 (기본, engine: cli)
 
 `schema/config.yaml`의 `engine: cli` 설정 시 사용. Claude Code CLI를 재사용한다.
@@ -747,28 +749,30 @@ claude --dangerously-skip-permissions -p "프롬프트 내용" >> "$LOG" 2>&1
 
 - API 키 불필요
 - Claude Code 설치 필수
-- `run_daily.sh`에서 직접 호출. 세션 없이 단발 실행.
+- `run_daily.sh`에서 직접 호출(세션 없이 단발 실행). wiki_app 경로는 `llm_client`가 `claude -p` subprocess 를 관리(idle timeout·process-group kill·stderr 동시 drain).
 
-### API 모드 (engine: api, 미구현 — 인터페이스 예약)
+### API 모드 (engine: api, 구현됨)
 
-`schema/config.yaml`의 `engine: api` 설정 시 사용 예정. `anthropic` 패키지를 통해 직접 호출.
+`schema/config.yaml`의 `engine: api` 설정 시 사용. `anthropic` SDK 로 직접 호출한다(`llm_client._call_api`/`_stream_api`).
 
 ```python
 import anthropic
 
-client = anthropic.Anthropic(api_key=os.environ[config["llm"]["api_key_env"]])
+client = anthropic.Anthropic(api_key=os.environ[config["api_key_env"]])
 response = client.messages.create(
-    model=config["llm"]["model"],
-    max_tokens=config["llm"]["max_tokens"],
+    model=config["model"],
+    max_tokens=config["max_tokens"],
     messages=[{"role": "user", "content": prompt}],
 )
+# 텍스트 블록만 추출해 텍스트로 반환(cli 와 동일 형식). 스트림은 messages.create(stream=True)
+# 의 content_block_delta 텍스트 델타를 청크로 yield.
 ```
 
-- 환경변수: `ANTHROPIC_API_KEY` (또는 `api_key_env` 지정값)
-- 모델: `claude-opus-4-7` (기본값)
+- 환경변수: `ANTHROPIC_API_KEY` (또는 `api_key_env` 지정값). 부재 시 명확한 `LLMError`(조용한 실패 금지).
+- 모델: `claude-opus-4-8` (기본값)
 - 최대 토큰: `8192` (기본값)
 
-현재 `scripts/` 내 어느 스크립트도 API 모드를 실제 호출하지 않는다. `config.yaml` 파싱은 `setup.sh`에서만 초기화하며, LLM 호출 분기는 향후 구현 예정.
+의존성: `anthropic>=0.40.0`(`pyproject.toml`). cli 전용 사용 시에도 설치돼 있으나, `llm_client`는 지연 import 라 미설치 환경의 cli 모드도 정상 동작한다.
 
 ---
 
@@ -951,8 +955,8 @@ score = 35·norm(express_reuse) + 25·norm(episode_ref) + 15·norm(centrality)
 > `memory_health --fix` · ingest hard dedup · sync_raw capture 필터, §C의 observing/rejected·
 > reweave_queue, §D 3점 방어. **v0.3.1 구현 완료**: WS-1 synthesis 대상 선정(→ reweave_queue.md
 > `## 종합 대상`) + shrink 가드(`synthesis.guard_no_shrink` — 대상 한정 스냅샷) · WS-5 모순 후보
-> 탐지(→ `contradiction_queue.md`, 후보 0이면 미생성). **계획으로 남은 것**: §B `lib/llm_client.py`
-> (v0.3.2) · §E `run_daily.sh` 배치 개정.
+> 탐지(→ `contradiction_queue.md`, 후보 0이면 미생성). **v0.3.2 구현 완료**: §B `lib/llm_client.py`
+> (engine: cli|api 통합 진입점 + wiki_app/api.py 경유). **계획으로 남은 것**: §E `run_daily.sh` 배치 개정.
 
 ## §A — 척추: LLM 실행 경계 (v0.2.0 계약 불변)
 
@@ -973,7 +977,7 @@ synthesis 대상 선정 → reweave_queue.md
 scripts/
   lib/memory_score.py   ← curate.py 293–624행(점수 코어: _score_terms·compute_memory_score·build_*_index) 추출 [선행 리팩터, 동작 무변경]
   lib/gates.py          ← Promotion Gates G-1~G-4: evaluate_promotion(candidate) -> Decision. 유사도 = _merge_token_set Jaccard 재사용
-  lib/llm_client.py     ← [v0.3.2] "LLM 엔진 통합" 절의 예약 인터페이스(engine: cli|api) 구현. wiki_app/api.py subprocess 2곳(334·416)도 경유
+  lib/llm_client.py     ← [v0.3.2 구현 완료] "LLM 엔진 통합" 절의 인터페이스(engine: cli|api). call_llm/stream_llm 공통 진입점 + subprocess 수명(_terminate_proc·_kill_process_group, api.py 가 re-export). wiki_app/api.py 의 AI 답변 2경로(비스트림·스트림)가 경유
   curate.py             ~ --reweave 플래그(argparse boolean, 기존 패턴): run_distill+run_lifecycle+find_merge_candidates 오케스트레이트 + weak 신규 기준
   memory_health.py      ~ --fix (자동 보강 가능분만·idempotent; 본문/근거 부족은 alert만 — 가짜 보강 금지)
   ingest.py             ~ is_duplicate 저장 전 재배선 + (is_dup, target_slug, score) 반환
