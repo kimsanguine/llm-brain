@@ -1,7 +1,7 @@
 # PROGRESS — llm-brain (이니셔티브별 진행 + Decision Log)
 
 > 이 문서는 **진행 현황 + Decision Log**의 단일 확인처다. 주요 변경은 반드시 여기에 기록한다.
-> 이니셔티브: **①** [완료] OKF 통합 (Phase 1) · **②** [완료·v0.2.0 릴리스] Agent Memory OS Upgrade · **③** [v0.3.0 구현·검증 완료 / v0.3.1·0.3.2 예산대기] v0.3 Quality-Driven Curation.
+> 이니셔티브: **①** [완료] OKF 통합 (Phase 1) · **②** [완료·v0.2.0 릴리스] Agent Memory OS Upgrade · **③** [완료·WS-1~6 전부·509 통과] v0.3 Quality-Driven Curation (v0.3.0 push됨 / v0.3.1·0.3.2 push 대기).
 > ②③ 요구사항: `docs/PRD.md` · 설계(HOW): `SPEC.md` → 각 "— 설계" 절.
 > ① 출처 PRD: `~/Desktop/prd-okf-integration.md` · 설계: `docs/superpowers/specs/2026-06-23-okf-export-p1-design.md` · 계약: `...-contract.md`
 > 최종 갱신: 2026-07-04
@@ -40,6 +40,13 @@
 - **Wave 4 검증 (3-렌즈, 부분)**: V1 Claude 코드리뷰 = **major 1 + minor 2**, 6관점 SOUND. major(단독 `memory_health --fix`가 observing/rejected/reweave_queue 격리 우회 write) → `_SKIP_META`+`_SKIP_DIRS` 정합 수정·회귀테스트·실측 확인 완료. minor(okf reweave_queue 봉인 활성기전이 exclude_paths 아닌 title-skip) → SPEC 정정. V3 E2E는 **API 월 지출한도 초과로 중단** → 이든(=메인 세션)이 직접 핵심 경로 실측 대체(reweave dry-run 무변경·fix summary 생성·observing→rejected 이동+gate_status·idempotent FIX2 fixed=0·reweave_queue 생성 = 5/5 관측). V2 Codex 적대렌즈 무응답(spend limit 추정) → **미회수**.
 - **잔여(deferred, 비차단)**: ⑴ --note hard-dedup 실질 무발화(`HHMM-note` slug가 날짜접두 제거 후에도 index와 불일치 — 회귀 아님, 노트는 원래 dedup 안 됨) ⑵ V2 Codex 적대검증 미회수(예산 재개 시 재실행 권장) ⑶ okf `META_FILES`로 reweave_queue 이관(okf_export.py 접촉 시).
 - **⚠ 예산 블로커**: 병렬 worktree 서브에이전트가 API 월 지출한도 초과로 종료됨. v0.3.1·v0.3.2 병렬 진행은 한도 상향 후 재개 필요(사람 결정).
+
+### v0.3.2 Engine — 구현·검증 완료 (2026-07-04) · **v0.3 전체 완료**
+- **상태**: WS-6(엔진 통일 + Team-Ready 훅) 병렬 2기 완료, main 적재(`d7c6ea5` tip). **509 통과**·audit 0·okf 0. → **v0.3 6개 워크스트림(WS-1~6) 전부 완료.**
+- **커밋**: llm_client 19테스트(`d7c6ea5`) + owner/scope okf 필터 8테스트(`bc80f14`). E1·E2 파일 소유 disjoint(llm_client+wiki_app / okf_export), SPEC 다른 섹션이라 3-way merge 충돌 0.
+- **E1 llm_client**: SPEC 예약 인터페이스(`engine: cli|api`) 구현. `call_llm`(async)·`stream_llm`·`LLMError`. api는 anthropic 지연 import(미설치 시 cli 정상·api만 친절한 에러). **wiki_app/api.py subprocess 2곳을 이 클라이언트 경유로 통합, 기존 26테스트 무수정 통과**(토큰·타임아웃·finally episode·fallback 전부 보존). SPEC 모델 `opus-4-7`→`opus-4-8` 정합.
+- **E2 owner/scope**: frontmatter 2필드(optional·null-safe, 미지정=shared 하위호환). okf **scope:private 항상 제외**(플래그 아님) — flag 없이 도는 fresh clone/CI가 private 유출하는 걸 막는 fail-safe, business 제외와 동일 레일. `--strip-internal` 시 owner/scope도 제거(x-llmbrain-* 로직으로 구조적). 기존 okf 보안(business·sensitive·episodes/procedures/큐 봉인) 무변경.
+- **Wave 9 검증**: 이든 직접 통합 스모크 = llm_client engine 기본 cli·api 키부재 LLMError 확인, scope 필터 실측(private만 제외·shared/미지정 포함). E1(wiki_app 2경로 mock 관측)·E2(main dry-run private=1 관측) 각자 E2E + 유닛 27 신규. codex 적대렌즈 이번도 무응답 → 미회수(3연속, 예산 재개 시 전체 v0.3 일괄 적대검증 권장).
 
 ### v0.3.1 Synthesis — 구현·검증 완료 (2026-07-04)
 - **상태**: WS-1(종합)+WS-5(모순 화해) 3-Wave 구현 완료, main 적재(`ad89a18` tip). **482 통과**·audit 0·okf 0. (아직 origin push 전 — v0.3.2까지 묶어 최종 push 예정.)

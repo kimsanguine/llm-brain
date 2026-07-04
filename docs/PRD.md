@@ -261,7 +261,7 @@ For stories that change web behavior:
 
 > **통합관리 (3축)**: 본 절은 이니셔티브 ③의 요구사항(WHAT) 축. 설계(HOW) = `SPEC.md` "v0.3 Quality-Driven Curation — 설계" 절 · 진행·결정 로그 = `docs/PROGRESS.md` 이니셔티브 ③.
 > **출처**: 초안 `~/.openclaw/PRD-llm-brain-v0.3.md` (2026-07-04, 2-에이전트 코드 사실검증·설계 크로스체크 후 개정 이관 — 개정 7건은 PROGRESS Decision Log ③).
-> **대상 버전**: v0.2.0(Agent Memory OS) → v0.3.0 / v0.3.1 / v0.3.2
+> **대상 버전**: v0.2.0(Agent Memory OS) → v0.3.0 / v0.3.1 / v0.3.2 — **전부 구현·검증 완료(2026-07-04, WS-1~6, 509 통과). 상세·검증 = PROGRESS 이니셔티브 ③.**
 
 ## Problem Statement
 
