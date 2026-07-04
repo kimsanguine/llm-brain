@@ -11,6 +11,7 @@ ingest.py — 미처리 raw/ 파일을 탐지하고 상태를 관리한다.
   python ingest.py --mark-done              # 현재 raw/ 전체를 처리 완료로 표시
   python ingest.py --url ... --resonance high   # resonance 레벨 지정 저장
   python ingest.py --priority-only          # resonance: high 파일만 목록 출력
+  python ingest.py --note "..." --force     # 중복(hard dedup) 차단 무시하고 저장 강행
 """
 import argparse
 import json
@@ -135,29 +136,56 @@ def find_unprocessed(priority_only: bool = False) -> list[Path]:
     return files
 
 
-def is_duplicate(file: Path) -> bool:
+def is_duplicate(file: Path) -> tuple[bool, str | None, float]:
     """
     index.md의 [[wikilink]] 목록과 파일명 slug를 비교해
-    이미 wiki에 존재하는 주제인지 확인한다.
-    중복이면 경고 메시지를 출력하고 True를 반환한다 (ingest를 중단하지는 않는다).
+    이미 wiki에 존재하는 주제인지 판정한다 (v0.3.0: 저장 **전** 호출 — hard dedup).
+
+    반환: (is_dup, target_slug, score)
+      - is_dup: 슬러그 완전일치 여부
+      - target_slug: 일치한 index.md wikilink의 원본 표기 (비중복이면 None)
+      - score: 완전일치=1.0, 비중복=0.0 (유사도 확장은 P1 — v0.3.0은 완전일치만)
+
+    판정만 담당하고 출력·차단은 호출부(main)가 결정한다.
     """
     index_file = WIKI_ROOT / "index.md"
     if not index_file.exists():
-        return False
+        return False, None, 0.0
 
     index_text = index_file.read_text(errors="replace")
-    existing_slugs = set(re.findall(r"\[\[([^\]|/]+?)(?:\|[^\]]*)?\]\]", index_text))
+    existing_slugs = re.findall(r"\[\[([^\]|/]+?)(?:\|[^\]]*)?\]\]", index_text)
 
     # 파일명에서 날짜 접두사(YYYY-MM-DD-) 제거 후 slug 추출
     stem = file.stem
     stem = re.sub(r"^\d{4}-\d{2}-\d{2}-", "", stem)  # 날짜 접두사 제거
     stem = stem.replace("_", "-").lower()
 
-    if stem in {s.lower() for s in existing_slugs}:
-        print(f"  [경고] '{stem}' 주제가 index.md에 이미 존재합니다.")
-        print(f"         기존 wiki 페이지에 병합하는 것을 권장합니다.")
-        return True
-    return False
+    slug_map = {s.lower(): s for s in existing_slugs}
+    if stem in slug_map:
+        return True, slug_map[stem], 1.0
+    return False, None, 0.0
+
+
+# ── 저장 경로 사전 계산 (hard dedup: 저장 전 판정용 단일 출처) ──────────
+
+def _planned_url_path(url: str) -> Path:
+    """--url 저장 예정 경로. slug가 URL에서 파생되므로 fetch 없이 계산 가능."""
+    slug = re.sub(r"[^a-z0-9]+", "-", url.split("//")[-1].lower())[:60]
+    date_str = datetime.now().strftime("%Y-%m-%d")
+    return RAW_DIR / "clippings" / f"{date_str}-{slug}.md"
+
+
+def _planned_file_path(src: Path) -> Path:
+    """--file 저장 예정 경로."""
+    src = src.expanduser().resolve()
+    date_str = datetime.now().strftime("%Y-%m-%d")
+    return RAW_DIR / "docs" / f"{date_str}-{src.name}"
+
+
+def _planned_note_path() -> Path:
+    """--note 저장 예정 경로."""
+    date_str = datetime.now().strftime("%Y-%m-%d-%H%M")
+    return RAW_DIR / "notes" / f"{date_str}-note.md"
 
 
 def scrape_url(url: str, resonance: str | None = None) -> Path:
@@ -167,9 +195,8 @@ def scrape_url(url: str, resonance: str | None = None) -> Path:
     resp.raise_for_status()
 
     md_content = markdownify(resp.text, heading_style="ATX")
-    slug = re.sub(r"[^a-z0-9]+", "-", url.split("//")[-1].lower())[:60]
     date_str = datetime.now().strftime("%Y-%m-%d")
-    out_file = RAW_DIR / "clippings" / f"{date_str}-{slug}.md"
+    out_file = _planned_url_path(url)
     out_file.parent.mkdir(parents=True, exist_ok=True)
     resonance_line = f"resonance: {resonance}\n" if resonance else ""
     out_file.write_text(
@@ -194,7 +221,7 @@ def ingest_file(src: Path, resonance: str | None = None) -> Path:
     docs_dir.mkdir(parents=True, exist_ok=True)
 
     # 원본 파일 복사
-    dst = docs_dir / f"{date_str}-{src.name}"
+    dst = _planned_file_path(src)
     is_md_txt = src.suffix.lower() in {".md", ".txt"}
     if is_md_txt and resonance:
         # md/txt는 사이드카가 없으므로 복사본 frontmatter에 resonance를 주입한다.
@@ -221,8 +248,8 @@ def ingest_file(src: Path, resonance: str | None = None) -> Path:
 
 def save_note(text: str, resonance: str | None = None) -> Path:
     date_str = datetime.now().strftime("%Y-%m-%d-%H%M")
-    out_file = RAW_DIR / "notes" / f"{date_str}-note.md"
-    out_file.parent.mkdir(exist_ok=True)
+    out_file = _planned_note_path()
+    out_file.parent.mkdir(parents=True, exist_ok=True)
     resonance_line = f"resonance: {resonance}\n" if resonance else ""
     out_file.write_text(
         f"---\ntitle: 수동 노트\ncreated: {date_str}\n{resonance_line}---\n\n{text}"
@@ -286,23 +313,43 @@ def main() -> None:
         action="store_true",
         help="미처리 파일 중 resonance: high 파일만 출력",
     )
+    parser.add_argument(
+        "--force",
+        action="store_true",
+        help="중복(hard dedup) 차단을 무시하고 저장 강행",
+    )
     args = parser.parse_args()
 
     if args.mark_done:
         mark_done()
         return
 
+    # hard dedup (v0.3.0): 저장 **전** 판정. 중복이면 기본 저장 보류(차단은 오류가
+    # 아니므로 exit 0), --force 시에만 강행. 차단 시 raw 파일·episode 모두 없음.
+    if args.url or args.file or args.note:
+        if args.url:
+            planned = _planned_url_path(args.url)
+        elif args.file:
+            planned = _planned_file_path(Path(args.file))
+        else:
+            planned = _planned_note_path()
+        dup, target_slug, score = is_duplicate(planned)
+        if dup and not args.force:
+            print(f"  [중복 차단] '{target_slug}' 주제가 index.md에 이미 존재합니다 (score={score:.2f}).")
+            print(f"             신규 저장을 보류했습니다 — 기존 노드 [[{target_slug}]] 강화로 라우팅을 제안합니다.")
+            print(f"             그래도 신규 저장하려면 --force 를 사용하세요.")
+            sys.exit(0)
+        if dup and args.force:
+            print(f"  [경고] '{target_slug}' 중복이지만 --force로 저장을 강행합니다.")
+
     if args.url:
         saved = scrape_url(args.url, resonance=args.resonance)
-        is_duplicate(saved)
         _record_ingest_episode("ingest_url", args.url, args.resonance, saved)
     elif args.file:
         saved = ingest_file(Path(args.file), resonance=args.resonance)
-        is_duplicate(saved)
         _record_ingest_episode("ingest_file", args.file, args.resonance, saved)
     elif args.note:
         saved = save_note(args.note, resonance=args.resonance)
-        is_duplicate(saved)
         _record_ingest_episode("ingest_note", args.note, args.resonance, saved)
 
     # 미처리 파일 목록 출력

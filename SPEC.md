@@ -149,21 +149,26 @@ WIKI_ROOT = Path(__file__).parent.parent  # scripts/../ → 프로젝트 루트
 | `--mark-done` | flag | 현재 `raw/`의 모든 파일을 처리 완료로 `.ingest_state.json`에 기록 |
 | `--resonance` | choices: `high`\|`medium`\|`low` | `--url`·`--file`·`--note`와 함께 사용. 저장 파일의 frontmatter에 `resonance: {값}` 기록 |
 | `--priority-only` | flag | 미처리 파일 중 frontmatter에 `resonance: high`인 파일만 출력 |
+| `--force` | flag | hard dedup 중복 차단을 무시하고 저장 강행 (v0.3.0) |
 
 #### 종료 코드 의미
 
 | 코드 | 의미 |
 |------|------|
-| `0` | 처리할 새 파일 없음 |
+| `0` | 처리할 새 파일 없음. **hard dedup 차단으로 저장이 보류된 경우도 0** (차단은 오류가 아님) |
 | `1` | 미처리 파일이 1개 이상 존재 (`run_daily.sh`가 이를 감지해 LLM 호출 결정) |
 
 #### resonance 필터 동작
 
 `--priority-only` 플래그 사용 시, `.ingest_state.json` 미등록 파일 중 frontmatter 첫 줄에 `resonance: high` 패턴(`re.search(r"^resonance:\s*(\S+)", ...)`)이 있는 파일만 반환한다. `.md`·`.txt` 형식만 frontmatter 파싱 대상이며 다른 형식은 None 처리한다.
 
-#### 중복 검사 동작
+#### 중복 검사 동작 (hard dedup — v0.3.0)
 
-`is_duplicate(file)` 함수가 `--url`·`--file`·`--note` 저장 후 호출된다. `index.md`의 `[[wikilink]]` 목록을 파싱해 파일명 slug(날짜 접두사 `YYYY-MM-DD-` 제거, `_→-`, 소문자 변환)와 비교한다. 중복이면 경고 메시지를 출력하지만 **저장을 중단하지 않는다**.
+`is_duplicate(file) -> (is_dup, target_slug, score)` 함수가 `--url`·`--file`·`--note` 저장 **전에** 호출된다. `index.md`의 `[[wikilink]]` 목록을 파싱해 저장 예정 파일명 slug(날짜 접두사 `YYYY-MM-DD-` 제거, `_→-`, 소문자 변환)와 비교하고, 완전일치 시 `(True, index의 원본 slug 표기, 1.0)`을 반환한다 (v0.3.0은 완전일치만 — 유사도 확장은 P1). 함수는 판정만 담당하고 출력·차단은 `main()`이 수행한다.
+
+- 저장 예정 경로는 `_planned_url_path`·`_planned_file_path`·`_planned_note_path`가 저장 함수와 공유하는 단일 출처로 계산한다. `--url`도 slug가 URL에서 파생되므로 **fetch 없이** 저장 전 판정이 성립한다.
+- 중복이면 기본 동작 = **저장 보류**: raw 파일 미생성·episode 미기록·기존 노드 `[[target_slug]]` 강화 라우팅 제안 메시지 출력 후 `exit 0`. 자동 병합은 하지 않는다(라우팅은 제안까지).
+- `--force` 시에만 경고 출력 후 기존처럼 저장 강행(episode 기록 포함).
 
 #### episode 기록 (저장 직후, fail-soft — US-002)
 
