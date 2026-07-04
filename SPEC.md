@@ -511,25 +511,27 @@ procedural 기억 로더. `procedures/`의 `.md`(각 `memory_type: procedural`)�
 
 ### scripts/memory_health.py
 
-5층 메모리 OS의 ③ "오프라인 제어(메타 기억)" 관측기. wiki·episodes·procedures를 **읽기만** 해서 집계 리포트를 생성한다. curate의 distill/lifecycle/purge와 달리 **어떤 wiki 페이지도 이동·삭제·생성하지 않는다**(side-effect-free 진단).
+5층 메모리 OS의 ③ "오프라인 제어(메타 기억)" 관측기. wiki·episodes·procedures를 읽어 집계 리포트를 생성한다. **기본(`--report`)은 read-only** — curate의 distill/lifecycle/purge와 달리 어떤 wiki 페이지도 이동·삭제·생성·수정하지 않는다(side-effect-free 진단). **페이지 쓰기는 opt-in `--fix`만** 수행한다(v0.3 WS-3).
 
 #### CLI 인자
 
 | 인자 | 설명 |
 |------|------|
-| `--report` | `wiki/memory_health_report.md` 생성(단일 동작이라 플래그 유무와 무관하게 리포트 생성) |
+| `--report` | `wiki/memory_health_report.md` 생성(기본 동작 — 플래그 유무와 무관하게 리포트 생성, **read-only·페이지 무변경**) |
+| `--fix` | **opt-in** 자동 보강 가능분만 fix: ⑴ frontmatter `summary` 결손 → 본문 첫 문단 40~200자 추출 ⑵ `source_count` 결손/불일치 → `len(sources)` 캐시 갱신 ⑶ `updated` 형식 결손 채움. 쓰기는 `lib/frontmatter_utils.read_fm/write_fm` 경유(body 무손상)·**idempotent**(정상 페이지 2회 실행 바이트 무변경). **본문·근거 부족은 fix하지 않고 alert만**(가짜 보강 금지), 파싱 실패 페이지도 무변경+alert(fail-loud). 리포트에 `fixed: N / alert: M` 요약 포함 |
+| `--dry-run` | fix 대상 목록만 stdout 출력 — 어떤 파일도 변경하지 않음(리포트 미작성) |
 
 #### 출력 파일
 
 | 파일 | 설명 |
 |------|------|
-| `wiki/memory_health_report.md` | 집계 리포트. 유일한 부작용 = 이 파일 쓰기뿐 |
+| `wiki/memory_health_report.md` | 집계 리포트. `--report`의 유일한 부작용 = 이 파일 쓰기뿐 (`--fix`는 추가로 자동 보강 페이지의 frontmatter만 갱신) |
 
-리포트 섹션: 메모리 타입별 페이지 수 · orphan semantic(inbound 0) · stale 절차(>180일) · 최근 에피소드(개수+`task_type`/`status` 집계+ts 브리프) · top 재사용 페이지 · 저신뢰 페이지(confidence<0.5) · archive 후보(`memory_score` 주석). curate의 *순수* 헬퍼(`compute_memory_score`·`build_link_graph`·`build_express_reuse_index`·`build_episode_ref_index`·`load_graph_index`)만 재사용한다(쓰기 함수 호출 금지).
+리포트 섹션: 메모리 타입별 페이지 수 · orphan semantic(inbound 0) · stale 절차(>180일) · 최근 에피소드(개수+`task_type`/`status` 집계+ts 브리프) · top 재사용 페이지 · 저신뢰 페이지(confidence<0.5) · **weak content(본문<800자 OR 근거<2건 OR H2<3개 — path·issues 상세, 기존 기준에 추가)** · archive 후보(`memory_score` 주석) · (`--fix` 시) `fixed: N / alert: M` 요약. curate의 *순수* 헬퍼(`compute_memory_score`·`build_link_graph`·`build_express_reuse_index`·`build_episode_ref_index`·`load_graph_index`)만 재사용한다(curate 쓰기 함수 호출 금지).
 
 🔴 **프라이버시(§D):** episode `notes`/`inputs`/`outputs`/`user_goal` 같은 verbatim 본문은 **절대** 리포트에 넣지 않는다(집계 수치+메타만). 리포트 파일명은 `okf_export.META_FILES`에 등재돼 공개 OKF 번들로 export되지 않는다.
 
-핵심 함수: `generate_report(wiki_root, *, episodes_dir=None, procedures_dir=None, express_dir=None, now=None) -> str`, `write_report(...) -> Path`(결정성용 `now` 주입 가능).
+핵심 함수: `generate_report(wiki_root, *, episodes_dir=None, procedures_dir=None, express_dir=None, now=None, fix_result=None) -> str`, `write_report(...) -> Path`(결정성용 `now` 주입 가능), `run_fix(wiki_root, *, dry_run=False, now=None) -> FixResult`(fixed·alerts).
 
 ---
 

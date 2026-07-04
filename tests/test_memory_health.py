@@ -122,7 +122,7 @@ def _gen(fixture_dirs):
 def test_report_has_expected_sections(fixture_dirs):
     text = _gen(fixture_dirs)
     for heading in ("메모리 타입", "Orphan", "Stale 절차", "최근 에피소드",
-                    "Top 재사용", "저신뢰", "Archive 후보"):
+                    "Top 재사용", "저신뢰", "Weak content", "Archive 후보"):
         assert heading in text, f"섹션 누락: {heading}"
 
 
