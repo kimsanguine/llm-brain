@@ -38,9 +38,11 @@ DEFAULT_MODEL = "claude-opus-4-8"
 DEFAULT_API_KEY_ENV = "ANTHROPIC_API_KEY"
 DEFAULT_MAX_TOKENS = 8192
 
-# cli 비스트림 기본 timeout(초). wiki_app 은 자기 상수(_AI_ANSWER_TIMEOUT)를 주입한다.
+# 비스트림 기본 timeout(초) — cli/api 공통 fallback. wiki_app 은 자기 상수
+# (_AI_ANSWER_TIMEOUT)를 주입한다. api 도 동일 계약으로 이 deadline 을 적용한다.
 DEFAULT_CLI_TIMEOUT = 90
-# cli 스트림 줄 사이 idle timeout(초). wiki_app 은 _AI_STREAM_IDLE_TIMEOUT 을 주입한다.
+# 스트림 이벤트 사이 idle timeout(초) — cli/api 공통. wiki_app 은
+# _AI_STREAM_IDLE_TIMEOUT 을 주입한다. api stream 도 동일 계약으로 적용한다.
 DEFAULT_CLI_STREAM_IDLE_TIMEOUT = 90
 
 
@@ -227,15 +229,22 @@ async def _call_cli(prompt: str, *, timeout: int) -> str:
     return stdout.decode("utf-8", errors="replace").strip()
 
 
-async def _call_api(prompt: str, *, config: dict, max_tokens: int | None) -> str:
-    """anthropic SDK 로 답변 텍스트를 얻는다. sync client 를 thread 로 오프로드."""
+async def _call_api(prompt: str, *, config: dict, max_tokens: int | None, timeout: int) -> str:
+    """anthropic SDK 로 답변 텍스트를 얻는다. sync client 를 thread 로 오프로드.
+
+    timeout 은 cli 경로와 **동일 계약**으로 이중 적용한다(Codex 적대리뷰 high):
+    - SDK client 의 `timeout=` 으로 실제 네트워크 호출을 취소 가능하게 해 worker thread
+      가 hang 에 무기한 붙잡히지 않게 한다.
+    - `asyncio.wait_for` 로 await 자체를 deadline 에 묶어, SDK 가 늦게 풀리더라도 호출부
+      (wiki_app)가 cli 와 동일한 `asyncio.TimeoutError` 를 같은 시점에 받는다.
+    """
     anthropic = _import_anthropic()
     key = _require_api_key(config)
     model = config.get("model", DEFAULT_MODEL)
     tokens = max_tokens if max_tokens is not None else config.get("max_tokens", DEFAULT_MAX_TOKENS)
 
     def _do() -> str:
-        client = anthropic.Anthropic(api_key=key)
+        client = anthropic.Anthropic(api_key=key, timeout=timeout)
         resp = client.messages.create(
             model=model,
             max_tokens=tokens,
@@ -248,7 +257,7 @@ async def _call_api(prompt: str, *, config: dict, max_tokens: int | None) -> str
         ]
         return "".join(parts).strip()
 
-    return await asyncio.to_thread(_do)
+    return await asyncio.wait_for(asyncio.to_thread(_do), timeout=timeout)
 
 
 async def call_llm(
@@ -267,11 +276,10 @@ async def call_llm(
     그 외 오류는 원 예외/LLMError 로 전파(조용한 실패 금지).
     """
     cfg = _resolve_config(config)
+    deadline = timeout if timeout is not None else DEFAULT_CLI_TIMEOUT
     if cfg.get("engine", DEFAULT_ENGINE) == "api":
-        return await _call_api(prompt, config=cfg, max_tokens=max_tokens)
-    return await _call_cli(
-        prompt, timeout=timeout if timeout is not None else DEFAULT_CLI_TIMEOUT
-    )
+        return await _call_api(prompt, config=cfg, max_tokens=max_tokens, timeout=deadline)
+    return await _call_cli(prompt, timeout=deadline)
 
 
 # ---------------------------------------------------------------------------
@@ -279,10 +287,16 @@ async def call_llm(
 # ---------------------------------------------------------------------------
 
 
-async def _stream_api(prompt: str, *, config: dict) -> AsyncIterator[str]:
+async def _stream_api(prompt: str, *, config: dict, idle_timeout: int) -> AsyncIterator[str]:
     """anthropic SDK 스트리밍(messages.create stream=True) — 텍스트 델타만 yield.
 
     sync 이벤트 이터레이터를 thread 로 한 이벤트씩 당겨 async 로 브릿지한다.
+
+    idle_timeout 은 cli 스트림과 **동일 계약**으로 `_open`·`_next` 양쪽 thread 호출을
+    `asyncio.wait_for` 로 감싼다(Codex 적대리뷰 high): 첫 이벤트 전이든 이벤트 사이든
+    Anthropic stream 이 멈추면 event 반환을 기다리지 않고 `asyncio.TimeoutError` 로 풀려,
+    바깥 SSE 핸들러가 error 이벤트·episode 최종상태를 남길 수 있게 한다. SDK client 의
+    `timeout=` 도 병행해 배후 네트워크 호출 자체를 취소 가능하게 한다.
     """
     anthropic = _import_anthropic()
     key = _require_api_key(config)
@@ -290,7 +304,7 @@ async def _stream_api(prompt: str, *, config: dict) -> AsyncIterator[str]:
     tokens = config.get("max_tokens", DEFAULT_MAX_TOKENS)
 
     def _open():
-        client = anthropic.Anthropic(api_key=key)
+        client = anthropic.Anthropic(api_key=key, timeout=idle_timeout)
         return iter(client.messages.create(
             model=model,
             max_tokens=tokens,
@@ -306,9 +320,9 @@ async def _stream_api(prompt: str, *, config: dict) -> AsyncIterator[str]:
         except StopIteration:
             return sentinel
 
-    it = await asyncio.to_thread(_open)
+    it = await asyncio.wait_for(asyncio.to_thread(_open), timeout=idle_timeout)
     while True:
-        event = await asyncio.to_thread(_next, it)
+        event = await asyncio.wait_for(asyncio.to_thread(_next, it), timeout=idle_timeout)
         if event is sentinel:
             break
         if getattr(event, "type", None) == "content_block_delta":
@@ -340,12 +354,12 @@ async def stream_llm(
     - EOF 후 returncode≠0 이면 stderr 메시지를 담은 LLMError 를 raise(표면화).
     """
     cfg = _resolve_config(config)
+    idle = idle_timeout if idle_timeout is not None else DEFAULT_CLI_STREAM_IDLE_TIMEOUT
     if cfg.get("engine", DEFAULT_ENGINE) == "api":
-        async for chunk in _stream_api(prompt, config=cfg):
+        async for chunk in _stream_api(prompt, config=cfg, idle_timeout=idle):
             yield chunk
         return
 
-    idle = idle_timeout if idle_timeout is not None else DEFAULT_CLI_STREAM_IDLE_TIMEOUT
     proc = None
     stderr_task = None
     try:

@@ -136,14 +136,16 @@ class _FakeClient:
 
 
 class FakeAnthropic:
-    """anthropic 모듈 흉내 — Anthropic(api_key=...) 호출을 추적."""
+    """anthropic 모듈 흉내 — Anthropic(api_key=..., timeout=...) 호출을 추적."""
 
     def __init__(self, messages):
         self._messages = messages
         self.last_api_key = None
+        self.last_timeout = "__unset__"
 
-    def Anthropic(self, api_key=None):  # noqa: N802 (SDK 이름 흉내)
+    def Anthropic(self, api_key=None, timeout=None):  # noqa: N802 (SDK 이름 흉내)
         self.last_api_key = api_key
+        self.last_timeout = timeout
         return _FakeClient(self._messages)
 
 
@@ -224,6 +226,76 @@ def test_call_llm_api_custom_key_env(monkeypatch):
     out = asyncio.run(call_llm("q", config={"engine": "api", "api_key_env": "MY_KEY"}))
     assert out == "hi"
     assert fake.last_api_key == "sk-custom"
+
+
+# ---------------------------------------------------------------------------
+# api timeout 계약 — cli 와 대칭 (Codex 적대리뷰 high 회귀 방지)
+# WHY: engine:api 경로가 timeout 을 우회하면 Anthropic hang 시 wiki_app 요청/worker 가
+#      무기한 붙잡힌다. cli 와 동일하게 SDK timeout 주입 + asyncio.TimeoutError 전파해야 한다.
+# ---------------------------------------------------------------------------
+
+
+def test_call_llm_api_passes_timeout_to_sdk(monkeypatch):
+    msgs = _FakeMessages(resp=_FakeResp([_FakeTextBlock("ok")]))
+    fake = FakeAnthropic(msgs)
+    monkeypatch.setattr(llm_client, "_import_anthropic", lambda: fake)
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test")
+    asyncio.run(call_llm("q", config={"engine": "api"}, timeout=42))
+    assert fake.last_timeout == 42  # SDK client 에 실제 network timeout 이 전달돼야 함
+
+
+def test_call_llm_api_hang_raises_timeout(monkeypatch):
+    """messages.create 가 응답하지 않으면 cli 와 동일하게 asyncio.TimeoutError."""
+    import threading
+
+    release = threading.Event()
+
+    class _HangMessages:
+        def create(self, **kwargs):
+            release.wait(timeout=10)  # wait_for 가 먼저 풀어야 정상
+            return _FakeResp([])
+
+    fake = FakeAnthropic(_HangMessages())
+    monkeypatch.setattr(llm_client, "_import_anthropic", lambda: fake)
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test")
+    try:
+        with pytest.raises(asyncio.TimeoutError):
+            asyncio.run(call_llm("q", config={"engine": "api"}, timeout=0.05))
+    finally:
+        release.set()
+
+
+def test_stream_llm_api_hang_raises_timeout(monkeypatch):
+    """stream 이 첫 이벤트 전/중간에 멈추면 idle_timeout 에 asyncio.TimeoutError."""
+    import threading
+
+    release = threading.Event()
+
+    class _HangStream:
+        def __iter__(self):
+            return self
+
+        def __next__(self):
+            release.wait(timeout=10)
+            raise StopIteration
+
+    class _HangMessages:
+        def create(self, **kwargs):
+            return _HangStream()
+
+    fake = FakeAnthropic(_HangMessages())
+    monkeypatch.setattr(llm_client, "_import_anthropic", lambda: fake)
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test")
+
+    async def _drain():
+        async for _ in stream_llm("q", config={"engine": "api"}, idle_timeout=0.05):
+            pass
+
+    try:
+        with pytest.raises(asyncio.TimeoutError):
+            asyncio.run(_drain())
+    finally:
+        release.set()
 
 
 # ---------------------------------------------------------------------------
