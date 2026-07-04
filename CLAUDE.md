@@ -161,7 +161,11 @@ confidence: 0.9          # (선택) 0..1 float
 source_count: 6          # (선택) len(sources) 캐시
 last_verified: YYYY-MM-DD # (선택) 최종 검증일
 decay_policy: default    # (선택) 명명된 정책 키
+# --- Team-Ready 훅 (v0.3.2 WS-6) — 아래 2필드도 optional·null-safe ---
+owner: 이름              # (선택) 페이지 소유자/기여자 태그. 다중 기여자 병합은 P2 예약
+scope: shared            # (선택) private | shared. private=okf 공개 번들 제외 / 미지정=shared(하위호환)
 ```
 
 > `memory_health`가 위 optional 필드(`memory_type`·`confidence`·`last_verified` 등)로 집계·진단한다.
+> `scope: private` 페이지는 `okf` export 시 공개 번들에서 항상 제외된다(`--strip-internal`은 `owner`/`scope`도 제거).
 > 상세 스펙: `SPEC.md` / 사용 가이드: `README.md`

@@ -29,6 +29,13 @@ exclude_domains: []
 #   business/ 밖에 산재한 개별 민감 페이지를 dry-run 검토 후 추가할 때 사용.
 exclude_slugs: []
 
+# ── scope:private 필터 (v0.3.2 WS-6, 코드 레벨·설정 아님) ────────────────────
+#   frontmatter `scope: private` 페이지는 okf_export._is_scope_private 가 공개 번들에서
+#   **항상** 제외한다(이 yaml 키가 아니라 코드로 강제 — plugin/flag 없이도 동작).
+#   dry-run 요약의 `private=N` + log.md 의 "scope:private 로 제외된 페이지" 섹션으로 표면화.
+#   scope 미지정·shared 는 포함(하위호환). 이 yaml 을 감사할 때 private 페이지도 별도로
+#   빠진다는 점을 유의(exclude_paths/slugs 목록엔 안 나타남).
+
 # sensitive_patterns — (선택) included 페이지 본문의 평문 민감정보 스캐너.
 #   페이지 단위 제외(exclude_*)는 business *파일*만 막고, included 본문 산문에 흩어진
 #   평문(실명·운영수치 등)은 못 막는다(별칭 redact도 [[링크]]만 처리). 이 패턴들을

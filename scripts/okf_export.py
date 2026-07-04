@@ -121,7 +121,8 @@ class ExportStats:
     links_converted: int = 0
     broken_links: list = field(default_factory=list)        # 진짜 ghost: [(src_rel, target), ...]
     excluded_link_refs: list = field(default_factory=list)  # 제외 페이지를 가리키던 링크(의도된 절단·redact)
-    excluded: list = field(default_factory=list)            # [rel_path, ...] (제외된 페이지)
+    excluded: list = field(default_factory=list)            # [rel_path, ...] (제외된 페이지 전체)
+    excluded_private: list = field(default_factory=list)    # [rel_path, ...] scope:private로 제외(경로/도메인/slug 제외와 별도 표면화, v0.3.2 WS-6)
     skipped: list = field(default_factory=list)             # [(rel, reason), ...] 로드 실패·title 부재
     sensitive_hits: list = field(default_factory=list)      # [(rel, pattern), ...] 본문 평문 민감정보 후보
     by_dir: dict = field(default_factory=dict)              # {dir_name: count}
@@ -324,6 +325,19 @@ def _is_excluded(
     return False
 
 
+def _is_scope_private(page: _Page) -> bool:
+    """frontmatter `scope: private` 페이지인지 (v0.3.2 WS-6 P1 team-ready 훅).
+
+    scope 미지정·`shared`는 공개(하위호환 — 기존 페이지 동작 불변). `private`만 제외한다.
+    이 필터는 플래그가 아니라 **항상** 적용된다: public 커밋은 one-way door라, 플래그 게이트로
+    두면 flag 없는 fresh clone/CI 실행이 private 페이지를 그대로 유출한다(빈 exclude_paths
+    fail-safe와 같은 논리). 대소문자 무시(fail-safe over-exclude 방향). private 제외는
+    business/** 제외와 같은 레일 — stats.excluded 에 반영되고 링크는 redact 처리된다.
+    """
+    scope = page.fm.get("scope")
+    return isinstance(scope, str) and scope.strip().lower() == "private"
+
+
 def _build_slug_map(pages: list[_Page]) -> dict[str, str]:
     """slug → 번들경로 맵. wikilink 해석용."""
     return {p.slug: p.bundle_path for p in pages}
@@ -519,9 +533,15 @@ def export_bundle(
     included: list[_Page] = []
     excluded: list[_Page] = []
     for page in all_pages:
-        if _is_excluded(page, exclude_paths, exclude_domains, exclude_slugs):
+        path_excluded = _is_excluded(page, exclude_paths, exclude_domains, exclude_slugs)
+        scope_private = _is_scope_private(page)
+        if path_excluded or scope_private:
             stats.excluded.append(page.rel)
             excluded.append(page)
+            # 경로/도메인/slug로 이미 제외되지 않았는데 scope로만 제외된 페이지 = 필터가
+            # 추가로 막은 분량. dry-run/log에서 사람이 별도로 검토할 수 있게 분리 집계한다.
+            if scope_private and not path_excluded:
+                stats.excluded_private.append(page.rel)
         else:
             included.append(page)
 
@@ -643,6 +663,7 @@ def _write_log(out_dir: Path, stats: ExportStats, strip_internal: bool) -> None:
         f"- broken_links (진짜 ghost): {len(stats.broken_links)}",
         f"- excluded_link_refs (제외 페이지 가리킴·redact): {len(stats.excluded_link_refs)}",
         f"- excluded_pages: {len(stats.excluded)}",
+        f"- excluded_private (scope:private): {len(stats.excluded_private)}",
         f"- skipped (로드 실패·title 부재): {len(stats.skipped)}",
         f"- sensitive_hits (본문 민감정보 후보): {len(stats.sensitive_hits)}",
         f"- strip_internal: {strip_internal}",
@@ -659,6 +680,12 @@ def _write_log(out_dir: Path, stats: ExportStats, strip_internal: bool) -> None:
         lines.append("")
         for src_rel, target in stats.excluded_link_refs:
             lines.append(f"- `{src_rel}` → `[[{target}]]` (제외됨)")
+        lines.append("")
+    if stats.excluded_private:
+        lines.append("### scope:private 로 제외된 페이지 (team-ready 훅)")
+        lines.append("")
+        for rel in stats.excluded_private:
+            lines.append(f"- `{rel}`")
         lines.append("")
     if stats.excluded:
         lines.append("### 제외된 페이지")
@@ -781,13 +808,19 @@ def main(argv: list[str] | None = None) -> int:
     print(
         f"pages={stats.pages_exported} links={stats.links_converted} "
         f"ghost={len(stats.broken_links)} excl_refs={len(stats.excluded_link_refs)} "
-        f"excluded={len(stats.excluded)} skipped={len(stats.skipped)}"
+        f"excluded={len(stats.excluded)} private={len(stats.excluded_private)} "
+        f"skipped={len(stats.skipped)}"
     )
     if stats.by_dir:
         by_dir_str = ", ".join(f"{d}={n}" for d, n in sorted(stats.by_dir.items()))
         print(f"  by_dir: {by_dir_str}")
     if stats.excluded:
         print(f"  excluded pages: {', '.join(stats.excluded)}")
+    if stats.excluded_private:
+        print(
+            f"  🔒 scope:private 제외 ({len(stats.excluded_private)}건): "
+            f"{', '.join(stats.excluded_private)}"
+        )
     if stats.skipped:
         print(f"  skipped ({len(stats.skipped)}):")
         for rel, reason in stats.skipped[:20]:

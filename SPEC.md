@@ -620,12 +620,17 @@ confidence: 0.9            # 0..1 float (선택)
 source_count: 6            # len(sources) 캐시 (선택)
 last_verified: YYYY-MM-DD  # 최종 검증일 (선택)
 decay_policy: default      # 명명된 정책 키 (선택)
+# --- Team-Ready 훅 (v0.3.2 WS-6 P1) — 전부 optional·null-safe, 없어도 기존 페이지 유효 ---
+owner: 이름                # 페이지 소유자/기여자 태그 (선택). 다중 기여자 병합은 P2 예약(미구현)
+scope: private | shared    # (선택) private=okf 공개 번들 제외 / shared·미지정=포함(하위호환)
 ---
 ```
 
 `distill_level`, `access_count`, `last_accessed`, `last_distilled`는 `curate.py`의 `ensure_distill_fields()`가 없으면 자동으로 기본값을 추가한다.
 
 `memory_type`·`retention`·`confidence`·`source_count`·`last_verified`·`decay_policy`는 **Agent Memory OS(US-003) 구현됨** — 전부 optional·null-safe하며, 없는 기존 페이지도 그대로 유효하다(`lib/frontmatter_utils.read_fm` 관용 파싱, 무파손 실측). `memory_health.py`가 `memory_type`(미선언 시 `semantic`)·`confidence`로 페이지를 집계하고, `curate.compute_memory_score`가 `source_count`(=`len(sources)`)를 점수 신호로 쓴다. 필드 정의·decay 시맨틱은 §C2.
+
+`owner`·`scope`는 **Team-Ready 훅(v0.3.2 WS-6 P1) 구현됨** — 둘 다 optional·null-safe(기존 6필드와 동일 원칙). `scope: private`인 페이지는 `okf_export`가 공개 OKF 번들에서 **항상 제외**한다(`business/**`와 같은 레일 — `stats.excluded`+`stats.excluded_private`에 집계, 이를 가리키던 링크는 redact). `scope` 미지정·`shared`는 포함(하위호환·기존 동작 불변). `owner`는 keep 모드에서 `x-llmbrain-owner`로 보존, `--strip-internal`이면 다른 내부 필드와 함께 제거(외부 공유본 소유자 노출 방지). 다중 기여자 병합(owner 기반)은 **P2 예약(미구현)**.
 
 ---
 
@@ -982,7 +987,7 @@ scripts/
 
 - 신규 폴더: `wiki/observing/`(7일 유예) · `wiki/rejected/`(사유 분류 기각). **gitignored**.
 - 신규 큐: `wiki/reweave_queue.md`(구현됨 — v0.3.1 `## 종합 대상` 섹션 추가) · `wiki/contradiction_queue.md`(구현됨, v0.3.1 — 후보 ≥1일 때만 생성) — `distill_queue.md`와 동일 체크박스 패턴. 공개 번들 봉인의 **활성 기전은 `okf_export.collect()`의 "frontmatter title 부재 → skip"**(큐 파일은 title이 없음), `schema/okf_export.yaml` `exclude_paths`의 `reweave_queue.md`는 큐가 title을 얻는 경우 대비 **백스톱**이다(okf `META_FILES` 등재로의 이관은 okf_export.py 접촉 시 — v0.3.0은 무수정). 실증(V1): okf `--dry-run` 에서 `skipped=[('reweave_queue.md','frontmatter title 부재')]`, observing/rejected 는 `excluded`.
-- frontmatter 신규(전부 optional): `gate_status: created|enriched|observing|rejected`(episodes JSONL `status`와 충돌 회피 개명) · `observation_expires` · `recurrence: N` · `angles: [..]` · `signal_count: N` · `synthesis_updated` · `superseded_claims: [..]` · `last_reconciled` · [v0.3.2] `owner` · `scope: private|shared`.
+- frontmatter 신규(전부 optional): `gate_status: created|enriched|observing|rejected`(episodes JSONL `status`와 충돌 회피 개명) · `observation_expires` · `recurrence: N` · `angles: [..]` · `signal_count: N` · `synthesis_updated` · `superseded_claims: [..]` · `last_reconciled` · [v0.3.2 구현됨] `owner`(소유자 태그) · `scope: private|shared`(private=okf 공개 번들 제외, 미지정=shared 하위호환). 다중 기여자 병합은 P2 예약(미구현).
 - frontmatter 쓰기: `lib/frontmatter_utils` 경유(body 무손상; fm 블록 yaml 재직렬화 허용 — "raw write" 정의 확정, PROGRESS ③). 파서 신설 금지.
 
 ## §D — 보안 경계 (one-way door, observing/rejected 3점 방어)
@@ -992,6 +997,8 @@ scripts/
 2. `curate.find_all_wiki_pages` 제외 집합 += 두 폴더 (정규 audit/distill/lifecycle/merge-review에서 격리)
 3. `LIFECYCLE_EXEMPT` 또는 동등 제외 (observing 만료는 gates가 자체 관리, TTL decay와 분리)
 + `.gitignore` += 두 폴더 · `index.md`에 미기록(wiki_app 검색이 index.md 기반이므로 이것으로 웹 비노출).
+
+**scope:private 필터 (v0.3.2 WS-6 P1, team-ready 훅):** `okf_export._is_scope_private`가 frontmatter `scope: private` 페이지를 공개 번들에서 **항상 제외**한다(`exclude_paths`·`--strip-internal` 플래그와 무관 — public 커밋은 one-way door라 플래그 게이트로 두면 flag 없는 fresh clone/CI가 private을 유출한다). `business/**`와 같은 레일: `stats.excluded`에 반영 + `stats.excluded_private`로 분리 집계(dry-run/log에 표면화) + 이를 가리키던 링크는 redact. `scope` 미지정·`shared`는 포함(하위호환). `--strip-internal`은 소유자 노출 방지로 `owner`/`scope` 내부 필드도 제거(비-예약 필드라 x-llmbrain-* 전면 제거의 부산물 — 테스트로 고정).
 
 ## §E — 배치 개정 (run_daily.sh)
 
