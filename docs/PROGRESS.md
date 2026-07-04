@@ -1,10 +1,10 @@
 # PROGRESS — llm-brain (이니셔티브별 진행 + Decision Log)
 
 > 이 문서는 **진행 현황 + Decision Log**의 단일 확인처다. 주요 변경은 반드시 여기에 기록한다.
-> 이니셔티브: **①** [완료] OKF 통합 (Phase 1) · **②** [Phase 1-3 구현 완료] Agent Memory OS Upgrade.
-> ② 요구사항: `docs/PRD.md` · 설계(HOW): `SPEC.md` → "Agent Memory OS Upgrade — 설계" 절.
+> 이니셔티브: **①** [완료] OKF 통합 (Phase 1) · **②** [완료·v0.2.0 릴리스] Agent Memory OS Upgrade · **③** [PRD 확정·구현 착수 전] v0.3 Quality-Driven Curation.
+> ②③ 요구사항: `docs/PRD.md` · 설계(HOW): `SPEC.md` → 각 "— 설계" 절.
 > ① 출처 PRD: `~/Desktop/prd-okf-integration.md` · 설계: `docs/superpowers/specs/2026-06-23-okf-export-p1-design.md` · 계약: `...-contract.md`
-> 최종 갱신: 2026-06-27
+> 최종 갱신: 2026-07-04
 
 ---
 
@@ -20,6 +20,31 @@
 | 사람이 쥐는 결정 (되돌리기 어려움·제품 판단) | **Rule 5·9** | 범위 결정, exclude 정책, 공개 범위 |
 | 테스트 계약 변경 | **Rule 6** | 신규 테스트 스위트, DoD 변경 |
 | 누적 결정 자체 | **Rule 7** | 이 로그 운영 |
+
+---
+
+## 이니셔티브 ③ — v0.3 Quality-Driven Curation & Reconciliation (PRD 확정, 구현 착수 전)
+
+> "시간 기반 유지·무게이트 승격·soft dedup" → "품질 게이트 승격 + 매일 reweave + hard dedup + 종합 distill + 모순 화해".
+> 요구사항: `docs/PRD.md` 이니셔티브 ③ 절 · 설계(HOW): `SPEC.md` "v0.3 Quality-Driven Curation — 설계" 절.
+
+### 현재 체크포인트 (2026-07-04)
+- **상태**: 초안 PRD(`~/.openclaw/PRD-llm-brain-v0.3.md`) → **2-에이전트 크로스체크**(사실 검증 / 설계 타당성, Rule 4 단일 에이전트 불신) → 개정 7건 반영해 `docs/PRD.md`로 이관 확정. 코드 미착수.
+- **사실 검증 결과**: 6대 갭 중 5개 CONFIRMED (soft dedup — `is_duplicate` 반환값 미사용·저장 후 호출 / 게이트 코드 0줄 / distill 월요일만 / `engine: api` 미배선 / `contradictions=[]` stub). 1개 PARTIAL (synthesis — 코드엔 없으나 `schema/curate.md`에 "3+ 페이지 → insights/" LLM 규칙 기존재 → WS-1은 신설 아닌 확장).
+- **핵심 발견**: ⑴ scripts/는 LLM 무호출·큐 생성기 구조("claude 없이 pytest" 계약) — WS-1/5의 LLM 훅을 curate.py에 직접 넣으면 계약 파괴 ⑵ `wiki/observing|rejected/` 신설 시 okf rglob 무차별 스캔으로 기각 로그 public 누출(one-way door) ⑶ WS-5·6은 신설이 아니라 기예약 슬롯(stub·SPEC 예약 인터페이스) 채우기 ⑷ `run_daily.sh` 프롬프트 경로 drift(`~/Documents/llm-wiki`) 실존.
+- **다음**: 병렬 에이전트 작업계획(Wave 0~3, 파일 소유권 분리 + worktree)으로 v0.3.0 착수.
+
+### Decision Log — ③
+> 형식: `[날짜] 결정 — 근거(룰) · 가역성 · 검증`
+- **[2026-07-04] 초안 PRD 검증 = 2-에이전트 크로스체크 (사실 주장 11항 검증 + 구현 지형 8항)** — Rule 4·1. 결과: 설계안(§4 ③)이 v0.2.0 계약·자산과 마찰 7건(블로킹 3) → 개정 후 이관. 가역. 검증: 항목별 file:line 실측 대조.
+- **[2026-07-04] LLM 실행 경계 = "scripts/는 결정적 큐, 생성은 commands/curate.md Step"** — Rule 2·6. 초안의 curate.py 내 `synthesize_page()`/`detect_contradiction()` LLM 직접 호출안 기각 — "claude CLI 없이 pytest 통과" 계약(v0.2 AC) 보존, WS-6(llm_client)이 WS-1/5의 전제조건이 되지 않음. 가역(v0.3.2에서 llm_client 경유 옵션 재검토). 검증: 테스트 계약 무변경.
+- **[2026-07-04] hard dedup 범위 = 저장 차단 + 기존 페이지 강화 라우팅 제안까지. 자동 병합 금지 유지** — Rule 5·9 (② 확정 결정 "merge-review 자동병합 안 함" 계승). `is_duplicate`는 반환 확장이 아니라 **저장 전 재배선**이 본체(현재 저장 완료 후 호출·반환값 폐기). 가역. 검증: 재배선 후 동일 슬러그 재투입 시 미생성 테스트.
+- **[2026-07-04] `wiki/observing/`·`wiki/rejected/` = gitignore + 3점 방어를 폴더 신설과 같은 커밋에** — Rule 8·9 (one-way door). okf `_load_pages`가 rglob 무차별 스캔 → exclude 미비 시 기각 사유 로그가 public 번들 누출. 방어: `okf_export.yaml` exclude_paths + `find_all_wiki_pages` 제외 + lifecycle 제외 (episodes/procedures 선례와 동일 패턴). 가역(설정). 검증: okf dry-run에 두 폴더 미등장 + 설정값 단언 테스트.
+- **[2026-07-04] "raw write" 불변식 = body 무손상으로 정의. `frontmatter_utils` 수렴, 파서 5번째 신설 금지** — Rule 1·2. fm 블록 yaml 재직렬화(주석·포맷 소실)는 허용 — ruamel 도입은 과잉. 가역. 검증: 라운드트립 테스트 기존재.
+- **[2026-07-04] reweave = 신규 엔진 아님. `run_distill`+`run_lifecycle`+`find_merge_candidates` 오케스트레이터 + weak 신규 기준(800자·근거 2건·H2 3개)** — Rule 2·3 (② PRD "별도 curation 엔진 금지" 계승). 유사도는 `_merge_token_set` Jaccard 재사용. episode는 `task_type: reweave` + memory_score `episode_ref` 집계 제외(자기 점수 되먹임 차단). 가역. 검증: idempotency 테스트(정상 노드 2회 실행 무변경).
+- **[2026-07-04] gates.py 선행조건 = 점수 코어(`curate.py:293-624`)를 `scripts/lib/memory_score.py`로 추출** — Rule 2. 게이트↔점수 강결합 상태에서 gates.py만 분리하면 순환 import. 가역(순수 리팩터, 동작 무변경). 검증: 추출 전후 전체 pytest 통과 + score 값 동일 단언.
+- **[2026-07-04] frontmatter `status` → `gate_status` 개명 + 용어 "Promotion Gates" 채택** — Rule 1. episodes JSONL `status` 키와 의미 충돌 / 기존 "Quality Gates"(CI 명령)와 동음이의 회피. 가역. 검증: grep 충돌 0.
+- **[2026-07-04] 착수 전 안전망 = `is_duplicate`·게이트 진입 경로 현 동작 고정 테스트 + `run_daily.sh` 경로 drift 수정 선행** — Rule 6·8. 두 영역 테스트 0건 상태에서 수정 금지. 가역. 검증: RED→GREEN 순서 준수.
 
 ---
 

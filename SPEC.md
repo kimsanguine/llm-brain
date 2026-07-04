@@ -900,3 +900,72 @@ score = 35·norm(express_reuse) + 25·norm(episode_ref) + 15·norm(centrality)
 - 커밋 전 dry-run ceremony(기존)에 점검 항목 추가: export 목록에 `episodes`/`procedures`/`memory_health_report` 미등장 단언.
 - 🔴 **memory_health 리포트 누출 차단(Claude#1·Codex C1, HIGH):** `memory_health.py`는 `wiki/memory_health_report.md`에 쓰는데 `okf_export.py`가 `wiki/`를 rglob 스캔하고 현 `META_FILES`에 이 파일이 **없다**(episode 요약 = 격리한 사적 운영맥락의 파생). → ① `memory_health_report.md`를 okf `META_FILES`에 **명시 추가**(루트 직속 skip 작동; title-부재 skip은 취약해 의존 금지) ② 리포트는 **집계 수치만**(verbatim episode 본문 금지). 이 확장은 리포트를 도입하는 **Phase 3에서 동반**.
 - **Phase 0 "무변경" 단서(Codex C8):** okf config 2줄·파서 유틸 추가는 *episodes/·procedures/가 wiki/ 밖일 때만* no-op. Phase 0 테스트는 export 결과뿐 아니라 **okf config 값 자체**를 단언.
+
+---
+
+# v0.3 Quality-Driven Curation — 설계 (계획 확정 2026-07-04, 구현 착수 전)
+
+> 요구사항(WHAT): `docs/PRD.md` 이니셔티브 ③ · 진행·결정: `docs/PROGRESS.md` 이니셔티브 ③.
+> 이 절은 **계획 상태**다 — 아래 인터페이스는 구현 완료 시 위 "스크립트 인터페이스"·"스키마 명세" 절로 승격하고 이 절을 현재형으로 갱신한다 (drift 방지).
+
+## §A — 척추: LLM 실행 경계 (v0.2.0 계약 불변)
+
+```
+[결정적 — scripts/, claude 없이 pytest 통과]        [생성 — commands/curate.md Step, Claude Code 수행]
+reweave 스캔 → weak 판정·자동 fix(fm/summary 결손)   synthesis 작성(## 인사이트 (종합))
+gates 판정(G-1~G-4) → created/enriched/observing/rejected   reconciliation 서술(## 반론/갱신 + superseded)
+모순 후보 탐지 → contradiction_queue.md
+synthesis 대상 선정 → reweave_queue.md
+```
+
+- 초안 PRD의 curate.py 내 LLM 직접 호출(`synthesize_page` 훅)안은 **기각** — 기존 distill_queue.md 패턴(스크립트=큐, 커맨드=실행)을 확장한다.
+- shrink 가드(본문·sources 감소 시 저장 거부 + `WARN shrink`)는 결정적이므로 스크립트 측.
+
+## §B — 모듈 배치
+
+```
+scripts/
+  lib/memory_score.py   ← curate.py 293–624행(점수 코어: _score_terms·compute_memory_score·build_*_index) 추출 [선행 리팩터, 동작 무변경]
+  lib/gates.py          ← Promotion Gates G-1~G-4: evaluate_promotion(candidate) -> Decision. 유사도 = _merge_token_set Jaccard 재사용
+  lib/llm_client.py     ← [v0.3.2] "LLM 엔진 통합" 절의 예약 인터페이스(engine: cli|api) 구현. wiki_app/api.py subprocess 2곳(334·416)도 경유
+  curate.py             ~ --reweave 플래그(argparse boolean, 기존 패턴): run_distill+run_lifecycle+find_merge_candidates 오케스트레이트 + weak 신규 기준
+  memory_health.py      ~ --fix (자동 보강 가능분만·idempotent; 본문/근거 부족은 alert만 — 가짜 보강 금지)
+  ingest.py             ~ is_duplicate 저장 전 재배선 + (is_dup, target_slug, score) 반환
+  sync_raw.py           ~ require_keywords·min_word_count 실구현 (sources.yaml 필드 추가)
+```
+
+- reweave weak 기준(신규): 본문<800자 OR 근거<2건 OR H2<3개 — 기존 memory_health 기준(orphan·confidence<0.5·stale>180일)에 **추가**, 대체 아님.
+- reweave episode: `task_type: reweave` — `build_episode_ref_index` 집계에서 제외(express_* 제외와 같은 이유: 자기 점수 되먹임 차단).
+
+## §C — 파일·frontmatter 계약 (v0.3 신규)
+
+- 신규 폴더: `wiki/observing/`(7일 유예) · `wiki/rejected/`(사유 분류 기각). **gitignored**.
+- 신규 큐: `wiki/reweave_queue.md` · `wiki/contradiction_queue.md` — `distill_queue.md`와 동일 체크박스 패턴. okf `META_FILES` 등재.
+- frontmatter 신규(전부 optional): `gate_status: created|enriched|observing|rejected`(episodes JSONL `status`와 충돌 회피 개명) · `observation_expires` · `recurrence: N` · `angles: [..]` · `signal_count: N` · `synthesis_updated` · `superseded_claims: [..]` · `last_reconciled` · [v0.3.2] `owner` · `scope: private|shared`.
+- frontmatter 쓰기: `lib/frontmatter_utils` 경유(body 무손상; fm 블록 yaml 재직렬화 허용 — "raw write" 정의 확정, PROGRESS ③). 파서 신설 금지.
+
+## §D — 보안 경계 (one-way door, observing/rejected 3점 방어)
+
+`wiki/observing/`·`wiki/rejected/`는 사적 판단 로그(기각 사유 포함)다. okf `_load_pages`가 `wiki/` rglob 무차별 스캔이므로 **폴더 신설과 같은 커밋에**:
+1. `schema/okf_export.yaml` `exclude_paths` += `observing/**`·`rejected/**` (+ okf dry-run 미등장 단언 + config 값 자체 단언 — §D Phase 0 단서와 동일 패턴)
+2. `curate.find_all_wiki_pages` 제외 집합 += 두 폴더 (정규 audit/distill/lifecycle/merge-review에서 격리)
+3. `LIFECYCLE_EXEMPT` 또는 동등 제외 (observing 만료는 gates가 자체 관리, TTL decay와 분리)
++ `.gitignore` += 두 폴더 · `index.md`에 미기록(wiki_app 검색이 index.md 기반이므로 이것으로 웹 비노출).
+
+## §E — 배치 개정 (run_daily.sh)
+
+```
+Step 1 sync_raw.py (매일)                       [기존]
+Step 2 ingest.py 감지 (매일)                     [기존]
+Step 3 claude -p ingest (미처리 시)              [기존 — 경로 drift(~/Documents/llm-wiki) 수정 선행]
+Step 4 curate --reweave --fix (매일)             [신규]
+Step 5 curate --distill (월요일)                 [기존]
+Step 6 curate --reweave --fix --weekly-summary (일요일)  [신규]
+```
+
+## §F — 테스트 계약 (경계값)
+
+- gates: 799/800자 · 근거 1/2건 · 유사도 0.74/0.75 · 반복 1/2회 경계 유닛테스트. claude CLI 불요.
+- reweave idempotency: 정상 노드 2회 실행 무변경. dedup: 동일 슬러그 재투입 시 미생성(저장 전 차단).
+- **착수 전 안전망**: `is_duplicate` 현 동작 고정 테스트(현재 0건) 선작성 후 재배선(RED→GREEN).
+- 회귀: memory_score 추출 전후 점수 값 동일 단언 · 기존 ingest/express/query 무변경 · okf 누출 0.
