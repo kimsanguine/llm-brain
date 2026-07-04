@@ -303,6 +303,8 @@ def build_episode_ref_index(episodes_dir: Path | None = None) -> dict[str, int]:
     """episodes/ 샤드를 스캔해 {slug: 참조 에피소드 수} 반환.
 
     task_type=express_* 에피소드는 제외(express_reuse 와 이중계산 방지, Codex C3).
+    task_type=reweave 도 제외(v0.3 WS-3) — reweave 는 weak 페이지 목록을 read_pages 로
+    기록하므로 집계하면 weak 할수록 점수가 오르는 자기 되먹임이 생긴다(express_* 와 동일 이유).
     에피소드 1건의 read_pages 안 중복 slug 는 1회만 집계(에피소드 단위 dedup).
     """
     if episodes_dir is None:
@@ -329,6 +331,8 @@ def build_episode_ref_index(episodes_dir: Path | None = None) -> dict[str, int]:
             task_type = str(rec.get("task_type", ""))
             if task_type == "express" or task_type.startswith("express_"):
                 continue  # express_* 제외
+            if task_type == "reweave":
+                continue  # reweave 제외 — weak 스캔 read_pages 자기 점수 되먹임 차단 (v0.3)
             read_pages = rec.get("read_pages", [])
             if not isinstance(read_pages, list):
                 continue

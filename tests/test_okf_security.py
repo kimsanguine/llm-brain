@@ -165,6 +165,49 @@ def test_refuses_out_dir_that_is_source_or_ancestor(tmp_path):
     assert (wiki / "concepts" / "a.md").exists()
 
 
+# ── v0.3 observing/rejected 봉인 (3점 방어 중 설정 측 — SPEC v0.3 §D) ────
+
+_OKF_CONFIG_PATH = Path(__file__).parent.parent / "schema" / "okf_export.yaml"
+
+
+def test_okf_config_excludes_gate_dirs_and_reweave_queue():
+    """§D Phase 0 단서 패턴: export 결과뿐 아니라 config 값 자체를 단언한다."""
+    cfg = yaml.safe_load(_OKF_CONFIG_PATH.read_text(encoding="utf-8"))
+    exclude_paths = cfg["exclude_paths"]
+    assert "observing/**" in exclude_paths
+    assert "rejected/**" in exclude_paths
+    # reweave 운영 큐(wiki/ 루트 산출물)도 공개 번들 봉인 — META_FILES 미등재 대비.
+    assert "reweave_queue.md" in exclude_paths
+
+
+def test_observing_rejected_not_exported(tmp_path):
+    """observing/·rejected/ 픽스처 페이지가 export 목록·번들 어디에도 안 나와야."""
+    wiki = tmp_path / "wiki"
+    _write(wiki, "observing/pending-idea.md",
+           _page("Pending Idea", extra_fm="gate_status: observing\n"))
+    _write(wiki, "rejected/dropped-idea.md",
+           _page("Dropped Idea", extra_fm="gate_status: rejected\n"))
+    _write(wiki, "reweave_queue.md", "# Reweave Queue\n\n- [ ] `wiki/concepts/clean.md`\n")
+    _write(wiki, "concepts/clean.md", _page("Clean"))
+
+    cfg = yaml.safe_load(_OKF_CONFIG_PATH.read_text(encoding="utf-8"))
+    stats = okf_export.export_bundle(wiki, tmp_path / "okf",
+                                     exclude_paths=cfg["exclude_paths"])
+    out = tmp_path / "okf"
+    assert not (out / "observing").exists()
+    assert not (out / "rejected").exists()
+    assert not (out / "reweave_queue.md").exists()
+    rels = [p.relative_to(out).as_posix().lower() for p in out.rglob("*.md")]
+    assert not any("observing" in r or "rejected" in r or "reweave_queue" in r for r in rels)
+    assert (out / "concepts" / "clean.md").exists()
+    # export 목록(stats)에도 included 로 등장하면 안 된다 — excluded 로 집계돼야.
+    assert "observing/pending-idea.md" in stats.excluded
+    assert "rejected/dropped-idea.md" in stats.excluded
+    # 루트 index.md 목차에도 누출 없어야
+    idx = (out / "index.md").read_text(encoding="utf-8")
+    assert "Pending Idea" not in idx and "Dropped Idea" not in idx
+
+
 def test_dict_fm_value_with_triple_dash_sanitized(tmp_path):
     """Y2: dict 타입 내부필드 값의 '---'도 정리돼 consumer split이 안 깨져야."""
     wiki = tmp_path / "wiki"

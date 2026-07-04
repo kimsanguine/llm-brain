@@ -15,6 +15,9 @@ exclude_paths:
   - "canvas/**"       # gitignore 대상 canvas 데이터
   - "episodes/**"     # Agent Memory OS — 에피소드 원장(운영 맥락). 방어 이중망: okf는 wiki/만 스캔하나 명시 제외
   - "procedures/**"   # Agent Memory OS — 절차 메모리. 동일 방어
+  - "observing/**"    # v0.3 Promotion Gates — 유예 후보 보관(사적 판단 로그). 3점 방어 중 설정 측 (SPEC v0.3 §D)
+  - "rejected/**"     # v0.3 Promotion Gates — 기각 로그(사유 포함). 동일 방어
+  - "reweave_queue.md"  # v0.3 reweave 운영 큐 — wiki/ 루트 산출물. okf META_FILES 미등재라 config 로 봉인
 
 # exclude_domains — (선택) 보조 제외. frontmatter 의 domain 라벨 기준.
 #   경로가 아닌 의미 라벨로 거를 때 사용. 비워 두면 비활성.

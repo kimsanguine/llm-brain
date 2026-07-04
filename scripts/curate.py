@@ -8,6 +8,7 @@ curate.py — wiki 감사(audit) + 압축(distill) + 수명 관리(lifecycle) + 
   python scripts/curate.py --distill
   python scripts/curate.py --lifecycle
   python scripts/curate.py --graph
+  python scripts/curate.py --reweave [--fix] [--dry-run] [--weekly-summary]
 """
 import argparse
 import fcntl
@@ -18,14 +19,17 @@ import os
 import re
 import sys
 import tempfile
-from collections import defaultdict
+from collections import Counter, defaultdict
 from datetime import datetime, timedelta
 from pathlib import Path
 
 import yaml
 
 import episode  # 로컬 모듈 (scripts/ on sys.path) — US-002 curate 실행 episode 기록
+from lib import frontmatter_utils, gates  # v0.3 reweave — 만료 판정(gates)·body 무손상 쓰기
 from lib import memory_score  # 점수 코어 (v0.3 선행 추출 — lib/gates.py 와 공유)
+# merge-review 유사도 토큰 — lib/gates.py 와 단일 구현 공유 (중복 제거, parity 테스트 유지).
+from lib.gates import _merge_token_set  # noqa: F401
 # 점수 코어 re-export — 기존 공개 이름 유지(테스트·wiki_app·memory_health 무수정 호환).
 # 경로 기본값을 갖는 5개 로더(_load_memory_score_config 등)는 아래 wrapper 로 노출한다
 # (이 모듈 전역 WIKI_ROOT/WIKI_DIR/SCHEMA_DIR 주입 — 테스트 monkeypatch 대상이기 때문).
@@ -63,8 +67,10 @@ LOG_FILE = WIKI_ROOT / "log.md"
 REPORT_FILE = WIKI_DIR / "curate_report.md"
 DISTILL_QUEUE_FILE = WIKI_DIR / "distill_queue.md"
 WIKI_STATS_FILE = WIKI_ROOT / "wiki_stats.json"
-# lifecycle 제외 도메인 (ttl_days: 0인 것들)
-LIFECYCLE_EXEMPT = {"concepts", "tools", "people", "projects", "business", "lecture"}
+# lifecycle 제외 도메인 (ttl_days: 0인 것들) + gates 관리 폴더(observing·rejected —
+# 만료는 gates 가 자체 관리하므로 TTL decay 대상이 아니다. SPEC v0.3 §D 3점 방어)
+LIFECYCLE_EXEMPT = {"concepts", "tools", "people", "projects", "business", "lecture",
+                    "observing", "rejected"}
 
 
 # ── Stats (access tracking) ────────────────────────────────────────────
@@ -313,9 +319,14 @@ def find_all_wiki_pages() -> list[Path]:
         "curate_report.md",
         "distill_queue.md",
         "graph_report.md",
+        "reweave_queue.md",
     }
+    # observing/·rejected/ 는 gates 관리 폴더(사적 판단 로그) — 정규 audit/distill/
+    # lifecycle/merge-review 스캔에서 격리한다 (SPEC v0.3 §D 3점 방어 중 코드 측).
+    # run_reweave 의 만료 처리만 observing/ 을 직접 스캔한다.
+    excluded_dirs = {"archive", "observing", "rejected"}
     return [p for p in WIKI_DIR.rglob("*.md")
-            if p.name not in excluded and "archive" not in p.parts]
+            if p.name not in excluded and not excluded_dirs & set(p.parts)]
 
 
 def build_link_graph(pages: list[Path]) -> tuple[dict, dict]:
@@ -376,7 +387,6 @@ def run_audit(pages: list[Path]) -> dict:
 # 넘지 않는다(카테고리 분리는 의도된 의미 구분 — 교차 카테고리 동명은 거짓양성).
 
 MERGE_SIMILARITY_DEFAULT = 0.6
-_MERGE_TOKEN_RE = re.compile(r"\w+", re.UNICODE)
 
 
 def _load_merge_threshold(config_file: Path | None = None) -> float:
@@ -406,20 +416,8 @@ def _load_merge_threshold(config_file: Path | None = None) -> float:
     return float(val)
 
 
-def _merge_token_set(fm) -> set[str]:
-    """페이지 비교 단위 = (소문자 제목 토큰 ∪ 소문자 태그) 집합. \\w 토큰화로 한국어 포함."""
-    tokens: set[str] = set()
-    if not isinstance(fm, dict):
-        return tokens
-    title = fm.get("title")
-    if isinstance(title, str):
-        tokens |= {t.lower() for t in _MERGE_TOKEN_RE.findall(title)}
-    tags = fm.get("tags")
-    if isinstance(tags, list):
-        for t in tags:
-            if isinstance(t, str) and t.strip():
-                tokens.add(t.strip().lower())
-    return tokens
+# _merge_token_set 은 lib/gates.py 의 동일 구현을 import 해 재사용한다 (파일 상단 참조).
+# 중복 정의를 제거해 유사도 토큰 규칙의 단일 출처를 gates 로 수렴 (parity 테스트: test_gates).
 
 
 def find_merge_candidates(pages: list[Path], *, threshold: float | None = None) -> list[dict]:
@@ -701,10 +699,227 @@ def _rescue_split(candidates: list[dict], graph_index, express_idx: dict,
     return rescued, kept
 
 
+# ── Reweave (v0.3.0 WS-3) — 기존 자산 오케스트레이터 (신규 엔진 아님) ────
+#
+# weak 판정·자동 fix 엔진 = scripts/memory_health.py 를 import 재사용하고
+# (_collect_pages·_weak_content_issues·_plan_page_fixes — 중복 구현 금지),
+# observing 만료 = lib/gates.evaluate_observing_expiry 판정에 따른 결정적 파일
+# 이동만 수행한다. LLM 호출 0 — 판단 필요분(본문<800자·근거<2건·H2<3개)은
+# wiki/reweave_queue.md 로 큐잉하고 commands/curate.md Step 3 에서 LLM 컴파일러가
+# 소비한다 (SPEC v0.3 §A: 스크립트=큐, 커맨드=실행).
+#
+# memory_health.run_fix 를 통째로 위임하지 않는 이유: run_fix 는 wiki_root 전체를
+# 돌아 observing/·rejected/(gates 관리 폴더)까지 fix/alert 하는데, 두 폴더는
+# 격리 대상이고 memory_health.py 는 수정 금지 범위라 — 같은 엔진 조각을
+# 격리 필터와 함께 재구동한다 (판정·fix 계획 로직은 전부 memory_health 소유).
+
+REWEAVE_QUEUE_NAME = "reweave_queue.md"
+REWEAVE_WEEKLY_WINDOW_DAYS = 28    # --weekly-summary 집계 창
+REWEAVE_WEEKLY_MIN_REPEAT = 4      # N회+ 반복 weak → 통합/삭제 후보
+_REWEAVE_EPISODE_SCAN_LIMIT = 400  # 28일 일간 실행 ~28건 — 여유 상한
+
+
+def _is_gate_dir_rel(rel: str) -> bool:
+    """wiki 상대경로가 gates 관리 폴더(observing/·rejected/) 안인가."""
+    return rel.startswith("observing/") or rel.startswith("rejected/")
+
+
+def _process_observing_expiry(today, *, dry_run: bool) -> tuple[list[dict], list[tuple[str, str]]]:
+    """wiki/observing/ 에 gates.evaluate_observing_expiry 적용 — 만료면 wiki/rejected/ 이동.
+
+    이동은 결정적 파일 작업이라 스크립트가 수행한다 (SPEC v0.3 §A). frontmatter
+    `gate_status: rejected` 갱신은 frontmatter_utils 경유(body 무손상). observing 인데
+    만료일 결손 등 fail-loud(ValueError) 페이지는 파일 무변경 + errors 로 표면화한다
+    (한 페이지 오류가 전체 런을 못 깨뜨린다).
+
+    반환: (expired 이동 목록, errors 목록). dry_run=True 면 이동 없이 계획만 담는다.
+    """
+    observing_dir = WIKI_DIR / "observing"
+    rejected_dir = WIKI_DIR / "rejected"
+    expired: list[dict] = []
+    errors: list[tuple[str, str]] = []
+    if not observing_dir.is_dir():
+        return expired, errors
+    for md in sorted(observing_dir.glob("*.md")):
+        rel = f"observing/{md.name}"
+        try:
+            fm, body = frontmatter_utils.read_fm(md.read_text(encoding="utf-8"))
+        except (OSError, frontmatter_utils.FrontmatterParseError) as exc:
+            errors.append((rel, f"읽기/파싱 실패 — 무변경: {exc}"))
+            continue
+        page = gates.ExistingPage(slug=md.stem, frontmatter=fm, body=body)
+        try:
+            decision = gates.evaluate_observing_expiry(page, today)
+        except ValueError as exc:
+            errors.append((rel, f"만료 판정 실패 — 무변경: {exc}"))
+            continue
+        if decision is None:
+            continue  # observing 아님 / 미만료 / 재등장(G-1 재판정 대상)
+        dst = rejected_dir / md.name
+        if not dry_run:
+            if dst.exists():
+                errors.append((rel, "rejected/ 에 동명 파일 존재 — 이동 보류"))
+                continue
+            fm["gate_status"] = "rejected"
+            rejected_dir.mkdir(parents=True, exist_ok=True)
+            dst.write_text(frontmatter_utils.write_fm(fm, body), encoding="utf-8")
+            md.unlink()
+        expired.append({
+            "slug": md.stem,
+            "from": f"wiki/observing/{md.name}",
+            "to": f"wiki/rejected/{md.name}",
+            "reason": decision.reject_reason or "",
+        })
+    return expired, errors
+
+
+def _write_reweave_queue(queue_path: Path, weak_entries: list[tuple[str, list[str]]],
+                         now: datetime, *, body_min: int, min_sources: int,
+                         min_h2: int) -> None:
+    """판단 필요분 큐 — distill_queue.md 와 동일 체크박스 패턴."""
+    ts = now.strftime("%Y-%m-%d %H:%M")
+    lines = [
+        f"# Reweave Queue — {ts}\n",
+        "> 이 파일은 `curate --reweave`가 생성합니다. Claude Code가 읽고 "
+        "raw/ 근거 범위 안에서만 보강을 실행하세요 (commands/curate.md Step 3).\n",
+        f"\n## 판단 필요분 (본문<{body_min}자 OR 근거<{min_sources}건 OR H2<{min_h2}개) "
+        f"— {len(weak_entries)}개",
+        "자동 보강 금지 대상 — raw/ 출처 기반 보강만 (가짜 보강 금지)\n",
+    ]
+    for rel, issues in weak_entries:
+        lines.append(f"- [ ] `wiki/{rel}` — {'; '.join(issues)}")
+    queue_path.write_text("\n".join(lines))
+
+
+def _reweave_weekly_summary(now: datetime, current_weak_refs: list[str]) -> dict:
+    """최근 28일 reweave 에피소드 + 현재 스캔에서 반복 weak 노드를 통합/삭제 후보로 집계.
+
+    reweave 에피소드의 read_pages(= 그 런의 weak 목록)를 런 단위로 세고, 현재 스캔도
+    1개 런으로 포함한다. fail-soft: episodes 부재/부족(집계 런 < REWEAVE_WEEKLY_MIN_REPEAT
+    → 어떤 노드도 임계에 못 미침)이면 현재 스캔만으로 후보를 내고
+    insufficient_history=True 로 정직 표기한다 (크래시 금지).
+    """
+    cutoff = now - timedelta(days=REWEAVE_WEEKLY_WINDOW_DAYS)
+    runs: list[set[str]] = []
+    try:
+        records = episode.read_recent(task_type="reweave",
+                                      limit=_REWEAVE_EPISODE_SCAN_LIMIT,
+                                      episodes_dir=episode.EPISODES_DIR)
+    except Exception as e:  # noqa: BLE001 — 원장 read 실패가 리포트를 못 깨뜨린다
+        print(f"  [reweave] weekly: episodes 읽기 실패(무시): {e}", file=sys.stderr)
+        records = []
+    for rec in records:
+        try:
+            dt = datetime.fromisoformat(str(rec.get("timestamp", "")))
+        except ValueError:
+            continue
+        if dt.tzinfo is not None:
+            dt = dt.astimezone().replace(tzinfo=None)  # 로컬 naive 로 통일(now 와 비교)
+        if dt < cutoff:
+            continue
+        pages = rec.get("read_pages", [])
+        if isinstance(pages, list):
+            runs.append({p for p in pages if isinstance(p, str) and p})
+    runs.append(set(current_weak_refs))  # 현재 스캔도 1개 런으로 집계
+
+    counts: Counter = Counter()
+    for run in runs:
+        counts.update(run)
+    insufficient = len(runs) < REWEAVE_WEEKLY_MIN_REPEAT
+    if insufficient:
+        candidates = [(ref, counts[ref]) for ref in sorted(set(current_weak_refs))]
+    else:
+        candidates = sorted(((ref, c) for ref, c in counts.items()
+                             if c >= REWEAVE_WEEKLY_MIN_REPEAT),
+                            key=lambda x: (-x[1], x[0]))
+    return {"candidates": candidates, "runs": len(runs),
+            "insufficient_history": insufficient}
+
+
+def run_reweave(*, fix: bool = False, dry_run: bool = False,
+                weekly_summary: bool = False, now: datetime | None = None) -> dict:
+    """weak 스캔(+옵션 자동 fix) + reweave_queue 생성 + observing 만료 처리 (v0.3 WS-3).
+
+    - weak 판정·fix 계획 = memory_health 엔진 import 재사용. observing/·rejected/·
+      reweave_queue.md 는 스캔에서 격리한다.
+    - fix=True 일 때만 자동 보강 가능분(summary·source_count·updated — idempotent)을
+      적용한다. 본문·근거 부족(판단 필요분)은 fix 하지 않고 alert + 큐잉만(가짜 보강 금지).
+    - dry_run=True 면 어떤 파일도 변경·생성하지 않는다 (fix·이동·큐 전부 계획만).
+    - weekly_summary=True 면 최근 28일 reweave 에피소드 누적 weak 후보를 집계한다.
+
+    반환: {"fixed", "alerts", "weak", "expired", "expiry_errors", "weekly", "dry_run"}.
+    """
+    import memory_health  # 지연 import — memory_health 가 curate 를 import 하므로 순환 회피
+
+    if now is None:
+        now = datetime.now()
+
+    # 1) observing 만료 처리 — 먼저 수행해 만료 페이지가 rejected/(격리 대상)로 빠지게.
+    expired, expiry_errors = _process_observing_expiry(now.date(), dry_run=dry_run)
+
+    # 2) weak 스캔 + (--fix) 자동 보강 — memory_health 엔진 + gates 폴더 격리 필터.
+    pages, parse_errors = memory_health._collect_pages(WIKI_DIR)
+    fixed: list[tuple[str, list[str]]] = []
+    alerts: list[tuple[str, str]] = []
+    weak_entries: list[tuple[str, list[str]]] = []
+
+    for rel, reason in parse_errors:
+        if _is_gate_dir_rel(rel) or rel == REWEAVE_QUEUE_NAME:
+            continue
+        alerts.append((rel, f"{reason} — fix 제외(fail-loud, 페이지 무변경)"))
+    error_rels = {rel for rel, _ in parse_errors}
+
+    for p in pages:
+        if _is_gate_dir_rel(p.rel) or p.rel == REWEAVE_QUEUE_NAME or p.rel in error_rels:
+            continue
+        issues = memory_health._weak_content_issues(p.fm, p.body)
+        if issues:
+            weak_entries.append((p.rel, issues))
+            alerts.append((p.rel, "; ".join(issues) + " — 본문·근거 부족은 alert만(판단 필요분)"))
+        if not fix or not p.fm:
+            continue  # fix 미지정이면 스캔만 / frontmatter 블록 없는 페이지는 채움 범위 밖
+        new_fm, actions, unfixable = memory_health._plan_page_fixes(p.fm, p.body, now)
+        for reason in unfixable:
+            alerts.append((p.rel, reason))
+        if actions:
+            if not dry_run:
+                p.path.write_text(frontmatter_utils.write_fm(new_fm, p.body), encoding="utf-8")
+            fixed.append((p.rel, actions))
+
+    weak_entries.sort(key=lambda x: x[0])
+    alerts.sort(key=lambda x: (x[0], x[1]))
+
+    # 3) 판단 필요분 큐 — LLM 컴파일러(commands/curate.md Step 3)가 소비.
+    if not dry_run:
+        _write_reweave_queue(WIKI_DIR / REWEAVE_QUEUE_NAME, weak_entries, now,
+                             body_min=memory_health.WEAK_BODY_MIN_CHARS,
+                             min_sources=memory_health.WEAK_MIN_SOURCES,
+                             min_h2=memory_health.WEAK_MIN_H2)
+
+    # 4) --weekly-summary: 4주 누적 반복 weak → 통합/삭제 후보.
+    weekly = None
+    if weekly_summary:
+        weekly = _reweave_weekly_summary(now, [f"wiki/{rel}" for rel, _ in weak_entries])
+
+    tag = " (dry-run — 파일 무변경)" if dry_run else ""
+    print(f"  [reweave] fixed={len(fixed)}, alert={len(alerts)}, "
+          f"expired={len(expired)}, 큐={len(weak_entries)}개{tag}")
+    if dry_run:
+        for rel, actions in fixed:
+            print(f"    fix 계획: {rel} — {'; '.join(actions)}")
+        for e in expired:
+            print(f"    만료 계획: {e['from']} → {e['to']} ({e['reason']})")
+
+    return {"fixed": fixed, "alerts": alerts, "weak": weak_entries,
+            "expired": expired, "expiry_errors": expiry_errors,
+            "weekly": weekly, "dry_run": dry_run}
+
+
 # ── Report ─────────────────────────────────────────────────────────────
 
 def write_report(audit: dict, distilled: list, lifecycle: dict,
-                 merge_candidates: list | None = None) -> None:
+                 merge_candidates: list | None = None,
+                 reweave: dict | None = None) -> None:
     now = datetime.now().strftime("%Y-%m-%d %H:%M")
     lines = [f"# Curate Report — {now}\n"]
 
@@ -765,6 +980,48 @@ def write_report(audit: dict, distilled: list, lifecycle: dict,
             + _score_suffix(r)
         )
 
+    # v0.3 Reweave (WS-3): --reweave 실행 시에만 섹션 추가.
+    if reweave is not None:
+        r_fixed = reweave.get("fixed", [])
+        r_alerts = reweave.get("alerts", [])
+        r_expired = reweave.get("expired", [])
+        r_errors = reweave.get("expiry_errors", [])
+        lines.append("\n## Reweave")
+        lines.append(f"fixed: {len(r_fixed)} / alert: {len(r_alerts)} / expired: {len(r_expired)}")
+        lines.append(f"\n### 자동 보강 ({len(r_fixed)}개)")
+        for rel, actions in r_fixed:
+            lines.append(f"- `{rel}` — {'; '.join(actions)}")
+        lines.append(f"\n### Alert — 판단 필요분 ({len(r_alerts)}개)")
+        lines.append("> 본문·근거 부족은 자동 보강 금지 — 상세 큐: `wiki/reweave_queue.md`")
+        for rel, reason in r_alerts:
+            lines.append(f"- `{rel}` — {reason}")
+        lines.append(f"\n### Observing 만료 → rejected/ ({len(r_expired)}개)")
+        for e in r_expired:
+            lines.append(f"- {e['slug']} — {e['from']} → {e['to']} ({e['reason']})")
+        if r_errors:
+            lines.append(f"\n### Observing 처리 경고 ({len(r_errors)}개)")
+            for rel, reason in r_errors:
+                lines.append(f"- `{rel}` — {reason}")
+        weekly = reweave.get("weekly")
+        if weekly is not None:
+            cands = weekly.get("candidates", [])
+            lines.append(
+                f"\n### Weekly Summary — 통합/삭제 후보 ({len(cands)}개, "
+                f"최근 {REWEAVE_WEEKLY_WINDOW_DAYS}일 {weekly.get('runs', 0)}런)"
+            )
+            if weekly.get("insufficient_history"):
+                lines.append(
+                    f"> ⚠ 이력 부족 (집계 런 < {REWEAVE_WEEKLY_MIN_REPEAT}) — "
+                    "현재 스캔만으로 후보 표기. 실제 이동·삭제는 사용자 승인 필수."
+                )
+            else:
+                lines.append(
+                    f"> {REWEAVE_WEEKLY_MIN_REPEAT}회+ 반복 weak 노드. "
+                    "실제 이동·삭제는 사용자 승인 필수."
+                )
+            for ref, cnt in cands:
+                lines.append(f"- `{ref}` — {cnt}회")
+
     REPORT_FILE.write_text("\n".join(lines))
     print(f"\n[curate] 리포트 저장: wiki/curate_report.md")
 
@@ -777,6 +1034,12 @@ def write_report(audit: dict, distilled: list, lifecycle: dict,
         f"- archive 후보: {len(archive)}개\n"
         f"- rescued(보존): {len(rescued)}개\n"
     )
+    if reweave is not None:
+        log_entry += (
+            f"- reweave: fixed {len(reweave.get('fixed', []))} / "
+            f"alert {len(reweave.get('alerts', []))} / "
+            f"expired {len(reweave.get('expired', []))}\n"
+        )
     LOG_FILE.open("a").write(log_entry)
 
 
@@ -1014,6 +1277,44 @@ def _record_curate_episode(mode: str, audit: dict, distilled: list, lifecycle: d
         print(f"[curate] episode 기록 실패(무시): {e}", file=sys.stderr)
 
 
+def _reweave_episode_record(result: dict, *, fix: bool, weekly_summary: bool,
+                            now: datetime | None = None) -> dict:
+    """reweave 실행 요약을 episode 레코드(C1 스키마)로 만든다 (v0.3 WS-3).
+
+    read_pages = 이번 런의 weak 페이지 목록 — --weekly-summary 4주 누적 집계의 입력.
+    memory_score.build_episode_ref_index 는 task_type=reweave 를 제외하므로
+    (express_* 제외와 같은 이유) 이 read_pages 가 자기 점수 되먹임을 만들지 않는다.
+    """
+    ts = (now or datetime.now().astimezone()).isoformat()
+    return {
+        "timestamp": ts,
+        "task_type": "reweave",
+        "user_goal": "curate reweave",
+        "inputs": {"mode": "reweave", "fix": fix, "weekly_summary": weekly_summary},
+        "read_pages": [f"wiki/{rel}" for rel, _ in result.get("weak", [])],
+        "procedures_used": [],
+        "outputs": {
+            "fixed": len(result.get("fixed", [])),
+            "alerts": len(result.get("alerts", [])),
+            "expired": len(result.get("expired", [])),
+            "queued": len(result.get("weak", [])),
+        },
+        "status": "ok",
+        "notes": "",
+    }
+
+
+def _record_reweave_episode(result: dict, *, fix: bool, weekly_summary: bool) -> None:
+    """fail-soft (US-002 패턴): episode 기록 실패가 reweave 경로를 못 깨뜨린다."""
+    try:
+        # episodes_dir 를 호출 시점 모듈 속성으로 주입 — 테스트가 episode.EPISODES_DIR
+        # 를 monkeypatch 해 원장을 격리할 수 있게 한다(기본값 바인딩 회피).
+        episode.append(_reweave_episode_record(result, fix=fix, weekly_summary=weekly_summary),
+                       episodes_dir=episode.EPISODES_DIR)
+    except (episode.EpisodeSchemaError, Exception) as e:  # noqa: B014 — 명시적 fail-soft
+        print(f"[curate] reweave episode 기록 실패(무시): {e}", file=sys.stderr)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="LLM wiki curate")
     parser.add_argument("--all", action="store_true")
@@ -1026,6 +1327,14 @@ def main() -> None:
                         help="graph health 지표 출력 (avg degree, components, BC top, low-degree count)")
     parser.add_argument("--suggest-bridges", type=int, default=0, metavar="N",
                         help="betweenness/structural-hole 기반 missing link 추천 N개")
+    parser.add_argument("--reweave", action="store_true",
+                        help="weak 스캔·reweave_queue 생성·observing 만료 처리 (v0.3 WS-3, 매일)")
+    parser.add_argument("--fix", action="store_true",
+                        help="--reweave 조합: 자동 보강 가능분(summary·source_count·updated) 즉시 적용")
+    parser.add_argument("--dry-run", action="store_true",
+                        help="--reweave 조합: 아무 파일도 변경하지 않고 계획만 출력")
+    parser.add_argument("--weekly-summary", action="store_true",
+                        help="--reweave 조합: 최근 28일 반복 weak 통합/삭제 후보 리포트 (일요일)")
     args = parser.parse_args()
 
     if args.purge:
@@ -1044,7 +1353,16 @@ def main() -> None:
         suggest_bridges(args.suggest_bridges)
         return
 
-    run_all = args.all or not any([args.audit, args.distill, args.lifecycle])
+    if args.dry_run and not args.reweave:
+        print("[curate] --dry-run 은 --reweave 전용 플래그 — 무시", file=sys.stderr)
+
+    # --reweave --dry-run: 파일 무변경 계약 — 계획만 출력하고 종료한다.
+    # (다른 모드와 조합하지 않는다 — run_distill 등은 큐 파일을 쓰므로 dry-run 과 양립 불가.)
+    if args.reweave and args.dry_run:
+        run_reweave(fix=args.fix, dry_run=True, weekly_summary=args.weekly_summary)
+        return
+
+    run_all = args.all or not any([args.audit, args.distill, args.lifecycle, args.reweave])
     pages = find_all_wiki_pages()
     print(f"[curate] {datetime.now().strftime('%Y-%m-%d %H:%M')} — {len(pages)}개 페이지 분석")
 
@@ -1054,12 +1372,20 @@ def main() -> None:
     # merge-review 는 audit 류 분석(근접 중복 표면화)이라 audit 게이트와 함께 돈다.
     merge_candidates = find_merge_candidates(pages) if (run_all or args.audit) else []
 
-    write_report(audit_result, distilled, lifecycle_result, merge_candidates)
+    reweave_result = run_reweave(fix=args.fix,
+                                 weekly_summary=args.weekly_summary) if args.reweave else None
 
-    mode = "all" if run_all else "+".join(
-        m for m, on in [("audit", args.audit), ("distill", args.distill), ("lifecycle", args.lifecycle)] if on
-    )
-    _record_curate_episode(mode, audit_result, distilled, lifecycle_result)
+    write_report(audit_result, distilled, lifecycle_result, merge_candidates,
+                 reweave=reweave_result)
+
+    if run_all or args.audit or args.distill or args.lifecycle:
+        mode = "all" if run_all else "+".join(
+            m for m, on in [("audit", args.audit), ("distill", args.distill), ("lifecycle", args.lifecycle)] if on
+        )
+        _record_curate_episode(mode, audit_result, distilled, lifecycle_result)
+    if reweave_result is not None:
+        _record_reweave_episode(reweave_result, fix=args.fix,
+                                weekly_summary=args.weekly_summary)
 
 
 if __name__ == "__main__":
