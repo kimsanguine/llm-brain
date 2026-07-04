@@ -235,6 +235,10 @@ wiki 전체를 감사(audit) + 압축(distill) + 수명 관리(lifecycle)하는 
 | `--record-access PAGE_SLUG` | `wiki_stats.json`에 페이지 접근 기록 (query 모드에서 호출) |
 | `--health` | graph health 지표 출력 (avg degree, components, BC top, low-degree count) |
 | `--suggest-bridges N` | betweenness/structural-hole 기반 missing link 추천 N개 |
+| `--reweave` | weak content 스캔(본문<800자 OR 근거<2건 OR H2<3개) → `wiki/reweave_queue.md` 큐 생성 + `wiki/observing/` 만료 페이지 `wiki/rejected/` 이동 (v0.3.0 WS-3, 매일) |
+| `--fix` | `--reweave` 조합: 자동 보강 가능분(summary·source_count·updated — memory_health fix 엔진 위임, idempotent)만 즉시 적용. 본문·근거 부족은 alert만(가짜 보강 금지) |
+| `--dry-run` | `--reweave` 조합: 아무 파일도 변경·생성하지 않고 계획만 stdout 출력 (리포트·큐·episode 미기록) |
+| `--weekly-summary` | `--reweave` 조합: 최근 28일 reweave 에피소드에서 4회+ 반복 weak 노드를 통합/삭제 후보로 리포트. episodes 부재/부족 시 현재 스캔만으로 후보 + "이력 부족" 정직 표기 |
 
 인자 없이 실행하면 `--all`과 동일하게 동작한다.
 
@@ -253,8 +257,9 @@ wiki 전체를 감사(audit) + 압축(distill) + 수명 관리(lifecycle)하는 
 
 | 파일 | 생성 조건 |
 |------|----------|
-| `wiki/curate_report.md` | 항상 생성 (audit·distill·lifecycle 결과 통합) |
+| `wiki/curate_report.md` | 항상 생성 (audit·distill·lifecycle·reweave 결과 통합) |
 | `wiki/distill_queue.md` | `--distill` 또는 `--all` 실행 시 |
+| `wiki/reweave_queue.md` | `--reweave` 실행 시 (판단 필요분 체크박스 큐 — LLM 컴파일러가 `commands/curate.md` Step 3에서 소비. `--dry-run` 시 미작성) |
 
 #### memory_score — 메타 기억 점수 (US-006, 재사용 우선·결정적)
 
@@ -285,6 +290,19 @@ score = Σ weight·norm(signal),  norm(x) = min(x / CAP, 1.0)
 실제 archive 게이트는 `run_lifecycle()`(`age>ttl AND inbound==0`)이다. 여기서 `_rescue_split()`이 archive 후보에 `memory_score`를 매겨 **상위 `RESCUE_TOP_PCT_DEFAULT`(0.20) 중 score>0**인 페이지를 archive에서 제외해 보존한다(상대 임계 — 출시 직후 재사용 이력이 비어 절대 임계는 과녁이 움직임). 보존 페이지는 `curate_report.md`의 별도 `## Rescued` 섹션에 기록되고, `delete` 후보와 `--purge` 이동 대상(Lifecycle 섹션 한정 정규식)에서도 제외된다. `run_lifecycle()` 반환: `{"archive": [...], "delete": [...], "rescued": [...]}`.
 
 > ✅ **curate episode 기록(US-002, 배선됨):** `curate.py`는 run(audit/distill/lifecycle) 후 `_record_curate_episode`가 실행 요약(orphans·stale_links·distill_queued·archive/delete/rescued 카운트)을 episode로 기록한다(fail-soft). 4 배선점(ingest·express·wiki_app·curate) 모두 완료. (curate는 점수용으로 episode를 읽기도 함 — `build_episode_ref_index`.)
+
+#### reweave — Daily Quality-Driven Curate (v0.3.0 WS-3, 구현됨)
+
+`run_reweave(fix, dry_run, weekly_summary, now)`는 **기존 자산 오케스트레이터**다 (신규 엔진 아님, LLM 호출 0):
+
+1. **weak 스캔**: `memory_health.py`의 weak 판정(`_weak_content_issues` — 본문<800자 OR 근거<2건 OR H2<3개)을 import 재사용. 판단 필요분은 `wiki/reweave_queue.md`(distill_queue와 동일 체크박스 패턴)로 큐잉 — 보강 실행은 `commands/curate.md` Step 3의 LLM 컴파일러 담당.
+2. **자동 보강(`--fix`)**: memory_health의 fix 엔진(`_plan_page_fixes` — summary·source_count·updated 기계적 채움, idempotent)에 위임. 쓰기는 `frontmatter_utils.write_fm`(body 무손상). `memory_health.run_fix`를 통째로 쓰지 않는 이유: run_fix는 wiki 전체를 돌아 observing/·rejected/까지 건드리는데 두 폴더는 격리 대상이라, 같은 엔진 조각을 격리 필터와 함께 재구동한다.
+3. **observing 만료**: `wiki/observing/`을 직접 스캔해 `gates.evaluate_observing_expiry(page, today)` 적용 → 만료면 `gate_status: rejected` 갱신 후 `wiki/rejected/`로 이동(결정적 파일 작업). 판정 실패(만료일 결손 등)는 파일 무변경 + 리포트 경고로 표면화.
+4. **격리**: `find_all_wiki_pages()`가 `observing/`·`rejected/`·`reweave_queue.md`를 제외(정규 audit/distill/lifecycle/merge-review에서 격리), `LIFECYCLE_EXEMPT`에도 두 폴더 등재(TTL decay 면제). okf는 `schema/okf_export.yaml` `exclude_paths`(`observing/**`·`rejected/**`·`reweave_queue.md`)로 봉인.
+5. **episode**: 실행 후 `task_type: reweave`로 기록(fail-soft) — `read_pages` = 그 런의 weak 목록. `lib/memory_score.build_episode_ref_index`는 `reweave`를 집계에서 제외한다(express_* 제외와 같은 자기 점수 되먹임 차단).
+6. **`--weekly-summary`**: 최근 28일 reweave 에피소드의 `read_pages` + 현재 스캔을 런 단위로 집계해 4회+ 반복 weak 노드를 통합/삭제 후보로 리포트(`## Reweave` → `### Weekly Summary`). 집계 런 <4면 현재 스캔만으로 후보 + "이력 부족" 정직 표기(fail-soft). 실제 이동·삭제는 사용자 승인 필수.
+
+`curate_report.md`에 `## Reweave` 섹션(`fixed: N / alert: M / expired: K` + 상세)이 추가된다. `--dry-run`은 계획만 stdout 출력하고 어떤 파일도 쓰지 않는다.
 
 ---
 
@@ -918,10 +936,15 @@ score = 35·norm(express_reuse) + 25·norm(episode_ref) + 15·norm(centrality)
 
 ---
 
-# v0.3 Quality-Driven Curation — 설계 (계획 확정 2026-07-04, 구현 착수 전)
+# v0.3 Quality-Driven Curation — 설계 (v0.3.0 구현 완료 2026-07-04)
 
 > 요구사항(WHAT): `docs/PRD.md` 이니셔티브 ③ · 진행·결정: `docs/PROGRESS.md` 이니셔티브 ③.
-> 이 절은 **계획 상태**다 — 아래 인터페이스는 구현 완료 시 위 "스크립트 인터페이스"·"스키마 명세" 절로 승격하고 이 절을 현재형으로 갱신한다 (drift 방지).
+> **v0.3.0 범위는 구현 완료**: §B의 `lib/memory_score.py` 추출 · `lib/gates.py`(G-1~G-4) ·
+> `curate --reweave`(위 "스크립트 인터페이스" curate 절 "#### reweave" 참조) ·
+> `memory_health --fix` · ingest hard dedup · sync_raw capture 필터, §C의 observing/rejected·
+> reweave_queue, §D 3점 방어. **계획으로 남은 것**: §B `lib/llm_client.py`(v0.3.2) ·
+> §C `contradiction_queue.md`(v0.3.1) · §E `run_daily.sh` 배치 개정 · v0.3.1+(WS-1 synthesis ·
+> WS-5 reconciliation).
 
 ## §A — 척추: LLM 실행 경계 (v0.2.0 계약 불변)
 
@@ -955,7 +978,7 @@ scripts/
 ## §C — 파일·frontmatter 계약 (v0.3 신규)
 
 - 신규 폴더: `wiki/observing/`(7일 유예) · `wiki/rejected/`(사유 분류 기각). **gitignored**.
-- 신규 큐: `wiki/reweave_queue.md` · `wiki/contradiction_queue.md` — `distill_queue.md`와 동일 체크박스 패턴. okf `META_FILES` 등재.
+- 신규 큐: `wiki/reweave_queue.md`(구현됨) · `wiki/contradiction_queue.md`(v0.3.1) — `distill_queue.md`와 동일 체크박스 패턴. 공개 번들 봉인은 `schema/okf_export.yaml` `exclude_paths`의 `reweave_queue.md`로 수행(okf `META_FILES` 등재는 okf_export.py 접촉 시 이관 — v0.3.0은 무수정).
 - frontmatter 신규(전부 optional): `gate_status: created|enriched|observing|rejected`(episodes JSONL `status`와 충돌 회피 개명) · `observation_expires` · `recurrence: N` · `angles: [..]` · `signal_count: N` · `synthesis_updated` · `superseded_claims: [..]` · `last_reconciled` · [v0.3.2] `owner` · `scope: private|shared`.
 - frontmatter 쓰기: `lib/frontmatter_utils` 경유(body 무손상; fm 블록 yaml 재직렬화 허용 — "raw write" 정의 확정, PROGRESS ③). 파서 신설 금지.
 

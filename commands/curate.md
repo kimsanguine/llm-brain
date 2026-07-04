@@ -22,7 +22,7 @@ cd "$(git rev-parse --show-toplevel)"  # llm-brain 레포 루트
 uv run python scripts/curate.py $ARGUMENTS
 ```
 
-실행 결과로 `wiki/curate_report.md`, `wiki/distill_queue.md`가 생성됩니다.
+실행 결과로 `wiki/curate_report.md`, `wiki/distill_queue.md`(--distill/--all 시), `wiki/reweave_queue.md`(--reweave 시)가 생성됩니다.
 
 ## Step 2: distill 실행 (--distill 또는 --all 일 때)
 
@@ -38,9 +38,7 @@ uv run python scripts/curate.py $ARGUMENTS
 
 ## Step 3: reweave 실행 (--reweave 일 때)
 
-> 스크립트 측 `--reweave`(weak 스캔·큐 생성·자동 fix)는 다음 Wave 구현 — 인터페이스는 `SPEC.md` "v0.3 Quality-Driven Curation — 설계" §A·§C 계약 기준.
-
-Step 1의 스크립트가 산출한 `wiki/reweave_queue.md`(weak-node·synthesis 대상, distill_queue와 동일 체크박스 패턴)와 alert(판단 필요분: 본문·근거 부족 — 자동 fix 불가분)를 읽고 처리합니다:
+Step 1의 스크립트가 산출한 `wiki/reweave_queue.md`(weak-node 판단 필요분, distill_queue와 동일 체크박스 패턴 — synthesis 대상 큐잉은 v0.3.1)와 `curate_report.md`의 `## Reweave` 섹션 alert(판단 필요분: 본문·근거 부족 — 자동 fix 불가분)를 읽고 처리합니다:
 
 1. **보강 (weak-node 판단 필요분)**: 각 대상 페이지에 대해
    - 페이지 본문과 frontmatter `sources`의 raw/ 파일 읽기
