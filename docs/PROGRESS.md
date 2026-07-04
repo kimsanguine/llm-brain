@@ -41,8 +41,16 @@
 - **잔여(deferred, 비차단)**: ⑴ --note hard-dedup 실질 무발화(`HHMM-note` slug가 날짜접두 제거 후에도 index와 불일치 — 회귀 아님, 노트는 원래 dedup 안 됨) ⑵ V2 Codex 적대검증 미회수(예산 재개 시 재실행 권장) ⑶ okf `META_FILES`로 reweave_queue 이관(okf_export.py 접촉 시).
 - **⚠ 예산 블로커**: 병렬 worktree 서브에이전트가 API 월 지출한도 초과로 종료됨. v0.3.1·v0.3.2 병렬 진행은 한도 상향 후 재개 필요(사람 결정).
 
+### v0.3.1 Synthesis — 구현·검증 완료 (2026-07-04)
+- **상태**: WS-1(종합)+WS-5(모순 화해) 3-Wave 구현 완료, main 적재(`ad89a18` tip). **482 통과**·audit 0·okf 0. (아직 origin push 전 — v0.3.2까지 묶어 최종 push 예정.)
+- **커밋**: synthesis lib 21테스트(`9a70b26`) + reconcile lib 28테스트(`82e6345`) + curate 배선 13테스트(`ad89a18`). 설계 = gates.py 패턴 반복(순수 lib → curate import 배선), "claude 없이 pytest" 계약 유지.
+- **핵심 설계 판단**: ⑴ shrink 가드를 audit 전역이 아닌 **synthesis 대상 한정 스냅샷**(`.synthesis_snapshot.json`)으로 — distill이 본문을 의도적 압축하므로 전역 스냅샷은 오탐 폭발. ⑵ reconcile은 **정밀도 우선**(주제 게이트 min_overlap≥2 + 공통 주어 요건 + 극 소비 매칭) — WS-5 Q3 "반론 남발" 방지. ⑶ 종합은 distill 아닌 reweave 큐에 배선(synthesis.py 계약·commands Step 3 정합).
+- **Wave 7 검증**: E2E 실측 **PASS 4/4 + 오탐 반례 2/2**(모순 감지+오탐억제·종합 대상·shrink 감지+오탐억제·okf 봉인 전부 실관측). 이든 직접 적대 점검 = reconcile 오탐 3케이스(주어 다름·동일 주장·단순 보강) 전부 억제, 진짜 모순만 검출. **codex 적대 렌즈 2연속 mailbox 무응답 → 미회수**(v0.3.0 선례), E2E+유닛(synthesis 21·reconcile 28)+직접 적대점검으로 기술 렌즈 보강.
+- **잔여**: contradiction_queue okf 봉인도 title-skip이 활성 기전(reweave_queue와 동일, exclude_paths는 백스톱) · `.synthesis_snapshot.json`은 `.json`이라 okf `*.md` 스캔 비대상(구조적 안전) · codex 적대렌즈 예산 재개 시 보강 권장.
+
 ### Decision Log — ③
 > 형식: `[날짜] 결정 — 근거(룰) · 가역성 · 검증`
+- **[2026-07-04] v0.3.1 = synthesis·reconcile 순수 lib + curate 배선 (gates.py 패턴 반복)** — Rule 2·3. 초안 PRD의 curate.py 내 LLM 직접호출안 대신 결정적 lib(대상선정·모순탐지·shrink가드) + LLM은 commands Step. shrink 가드는 synthesis 대상 한정 스냅샷(전역은 distill 오탐). reconcile 정밀도 우선(오탐 최소). 가역. 검증: E2E 4/4+오탐 2/2, 직접 적대점검 오탐 3/3 억제, 482 통과.
 - **[2026-07-04] v0.3.0 major fix = memory_health 단독 --fix 경로도 gates 격리 폴더 제외** — Rule 3·8. V1 리뷰가 `_collect_pages`의 observing/rejected 미제외 + `_SKIP_META`의 reweave_queue.md 부재로 사적 판단폴더 write 격리 우회 포착. curate.find_all_wiki_pages와 정합(`_SKIP_DIRS`). 데이터안전은 보존됐으나(frontmatter-only·idempotent) stated 불변식 위반이라 즉시 수정(v0.3.1 defer 안 함 — fix 자명·작음). 가역. 검증: 임시픽스처 3폴더 md5 불변 실측 + 회귀테스트 + 420 통과.
 - **[2026-07-04] V3 E2E 예산초과 → 메인 세션 직접 실측 대체** — Rule 4·8. 서브에이전트가 API 한도로 죽어 "테스트 green ≠ 작동" 실측을 메인이 직접 수행(5/5 관측). 단일 렌즈 불신 원칙상 V2 Codex 미회수는 잔여로 남김(예산 재개 시 보강). 가역. 검증: reweave 실경로 CLI 관측 인용.
 - **[2026-07-04] 초안 PRD 검증 = 2-에이전트 크로스체크 (사실 주장 11항 검증 + 구현 지형 8항)** — Rule 4·1. 결과: 설계안(§4 ③)이 v0.2.0 계약·자산과 마찰 7건(블로킹 3) → 개정 후 이관. 가역. 검증: 항목별 file:line 실측 대조.
