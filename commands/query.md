@@ -23,9 +23,10 @@ llm-brain의 query 커맨드입니다. 질문: **$ARGUMENTS**
 읽은 wiki 페이지 내용만을 근거로 답변합니다.
 
 **중요 원칙**:
-- wiki 페이지에 없는 내용은 "wiki에 해당 정보가 없습니다"라고 명시
+- current claim ledger에 없는 내용은 "wiki에 해당 정보가 없습니다"라고 명시
 - Claude 학습 데이터로 wiki 내용을 보완하지 않음
-- 답변 마지막에 참조한 wiki 페이지 목록을 `[[페이지명]]` 형식으로 표시
+- 사용한 claim에는 문장 끝에 `[claim:slug-N]` 형식 인용을 붙이고, 답변 끝에 `## 출처` provenance footer를 덧붙임
+- `raw/newsletters/**`·`raw/clippings/**` 같은 외부 capture는 "검증 전" 참고 정보로만 다룸
 
 ## Step 4: access_count 갱신
 

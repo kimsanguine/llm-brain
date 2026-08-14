@@ -916,6 +916,18 @@ decay_policy: default     # 명명된 정책 키 (선택)
 
 markdown 기본, `--json`은 동일 구조. <1s 목표(file-first, 임베딩 없음).
 
+### C3-b. claim_ledger (P0 query provenance)
+
+`schema/claim_ledger.md` 계약의 `ClaimRecord`를 query 경로에서 사용한다.
+
+- source provenance: `source_path` + `source_sha256` + `source_locator`
+- claim status: `active | untrusted | stale | superseded`
+- validity interval: `updated` 우선 `valid_from`, `observation_expires` 또는 `+180일` `valid_until`
+- trusted query context에는 `active` claim만 포함
+- `raw/newsletters/**`·`raw/clippings/**`·URL source는 `untrusted`로 분리
+- LLM 답변 citation token: `[claim:slug-N]`
+- cited answer footer는 current claim만 렌더하고 `stale` / `superseded`는 제거
+
 ### C4. memory_score (US-006, 재사용 우선·결정적)
 
 ```

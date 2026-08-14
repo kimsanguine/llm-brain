@@ -32,6 +32,7 @@ except Exception:  # pragma: no cover — 방어적: episode 부재 시 기록�
 
 # LLM 엔진 추상화 (cli|api 분기). subprocess 수명 관리도 여기로 이관됐다.
 from lib import llm_client  # noqa: E402
+from lib import claim_ledger  # noqa: E402
 from lib.llm_client import (  # noqa: E402,F401  process 수명 훅 re-export
     LLMError,             # stream 핸들러가 cli 비정상 종료를 event: error 로 표면화
     _kill_process_group,  # 기존 테스트 훅 유지 (api_module._kill_process_group)
@@ -105,22 +106,20 @@ _AI_CONTEXT_BODY_CHARS = 8000
 
 
 def _collect_context(slugs, wiki_root):
-    """context_slugs → (context 문자열, 유효 slug 목록). 페이지 본문은 char cap.
+    """context_slugs → (context 문자열, 유효 slug 목록, claim ledger).
 
     non-stream/stream 양쪽이 동일 로직을 쓰도록 추출.
     """
-    chunks = []
     valid = []
     for slug in slugs[:5]:  # 최대 5개 (토큰 제어)
         try:
-            page = pages.load_page(slug, wiki_root=wiki_root)
+            pages.load_page(slug, wiki_root=wiki_root)
         except pages.PageNotFound:
             continue
-        body = page["body_md"][:_AI_CONTEXT_BODY_CHARS]
-        chunks.append(f"## {slug}\n\n{body}")
         valid.append(slug)
-    context = "\n\n---\n\n".join(chunks) if chunks else "(컨텍스트 페이지 없음)"
-    return context, valid
+    ledger = claim_ledger.build_claim_ledger(valid, wiki_root=wiki_root, now=_dt.date.today())
+    context = claim_ledger.render_llm_context(ledger) if valid else "(컨텍스트 페이지 없음)"
+    return context, valid, ledger
 
 
 def create_app(wiki_root: Path | None = None) -> FastAPI:
@@ -281,10 +280,12 @@ def create_app(wiki_root: Path | None = None) -> FastAPI:
             }
 
         # 컨텍스트 페이지 본문 수집 (페이지당 char cap)
-        context, valid_slugs = _collect_context(req.context_slugs, wiki_root)
+        context, valid_slugs, ledger = _collect_context(req.context_slugs, wiki_root)
         prompt = (
-            "다음 wiki 페이지 컨텍스트만 사용해 사용자 질문에 답변해주세요. "
-            "컨텍스트에 없는 사실은 추측하지 말고 '관련 정보 없음'으로 답하세요.\n\n"
+            "다음 claim ledger만 사용해 사용자 질문에 답변해주세요. "
+            "trusted claim만 사실로 단정하고, 검증 전 외부 캡처는 미확인 참고 정보로만 다루세요. "
+            "ledger에 없는 사실은 추측하지 말고 '관련 정보 없음'으로 답하세요. "
+            "답변에서 사용한 claim은 문장 끝에 [claim:slug-N] 형식으로 표시하세요.\n\n"
             f"# 사용자 질문\n{req.question}\n\n"
             f"# 컨텍스트\n{context}"
         )
@@ -296,6 +297,7 @@ def create_app(wiki_root: Path | None = None) -> FastAPI:
             answer = await llm_client.call_llm(
                 prompt, config=llm_config, timeout=_AI_ANSWER_TIMEOUT
             )
+            answer = claim_ledger.render_cited_answer(answer, ledger)
             answer_status = "done"
         except asyncio.TimeoutError:
             answer_status = "timeout"
@@ -349,13 +351,15 @@ def create_app(wiki_root: Path | None = None) -> FastAPI:
                 return
 
             # context 수집 (non-stream 과 동일 로직 · 페이지당 char cap)
-            context, valid_slugs = _collect_context(req.context_slugs, wiki_root)
+            context, valid_slugs, _ledger = _collect_context(req.context_slugs, wiki_root)
 
             yield f"event: meta\ndata: {_json.dumps({'context_slugs': valid_slugs}, ensure_ascii=False)}\n\n"
 
             prompt = (
-                "다음 wiki 페이지 컨텍스트만 사용해 사용자 질문에 답변해주세요. "
-                "컨텍스트에 없는 사실은 추측하지 말고 '관련 정보 없음'으로 답하세요.\n\n"
+                "다음 claim ledger만 사용해 사용자 질문에 답변해주세요. "
+                "trusted claim만 사실로 단정하고, 검증 전 외부 캡처는 미확인 참고 정보로만 다루세요. "
+                "ledger에 없는 사실은 추측하지 말고 '관련 정보 없음'으로 답하세요. "
+                "답변에서 사용한 claim은 문장 끝에 [claim:slug-N] 형식으로 표시하세요.\n\n"
                 f"# 사용자 질문\n{req.question}\n\n"
                 f"# 컨텍스트\n{context}"
             )

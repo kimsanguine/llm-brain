@@ -722,3 +722,86 @@ def test_ai_answer_excludes_traversal_slug_silently(tmp_path, monkeypatch):
     assert data["status"] == "done"
     # containment 미통과 → sources 에서 조용히 제외 (422 아님)
     assert data["sources"] == []
+
+
+def test_ai_answer_uses_claim_ledger_context_and_renders_citations(tmp_path, monkeypatch):
+    """query context는 current trusted claims만 보내고, 외부 capture는 untrusted로
+    격리하며, 응답은 claim citation을 provenance footer로 렌더링해야 한다."""
+    project_root = tmp_path / "proj"
+    wiki_root = project_root / "wiki"
+    (wiki_root / "concepts").mkdir(parents=True)
+    (project_root / "raw" / "notes").mkdir(parents=True)
+    (project_root / "raw" / "newsletters").mkdir(parents=True)
+    (project_root / "index.md").write_text("## concepts/ (4개)\n", encoding="utf-8")
+
+    (project_root / "raw" / "notes" / "alpha.md").write_text("Alpha current fact.\n", encoding="utf-8")
+    (project_root / "raw" / "notes" / "gamma.md").write_text("Gamma stale fact.\n", encoding="utf-8")
+    (project_root / "raw" / "notes" / "delta.md").write_text(
+        "Old claim.\nCurrent replacement.\n", encoding="utf-8"
+    )
+    (project_root / "raw" / "newsletters" / "beta.md").write_text(
+        "Beta external capture.\n", encoding="utf-8"
+    )
+
+    def page(title: str, body: str, sources: str, extra: str = "", updated: str = "2026-08-10") -> str:
+        return (
+            "---\n"
+            f"title: {title}\n"
+            "created: 2026-08-01\n"
+            f"updated: {updated}\n"
+            "sources:\n"
+            f"  - {sources}\n"
+            f"{extra}"
+            "---\n\n"
+            f"{body}\n"
+        )
+
+    (wiki_root / "concepts" / "alpha.md").write_text(
+        page("Alpha", "Alpha current fact.", "raw/notes/alpha.md"), encoding="utf-8"
+    )
+    (wiki_root / "concepts" / "beta.md").write_text(
+        page("Beta", "Beta external capture.", "raw/newsletters/beta.md"), encoding="utf-8"
+    )
+    (wiki_root / "concepts" / "gamma.md").write_text(
+        page("Gamma", "Gamma stale fact.", "raw/notes/gamma.md", updated="2025-01-01"),
+        encoding="utf-8",
+    )
+    (wiki_root / "concepts" / "delta.md").write_text(
+        page(
+            "Delta",
+            "Old claim. Current replacement.",
+            "raw/notes/delta.md",
+            extra='superseded_claims: ["Old claim."]\n',
+        ),
+        encoding="utf-8",
+    )
+
+    local_client = TestClient(create_app(wiki_root=wiki_root))
+
+    monkeypatch.setattr(api_module.llm_client, "load_llm_config", lambda: {"engine": "api"})
+    captured = {}
+
+    async def fake_call_llm(prompt, *, config, timeout):
+        captured["prompt"] = prompt
+        return "Alpha answer [claim:alpha-1]. Delta answer [claim:delta-2]."
+
+    monkeypatch.setattr(api_module.llm_client, "call_llm", fake_call_llm)
+
+    r = local_client.post(
+        "/api/ai-answer",
+        json={"question": "요약해줘", "context_slugs": ["alpha", "beta", "gamma", "delta"]},
+    )
+
+    assert r.status_code == 200
+    data = r.json()
+    assert data["status"] == "done"
+    assert "## trusted claim ledger" in captured["prompt"]
+    assert "Alpha current fact." in captured["prompt"]
+    assert "Current replacement." in captured["prompt"]
+    assert "Gamma stale fact." not in captured["prompt"]
+    assert "Old claim." not in captured["prompt"]
+    assert "## 외부 캡처 원문 (검증 전)" in captured["prompt"]
+    assert "Beta external capture." in captured["prompt"]
+    assert "## 출처" in data["answer"]
+    assert "raw/notes/alpha.md#L1-L1" in data["answer"]
+    assert "raw/notes/delta.md#L2-L2" in data["answer"]

@@ -204,7 +204,7 @@ wiki/ → express/blog/ → raw/blog/ → wiki/   ← 피드백 루프
 
 ### 🔍 query — 물어보기: wiki 기반 답변 *Query · Wiki-grounded Answers*
 
-**한 줄로: 내 지식에 '물어보기'.** wiki에 있는 내용만 근거로 답한다 — 없으면 솔직히 "없다"고 한다(지어내지 않는다).
+**한 줄로: 내 지식에 '물어보기'.** wiki에 있는 current claim만 근거로 답한다 — 없으면 솔직히 "없다"고 한다(지어내지 않는다).
 
 ▶ **Claude Code 입력창**에서 자연어로 물어본다:
 
@@ -215,6 +215,8 @@ Claude: wiki/ 내용 기반으로만 답변
 ```
 
 물어본 페이지는 열어본 횟수(`access_count`)가 올라가, 다음 `curate --distill`에서 자동으로 먼저 정리된다.
+
+v0.4 P0부터는 답변이 `[claim:slug-N]` 인용 토큰과 `## 출처` provenance footer를 붙일 수 있다. `raw/newsletters/**`·`raw/clippings/**` 같은 외부 capture는 trusted 사실과 분리해 "검증 전"으로만 다룬다.
 
 ### 🌐 wiki-web — 웹으로 보기: HTML 검색·페이지뷰 *Local HTML Search UI*
 
