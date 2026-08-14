@@ -232,7 +232,7 @@ wiki 전체를 감사(audit) + 압축(distill) + 수명 관리(lifecycle)하는 
 | `--distill` | distill 후보 분류 및 `wiki/distill_queue.md` 생성 |
 | `--lifecycle` | lifecycle archive/delete 후보 목록 생성 |
 | `--purge` | `curate_report.md`의 archive 후보를 `wiki/archive/`로 실제 이동 |
-| `--record-access PAGE_SLUG` | `wiki_stats.json`에 페이지 접근 기록 (query 모드에서 호출) |
+| `--record-access PAGE_SLUG` | `wiki_stats.json`에 페이지 접근 기록 (명시적 opt-in; query는 자동 호출하지 않음) |
 | `--health` | graph health 지표 출력 (avg degree, components, BC top, low-degree count) |
 | `--suggest-bridges N` | betweenness/structural-hole 기반 missing link 추천 N개 |
 | `--reweave` | weak content 스캔(본문<800자 OR 근거<2건 OR H2<3개) → `wiki/reweave_queue.md` 큐 생성 + `wiki/observing/` 만료 페이지 `wiki/rejected/` 이동 (v0.3.0 WS-3, 매일) |
@@ -918,15 +918,19 @@ markdown 기본, `--json`은 동일 구조. <1s 목표(file-first, 임베딩 없
 
 ### C3-b. claim_ledger (P0 query provenance)
 
-`schema/claim_ledger.md` 계약의 `ClaimRecord`를 query 경로에서 사용한다.
+`schema/claim_ledger.md` 계약의 strict `ClaimRecord`를 repository-root
+`claims.jsonl`에 저장한다. `scripts/claims.py build`만 atomic replace를 수행하고,
+`context`와 API query는 읽기 전용이다.
 
-- source provenance: `source_path` + `source_sha256` + `source_locator`
-- claim status: `active | untrusted | stale | superseded`
-- validity interval: `updated` 우선 `valid_from`, `observation_expires` 또는 `+180일` `valid_until`
-- trusted query context에는 `active` claim만 포함
-- `raw/newsletters/**`·`raw/clippings/**`·URL source는 `untrusted`로 분리
-- LLM 답변 citation token: `[claim:slug-N]`
-- cited answer footer는 current claim만 렌더하고 `stale` / `superseded`는 제거
+- required provenance: `claim_id`, `statement`, `kind`, `raw_path`, 정확한 64-hex
+  `raw_sha256`, `valid_from`, `valid_until`, `status`, `trust`; `locator`만 optional
+- allowed status: `active | stale | superseded`; trust: `trusted | untrusted`
+- malformed/partial/unknown-field/duplicate record 하나라도 있으면 API/CLI 전체 fail closed
+- trusted query/citation: `active + trusted + current validity + current raw hash match`만 허용
+- stale와 raw mutation은 각각 `stale`, `source_hash_mismatch`로 구분해 제외
+- 외부 capture statement는 single-line canonical JSON data로 격리하고 명령/인용 불허
+- LLM citation token: `[claim:slug-N]`; invalid/non-active claim 하나라도 있으면 답변 거부
+- SSE는 `_AI_STREAM_MAX_CHUNKS`/`_AI_STREAM_MAX_BYTES` 안에서 buffering 후 동일 gate 적용
 
 ### C4. memory_score (US-006, 재사용 우선·결정적)
 

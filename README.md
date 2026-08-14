@@ -214,9 +214,13 @@ Claude: wiki/ 내용 기반으로만 답변
         (wiki에 없으면 "raw 데이터가 필요합니다")
 ```
 
-물어본 페이지는 열어본 횟수(`access_count`)가 올라가, 다음 `curate --distill`에서 자동으로 먼저 정리된다.
+query는 읽기 전용이라 `raw/`·`wiki/`·`wiki_stats.json`·Canvas를 변경하지 않는다.
+접근 통계나 Canvas 생성이 필요하면 query와 분리된 명시적 명령으로 실행한다.
 
-v0.4 P0부터는 답변이 `[claim:slug-N]` 인용 토큰과 `## 출처` provenance footer를 붙일 수 있다. `raw/newsletters/**`·`raw/clippings/**` 같은 외부 capture는 trusted 사실과 분리해 "검증 전"으로만 다룬다.
+v0.4 P0부터는 persisted `claims.jsonl`의 `active + trusted` claim 중 원래 raw SHA-256이
+현재 bytes와 일치하는 근거만 답변과 `[claim:slug-N]`/`## 출처`에 사용할 수 있다.
+`raw/newsletters/**`·`raw/clippings/**` 같은 외부 capture는 명령으로 해석할 수 없는
+data-only JSON payload로 격리되며 인용할 수 없다.
 
 ### 🌐 wiki-web — 웹으로 보기: HTML 검색·페이지뷰 *Local HTML Search UI*
 

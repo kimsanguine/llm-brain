@@ -1,4 +1,6 @@
 import asyncio
+import hashlib
+import json
 import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -404,14 +406,13 @@ def test_ai_answer_stream_drains_stderr_concurrently(client, patched_subprocess)
                        json={"question": "ping", "context_slugs": []}) as r:
         body = r.read().decode("utf-8")
 
-    # (a) stderr 가 drain 돼 hang 없이 완료 — 모든 stdout chunk 가 표면화됨
-    assert "chunk-1" in body
-    assert "chunk-2" in body
-    assert "chunk-3" in body
+    # (a) stderr 가 drain 돼 hang 없이 완료
     # (b) non-zero returncode → stderr 메시지가 event: error 로 표면화
     assert "event: error" in body, "returncode≠0 시 event: error 방출해야 함"
     assert "rate limit exceeded" in body, "stderr 메시지가 error event 에 실려야 함"
     assert "event: done" not in body, "실패 케이스에선 done 이 아니라 error"
+    # provenance 검증 전에 받은 stdout 은 사용자에게 먼저 흘리지 않는다.
+    assert "event: chunk" not in body
     # proc 은 정상 종료(returncode 설정) → finally 의 _terminate_proc 은 no-op
     assert proc.waited is True
 
@@ -743,6 +744,58 @@ def test_ai_answer_uses_claim_ledger_context_and_renders_citations(tmp_path, mon
         "Beta external capture.\n", encoding="utf-8"
     )
 
+    def persisted_claim(
+        claim_id: str,
+        statement: str,
+        raw_path: str,
+        *,
+        status: str = "active",
+        trust: str = "trusted",
+    ) -> dict:
+        return {
+            "claim_id": claim_id,
+            "statement": statement,
+            "kind": "fact",
+            "raw_path": raw_path,
+            "raw_sha256": hashlib.sha256((project_root / raw_path).read_bytes()).hexdigest(),
+            "locator": f"{raw_path}#L1-L1",
+            "valid_from": "2026-08-01",
+            "valid_until": "2099-12-31",
+            "status": status,
+            "trust": trust,
+        }
+
+    claims = [
+        persisted_claim("claim:alpha-1", "Alpha current fact.", "raw/notes/alpha.md"),
+        persisted_claim(
+            "claim:beta-1",
+            "Beta external capture.",
+            "raw/newsletters/beta.md",
+            trust="untrusted",
+        ),
+        persisted_claim(
+            "claim:gamma-1",
+            "Gamma stale fact.",
+            "raw/notes/gamma.md",
+            status="stale",
+        ),
+        persisted_claim(
+            "claim:delta-1",
+            "Old claim.",
+            "raw/notes/delta.md",
+            status="superseded",
+        ),
+        persisted_claim(
+            "claim:delta-2",
+            "Current replacement.",
+            "raw/notes/delta.md",
+        ),
+    ]
+    (project_root / "claims.jsonl").write_text(
+        "".join(json.dumps(c, ensure_ascii=False) + "\n" for c in claims),
+        encoding="utf-8",
+    )
+
     def page(title: str, body: str, sources: str, extra: str = "", updated: str = "2026-08-10") -> str:
         return (
             "---\n"
@@ -787,6 +840,13 @@ def test_ai_answer_uses_claim_ledger_context_and_renders_citations(tmp_path, mon
 
     monkeypatch.setattr(api_module.llm_client, "call_llm", fake_call_llm)
 
+    before_tree = {
+        str(path.relative_to(project_root)): path.read_bytes()
+        for directory in (project_root / "raw", project_root / "wiki")
+        for path in directory.rglob("*")
+        if path.is_file()
+    }
+
     r = local_client.post(
         "/api/ai-answer",
         json={"question": "요약해줘", "context_slugs": ["alpha", "beta", "gamma", "delta"]},
@@ -804,4 +864,165 @@ def test_ai_answer_uses_claim_ledger_context_and_renders_citations(tmp_path, mon
     assert "Beta external capture." in captured["prompt"]
     assert "## 출처" in data["answer"]
     assert "raw/notes/alpha.md#L1-L1" in data["answer"]
-    assert "raw/notes/delta.md#L2-L2" in data["answer"]
+    assert "raw/notes/delta.md#L1-L1" in data["answer"]
+    after_tree = {
+        str(path.relative_to(project_root)): path.read_bytes()
+        for directory in (project_root / "raw", project_root / "wiki")
+        for path in directory.rglob("*")
+        if path.is_file()
+    }
+    assert after_tree == before_tree, "query API must preserve every raw/wiki byte"
+
+
+def test_ai_answer_fails_closed_before_llm_on_malformed_persisted_ledger(tmp_path, monkeypatch):
+    project_root = tmp_path / "proj"
+    wiki_root = project_root / "wiki"
+    (wiki_root / "concepts").mkdir(parents=True)
+    (project_root / "raw" / "notes").mkdir(parents=True)
+    (project_root / "index.md").write_text("## concepts/ (1개)\n", encoding="utf-8")
+    (project_root / "raw" / "notes" / "alpha.md").write_text(
+        "Alpha current fact.\n", encoding="utf-8"
+    )
+    (wiki_root / "concepts" / "alpha.md").write_text(
+        "---\ntitle: Alpha\nsources: [raw/notes/alpha.md]\n---\n\nAlpha current fact.\n",
+        encoding="utf-8",
+    )
+    valid = {
+        "claim_id": "claim:alpha-1",
+        "statement": "Alpha current fact.",
+        "kind": "fact",
+        "raw_path": "raw/notes/alpha.md",
+        "raw_sha256": hashlib.sha256(b"Alpha current fact.\n").hexdigest(),
+        "valid_from": "2026-08-01",
+        "valid_until": "2099-12-31",
+        "status": "active",
+        "trust": "trusted",
+    }
+    (project_root / "claims.jsonl").write_text(
+        json.dumps(valid) + "\n" + json.dumps({"claim_id": "claim:partial-1"}) + "\n",
+        encoding="utf-8",
+    )
+    local_client = TestClient(create_app(wiki_root=wiki_root))
+    monkeypatch.setattr(api_module.llm_client, "load_llm_config", lambda: {"engine": "api"})
+    called = False
+
+    async def fake_call_llm(prompt, *, config, timeout):
+        nonlocal called
+        called = True
+        return "must not run"
+
+    monkeypatch.setattr(api_module.llm_client, "call_llm", fake_call_llm)
+
+    response = local_client.post(
+        "/api/ai-answer",
+        json={"question": "요약해줘", "context_slugs": ["alpha"]},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "error"
+    assert "claim ledger invalid" in response.json()["message"].lower()
+    assert called is False
+
+
+def _make_stream_claim_project(tmp_path):
+    project_root = tmp_path / "proj"
+    wiki_root = project_root / "wiki"
+    (wiki_root / "concepts").mkdir(parents=True)
+    (project_root / "raw" / "notes").mkdir(parents=True)
+    (project_root / "raw" / "newsletters").mkdir(parents=True)
+    (project_root / "index.md").write_text("## concepts/ (2개)\n", encoding="utf-8")
+
+    raw_values = {
+        "raw/notes/alpha.md": b"Alpha current fact.\n",
+        "raw/newsletters/beta.md": b"Beta external capture.\n",
+    }
+    for rel, content in raw_values.items():
+        path = project_root / rel
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(content)
+    for slug, raw_path, statement in [
+        ("alpha", "raw/notes/alpha.md", "Alpha current fact."),
+        ("beta", "raw/newsletters/beta.md", "Beta external capture."),
+    ]:
+        (wiki_root / "concepts" / f"{slug}.md").write_text(
+            f"---\ntitle: {slug}\nsources: [{raw_path}]\n---\n\n{statement}\n",
+            encoding="utf-8",
+        )
+    records = [
+        {
+            "claim_id": "claim:alpha-1",
+            "statement": "Alpha current fact.",
+            "kind": "fact",
+            "raw_path": "raw/notes/alpha.md",
+            "raw_sha256": hashlib.sha256(raw_values["raw/notes/alpha.md"]).hexdigest(),
+            "locator": "raw/notes/alpha.md#L1-L1",
+            "valid_from": "2026-08-01",
+            "valid_until": "2099-12-31",
+            "status": "active",
+            "trust": "trusted",
+        },
+        {
+            "claim_id": "claim:beta-1",
+            "statement": "Beta external capture.",
+            "kind": "fact",
+            "raw_path": "raw/newsletters/beta.md",
+            "raw_sha256": hashlib.sha256(raw_values["raw/newsletters/beta.md"]).hexdigest(),
+            "locator": "raw/newsletters/beta.md#L1-L1",
+            "valid_from": "2026-08-01",
+            "valid_until": "2099-12-31",
+            "status": "active",
+            "trust": "untrusted",
+        },
+    ]
+    (project_root / "claims.jsonl").write_text(
+        "".join(json.dumps(record) + "\n" for record in records), encoding="utf-8"
+    )
+    return project_root, wiki_root
+
+
+def test_ai_answer_stream_buffers_then_renders_valid_citations(tmp_path, monkeypatch):
+    project_root, wiki_root = _make_stream_claim_project(tmp_path)
+    local_client = TestClient(create_app(wiki_root=wiki_root))
+    monkeypatch.setattr(api_module.llm_client, "load_llm_config", lambda: {"engine": "api"})
+
+    async def fake_stream(*args, **kwargs):
+        yield "Alpha answer [claim:"
+        yield "alpha-1]."
+
+    monkeypatch.setattr(api_module.llm_client, "stream_llm", fake_stream)
+
+    with local_client.stream(
+        "POST",
+        "/api/ai-answer/stream",
+        json={"question": "요약", "context_slugs": ["alpha"]},
+    ) as response:
+        body = response.read().decode("utf-8")
+
+    assert body.count("event: chunk") == 1
+    assert "[claim:alpha-1]" in body
+    assert "## 출처" in body
+    assert "raw/notes/alpha.md#L1-L1" in body
+    assert "event: done" in body
+
+
+def test_ai_answer_stream_emits_no_unvalidated_untrusted_citation(tmp_path, monkeypatch):
+    _project_root, wiki_root = _make_stream_claim_project(tmp_path)
+    local_client = TestClient(create_app(wiki_root=wiki_root))
+    monkeypatch.setattr(api_module.llm_client, "load_llm_config", lambda: {"engine": "api"})
+
+    async def fake_stream(*args, **kwargs):
+        yield "Unsafe answer [claim:beta-1]."
+
+    monkeypatch.setattr(api_module.llm_client, "stream_llm", fake_stream)
+
+    with local_client.stream(
+        "POST",
+        "/api/ai-answer/stream",
+        json={"question": "요약", "context_slugs": ["beta"]},
+    ) as response:
+        body = response.read().decode("utf-8")
+
+    assert "event: error" in body
+    assert "untrusted" in body
+    assert "event: chunk" not in body
+    assert "Unsafe answer" not in body
