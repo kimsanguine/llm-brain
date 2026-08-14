@@ -7,12 +7,26 @@ import pytest
 from wiki_app.search import Index
 
 
-WIKI_ROOT = Path(__file__).parent.parent / "wiki"
-
-
 @pytest.fixture(scope="module")
-def index():
-    return Index.build(wiki_root=WIKI_ROOT)
+def index(tmp_path_factory):
+    """Use synthetic pages so a public clone never needs a personal wiki."""
+    tmp_path = tmp_path_factory.mktemp("search-index")
+    index_body = (
+        "## concepts/ (4개)\n"
+        "- [[habix-profile]] — Habix profile summary\n"
+        "- [[ai-pm-role]] — AI product manager role\n"
+        "- [[agent-harness-pattern]] — Agent harness pattern\n"
+        "- [[resnet-note]] — Computer vision note\n"
+    )
+    pages = {
+        "concepts": {
+            "habix-profile": "---\ntitle: Habix Profile\ntags: [habix]\n---\n# Habix\n",
+            "ai-pm-role": "---\ntitle: AI PM Role\ntags: [ai-pm]\n---\n# PM\n",
+            "agent-harness-pattern": "---\ntitle: Agent Harness\ntags: [agent]\n---\n# Agent\n",
+            "resnet-note": "---\ntitle: Vision Note\ntags: [vision]\n---\nResNet body text\n",
+        }
+    }
+    return Index.build(wiki_root=_build_wiki(tmp_path, pages, index_body))
 
 
 def _build_wiki(tmp_path, pages, index_body):

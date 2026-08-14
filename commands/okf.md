@@ -59,4 +59,4 @@ uv run python scripts/okf_export.py $ARGUMENTS
 ## 가드레일
 - `raw/`·`wiki/` 읽기 전용. 출력은 `okf/`에만.
 - 내부 포맷을 OKF로 교체하지 않는다 — OKF는 경계(포트)에서만.
-- 상세: `SPEC.md` (인터페이스), `docs/PROGRESS.md` (보안 게이트·decision log).
+- 상세: `SPEC.md` (인터페이스와 공개 보안 게이트).

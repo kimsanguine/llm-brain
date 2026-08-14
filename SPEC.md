@@ -817,8 +817,7 @@ response = client.messages.create(
 > 설계 근거(제어 루프·격리·점수 공식·보안 경계)의 단일 출처로 남는다.
 > **US-002 완료**: curate `run_*` 후 `episode.append`(실행 요약)까지 배선됨 — 4 배선점
 > (ingest·express·wiki_app·curate) 전부. (curate는 점수용 episode 읽기도 병행 — §C4 plug-in.)
-> **요구사항(WHAT)**: `docs/PRD.md` (llm-brain Agent Memory OS Upgrade).
-> **진행·결정 로그**: `docs/PROGRESS.md` → "Agent Memory OS Upgrade" 이니셔티브.
+> 요구사항과 진행·결정 로그의 내부 원본은 로컬 비공개 보관소에 있다.
 > **근거 모델**: AI 에이전트 메모리 5층 구조(작업·에피소드·의미·절차·메타).
 
 ## §A — 척추: 폴더가 아니라 제어 루프
@@ -949,7 +948,7 @@ score = 35·norm(express_reuse) + 25·norm(episode_ref) + 15·norm(centrality)
 
 # v0.3 Quality-Driven Curation — 설계 (v0.3.0 구현 완료 2026-07-04)
 
-> 요구사항(WHAT): `docs/PRD.md` 이니셔티브 ③ · 진행·결정: `docs/PROGRESS.md` 이니셔티브 ③.
+> 요구사항과 진행·결정의 내부 원본은 로컬 비공개 보관소에 있다.
 > **v0.3.0 범위는 구현 완료**: §B의 `lib/memory_score.py` 추출 · `lib/gates.py`(G-1~G-4) ·
 > `curate --reweave`(위 "스크립트 인터페이스" curate 절 "#### reweave" 참조) ·
 > `memory_health --fix` · ingest hard dedup · sync_raw capture 필터, §C의 observing/rejected·

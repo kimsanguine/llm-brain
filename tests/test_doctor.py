@@ -42,6 +42,13 @@ def test_doctor_fix_does_not_overwrite_existing(tmp_path):
     assert existing.read_text(encoding="utf-8") == "MINE\n"  # 기존 파일 보존(Rule 9)
 
 
+def test_doctor_treats_uninitialized_personal_data_dirs_as_warnings():
+    statuses = {entry["name"]: entry["status"] for entry in doctor.run_checks(doctor.ROOT)}
+
+    assert statuses["dir:raw"] == "WARN"
+    assert statuses["dir:wiki"] == "WARN"
+
+
 def test_doctor_real_repo_no_fail():
     # 실 repo 는 핵심 체크(디렉토리·스크립트·커맨드·의존성) 통과여야 한다.
     results = doctor.run_checks(doctor.ROOT)

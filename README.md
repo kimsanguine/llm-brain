@@ -36,11 +36,11 @@
 
 | 검색 + 페이지 뷰 | 본문 grep 자동 확장 |
 |---|---|
-| ![검색](docs/screenshots/dod-3-korean-search.png) | ![확장](docs/screenshots/dod-4-resnet-expansion.png) |
+| ![검색](assets/screenshots/dod-3-korean-search.png) | ![확장](assets/screenshots/dod-4-resnet-expansion.png) |
 
 | 결과 0개 → AI CTA | AI 답변 모달 (live) |
 |---|---|
-| ![empty](docs/screenshots/dod-5-zero-results.png) | ![ai](docs/screenshots/dod-9-ai-modal.png) |
+| ![empty](assets/screenshots/dod-5-zero-results.png) | ![ai](assets/screenshots/dod-9-ai-modal.png) |
 
 > 한국어/영문 검색 · 결과 < 3개일 때 본문 grep(본문 전체 텍스트 검색) 자동 확장 · 페이지 뷰 + wikilink SPA 네비게이션(새로고침 없이 이동) · AI 답변 옵션 토글
 
@@ -232,7 +232,7 @@ uv run python -m wiki_app
 - **AI 답변 토글**: 결과 부족도에 비례해 CTA 강조 차등 (작은 버튼 / 노란 박스 / 큰 검정 버튼)
 - **URL hash**: `#q=...&page=...` 형태로 검색·페이지 상태 보존, 새로고침 시 복원
 
-스크린샷: `docs/screenshots/dod-*.png`
+스크린샷: `assets/screenshots/dod-*.png`
 
 > AI 답변은 `claude -p` CLI(명령줄 도구)로 라이브 동작하며 SSE 스트리밍(실시간 출력)을 지원한다. Claude Code 미설치 시 `status: unavailable`로 graceful 처리(없으면 조용히 비활성). **v0.3:** `schema/config.yaml`의 `llm.engine`을 `cli`(기본, Claude Code) 또는 `api`(anthropic SDK)로 선택할 수 있다 — 무인 배치·서버 환경 대비.
 

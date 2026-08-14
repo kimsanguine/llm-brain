@@ -114,7 +114,7 @@ wiki/ 전체를 스캔해 품질 문제를 탐지한다.
 
 # v0.3 Quality-Driven Curation 규칙
 
-> 아래 3개 절은 v0.3 신설 규칙이다 (요구사항: `docs/PRD.md` 이니셔티브 ③ WS-1·2·5 · 설계: `SPEC.md` "v0.3 Quality-Driven Curation — 설계" 절).
+> 아래 3개 절은 v0.3 신설 규칙이며, 현재 공개 설계 기준은 `SPEC.md`의 "v0.3 Quality-Driven Curation" 절이다.
 > LLM 실행 경계(SPEC §A): 결정적 판정·스캔·큐 생성은 `scripts/`가 수행하고, LLM 컴파일러는 아래 규칙을 생성·강화·화해 작업의 판정 근거로 사용한다.
 
 ## Promotion Gates (G-1~G-4)
