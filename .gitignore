@@ -36,6 +36,8 @@ wiki_stats.json
 .obsidian/plugins/
 .superpowers/
 .worktrees/
+**/docs/
+**/.archive/
 .obsidian/graph.json
 *.canvas
 express/

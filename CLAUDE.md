@@ -100,7 +100,7 @@ uv run python -m wiki_app
 - **테스트**: `tests/test_wiki_app_*.py` (5 modules, 73 tests)
 - **운영 가드레일**: 페이지뷰 시 wiki frontmatter `access_count` 자동 +1 (CLI query와 동등)
 - **에피소드 자동기록**: AI 답변 1건마다 `episodes/YYYY-MM.jsonl`에 append (task_type `ai_answer`, fail-soft — `finally`에서 최종 status 기록, 응답 경로 절대 불간섭)
-- **설계 문서**: `docs/superpowers/specs/2026-05-22-wiki-search-html-mvp-design.md`
+- **설계 기준**: `SPEC.md`의 현재 계약을 따른다. 과거 계획 문서는 로컬 비공개 보관소에 있다.
 
 ### brain_context (작업기억 팩 — 턴 직전 컨텍스트 조립)
 ```

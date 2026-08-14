@@ -4,7 +4,7 @@
 # 이 파일은 wiki/ → okf/ 투영 시 "무엇을 제외할지"를 감사 가능한 형태로 고정한다.
 # 제외가 분류기 추론이 아니라 명시적 설정이라야 public 커밋 전에 사람이 눈으로 검토할 수 있다.
 #
-# 계약: docs/superpowers/specs/2026-06-23-okf-export-p1-contract.md §1·§2·§9
+# 공개 계약: SPEC.md 및 schema/okf.md
 # 매핑 레퍼런스: schema/okf.md
 
 # exclude_paths — 1차 필터(구조적 보장). wiki_dir 기준 glob 패턴.

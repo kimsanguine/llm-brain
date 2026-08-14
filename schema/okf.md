@@ -6,8 +6,7 @@
 `scripts/okf_export.py`가 이 규칙대로 frontmatter·링크·본문을 바꾼다.
 내부 포맷(`wiki/`)은 바꾸지 않는다 — 경계(`okf/`)에서만 변환한다.
 
-- 동작 계약: `docs/superpowers/specs/2026-06-23-okf-export-p1-contract.md`
-- 설계 배경: `docs/superpowers/specs/2026-06-23-okf-export-p1-design.md`
+- 동작 계약과 설계 배경: `SPEC.md`
 - 제외 설정: `schema/okf_export.yaml`
 
 ## OKF v0.1 핵심 가정

@@ -2,7 +2,7 @@
 
 단위 테스트(test_okf_*.py, 함수 단위)가 못 보는 **프로세스 경계·통합 시나리오**.
 실제 CLI를 subprocess로 구동(argparse·경로해석·config+local 병합 전 경로) +
-외부 OKF consumer로 산출물 소비. 계획: docs/superpowers/specs/2026-06-24-okf-e2e-test-plan.md
+외부 OKF consumer로 산출물 소비. 공개 계약: SPEC.md 및 schema/okf.md
 
 검증 철학: 명령 실행 → 실제 okf/ → 관측(exit code·파일·stdout·consumer).
 수정자≠검증자: consumer 검증은 okf_export import 없이 독립 작성(스펙 §11 정규식).

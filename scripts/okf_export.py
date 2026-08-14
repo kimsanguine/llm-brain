@@ -11,8 +11,7 @@ llm-brain의 export 포트. 내부 포맷은 바꾸지 않고 경계에서만 �
 가드레일: raw/·wiki/는 읽기 전용. 출력은 out_dir(기본 okf/)에만.
 파서 함수는 scripts/export_graph.py에서 import (수정 없음).
 
-설계: docs/superpowers/specs/2026-06-23-okf-export-p1-design.md
-계약: docs/superpowers/specs/2026-06-23-okf-export-p1-contract.md
+설계와 계약의 공개 기준: SPEC.md 및 schema/okf.md
 """
 from __future__ import annotations
 

@@ -17,7 +17,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).parent.parent
 
-REQUIRED_DIRS = ["raw", "wiki", "schema", "scripts", "commands", "procedures", "examples"]
+REQUIRED_DIRS = ["schema", "scripts", "commands", "procedures", "examples"]
+PERSONAL_DATA_DIRS = ["raw", "wiki"]
 RAW_SUBDIRS = ["til", "meetings", "notes", "clippings", "docs", "blog", "newsletters"]
 REQUIRED_SCRIPTS = [
     "ingest.py", "curate.py", "express.py", "okf_export.py", "export_graph.py",
@@ -50,6 +51,19 @@ def run_checks(root: Path = ROOT, *, fix: bool = False) -> list[dict]:
             results.append(_r(f"dir:{d}", "FIXED", "생성됨"))
         else:
             results.append(_r(f"dir:{d}", "FAIL", "디렉토리 없음 (--fix로 생성)"))
+
+    # Personal data is intentionally excluded from the public repository.
+    # A fresh clone remains usable after setup, so absence is actionable but
+    # not an installation failure.
+    for d in PERSONAL_DATA_DIRS:
+        p = root / d
+        if p.is_dir():
+            results.append(_r(f"dir:{d}", "OK"))
+        elif fix:
+            p.mkdir(parents=True, exist_ok=True)
+            results.append(_r(f"dir:{d}", "FIXED", "개인 데이터 디렉토리 생성됨"))
+        else:
+            results.append(_r(f"dir:{d}", "WARN", "개인 데이터 미초기화 (--fix로 생성)"))
 
     # 2. raw 하위 (없으면 WARN, --fix로 생성)
     for sub in RAW_SUBDIRS:

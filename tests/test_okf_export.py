@@ -1,7 +1,7 @@
 """test_okf_export.py — okf_export.export_bundle 계약 검증 (TDD).
 
 WHY: wiki/(내부 슈퍼셋)를 OKF v0.1 호환 번들 okf/로 투영하는 경계 변환이
-계약(docs/superpowers/specs/2026-06-23-okf-export-p1-contract.md)대로
+공개 계약(SPEC.md 및 schema/okf.md)대로
 동작하는지 확인한다. 검증 대상은 "변환 규칙의 의도"이지 구현 디테일이 아니다:
   - frontmatter OKF 매핑 (updated→timestamp, 내부필드→x-llmbrain-*, strip 모드)
   - wikilink → OKF 절대경로 마크다운 링크 (일반·별칭·깨진)
