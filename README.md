@@ -110,7 +110,8 @@ uv run python scripts/doctor.py --guided --profile demo  # 프로필별 다음 �
 ```
 
 프로필은 `Demo`, `Personal-private`, `Share-ready` 세 가지다. `Share-ready`는
-manifest gate가 구현되기 전까지 unavailable이며 안전한 publish/export를 약속하지 않는다.
+canonical/local security 설정과 모든 후보의 명시적 scope를 확인한 뒤, 사람 승인 값을
+포함한 별도 `--share` manifest gate 실행 하나만 다음 행동으로 안내한다.
 
 ### 1) 먼저 1분 체험 — 데모 위키 둘러보기 (추천)
 

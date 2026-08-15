@@ -1075,8 +1075,13 @@ def _validate_share_target(wiki_dir: Path, out_dir: Path) -> Path:
     if raw_out.is_symlink():
         raise ShareGateError("share output target is unsafe")
     resolved_wiki = Path(wiki_dir).resolve()
+    repo_root = resolved_wiki.parent
+    private_input_roots = (resolved_wiki, (repo_root / "raw").resolve())
     resolved_out = raw_out.resolve()
-    if resolved_out == resolved_wiki or resolved_out in resolved_wiki.parents:
+    if resolved_out == repo_root or any(
+        resolved_out.is_relative_to(private_root)
+        for private_root in private_input_roots
+    ):
         raise ShareGateError("share output target is unsafe")
     if resolved_out.exists():
         if not resolved_out.is_dir():

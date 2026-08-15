@@ -385,6 +385,8 @@ score = Σ weight·norm(signal),  norm(x) = min(x / CAP, 1.0)
 local security는 `exclude_slugs`·`sensitive_patterns`만 추가하며 base policy/승인 재정의는 거부한다.
 wiki 후보 symlink·root 밖 해석 경로, malformed/recursive YAML, 민감 hit, skipped page, broken link,
 빈 공개 번들, 설정/인벤토리 drift는 hard-stop이다.
+`--share --out`의 canonical path가 레포 루트 또는 private input root인 `raw/**`·`wiki/**`
+안에 있으면 stage·receipt·output을 만들기 전에 hard-stop한다.
 
 통과 시 `strip_internal=True`로 sibling stage에 전체 번들을 만든다. 입력 wiki bytes와 설정
 fingerprint를 재검증하고 `share-manifest.json`·`.okf-share-bundle`까지 완성한 뒤 디렉토리
@@ -815,7 +817,7 @@ response = client.messages.create(
 | `uv run python scripts/okf_export.py [--dry-run] [--strip-internal]` | `okf_export.py` | 없음 (규칙 기반 변환 → `okf/` 번들 생성, dry-run은 목록만) |
 | `uv run python scripts/brain_context.py --task "…" --topic "…" --type query\|express\|curate\|custom [--max-pages N] [--json]` | `brain_context.py` | 없음 (작업기억 팩 조립 출력 — Claude가 읽고 실행) |
 | `uv run python scripts/memory_health.py --report` | `memory_health.py` | 없음 (읽기전용 집계 → `wiki/memory_health_report.md`, 페이지 무변경) |
-| `uv run python scripts/doctor.py --guided [--profile demo\|personal-private\|share-ready]` | `doctor.py` | 없음 (repo root를 script 기준으로 확인하고, 쓰기·개인 콘텐츠 스캔 없이 정확히 3개 프로필 또는 선택 프로필의 다음 행동 1개 출력) |
+| `uv run python scripts/doctor.py --guided [--profile demo\|personal-private\|share-ready]` | `doctor.py` | 없음 (repo root를 script 기준으로 확인하고, 쓰기·개인 콘텐츠 스캔 없이 정확히 3개 프로필 또는 선택 프로필의 다음 행동 1개 출력. Share-ready는 policy/local config/explicit scope 전제와 정확한 승인 명령을 안내) |
 | `uv run python scripts/doctor.py [--fix]` | `doctor.py` | 없음 (기존 설치 진단; `--fix`일 때만 디렉터리·sources 설정 생성) |
 | (라이브러리 — `procedures.list_procedures`/`read_procedure`) | `procedures.py` | 없음 (`brain_context`·`memory_health`가 import; 독립 CLI 아님) |
 | `uv run python scripts/curate.py --purge` | `curate.py` | 없음 (파일 이동) |

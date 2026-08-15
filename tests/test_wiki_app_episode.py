@@ -45,7 +45,11 @@ class _FakeProc:
     """비스트림·스트림 둘 다 정상(done) 경로로 끝나는 fake proc."""
 
     def __init__(self, *, stdout_lines: list[bytes] | None = None, returncode: int = 0):
-        self.stdout = _Reader(stdout_lines if stdout_lines is not None else [b"answer\n"])
+        self.stdout = _Reader(
+            stdout_lines
+            if stdout_lines is not None
+            else ["관련 정보 없음\n".encode()]
+        )
         self.stderr = _Reader([])
         self._rc = returncode
         self.returncode = None
@@ -56,7 +60,7 @@ class _FakeProc:
 
     async def communicate(self):
         self.returncode = 0
-        return (b"answer text", b"")
+        return ("관련 정보 없음".encode(), b"")
 
     async def wait(self):
         if self.returncode is None:
@@ -128,7 +132,9 @@ def test_non_stream_records_one_ai_answer_episode(tmp_path, monkeypatch):
 
 def test_stream_records_one_ai_answer_episode(tmp_path, monkeypatch):
     wiki_root = _make_wiki(tmp_path)
-    _install_fake_claude(monkeypatch, _FakeProc(stdout_lines=[b"answer\n"]))
+    _install_fake_claude(
+        monkeypatch, _FakeProc(stdout_lines=["관련 정보 없음\n".encode()])
+    )
 
     captured: list[dict] = []
     monkeypatch.setattr(
@@ -178,14 +184,16 @@ def test_non_stream_episode_failure_is_fail_soft(tmp_path, monkeypatch):
     assert r.status_code == 200
     data = r.json()
     assert data["status"] == "done"
-    assert data["answer"] == "answer text"
+    assert data["answer"] == "관련 정보 없음"
     assert data["sources"] == ["alpha"]
 
 
 def test_stream_episode_failure_is_fail_soft(tmp_path, monkeypatch):
     """episode.append 가 raise 해도 SSE 스트림은 정상적으로 done 까지 완료한다."""
     wiki_root = _make_wiki(tmp_path)
-    _install_fake_claude(monkeypatch, _FakeProc(stdout_lines=[b"answer\n"]))
+    _install_fake_claude(
+        monkeypatch, _FakeProc(stdout_lines=["관련 정보 없음\n".encode()])
+    )
 
     def boom(record, **kw):
         raise RuntimeError("episode ledger down")
@@ -200,7 +208,7 @@ def test_stream_episode_failure_is_fail_soft(tmp_path, monkeypatch):
 
     # 스트림이 error 로 깨지지 않고 정상 done 까지 도달
     assert "event: done" in body
-    assert "answer" in body
+    assert "관련 정보 없음" in body
 
 
 # ---------------------------------------------------------------------------

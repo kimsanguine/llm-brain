@@ -48,6 +48,8 @@ uv run python scripts/okf_export.py --share \
 게이트는 base policy 또는 local security config 부재, 민감 hit, scope/policy 위반, wiki 내부
 symlink/외부 해석 경로면 출력 전에 중단한다. local config는 `exclude_slugs`와
 `sensitive_patterns`만 추가할 수 있고 base policy·승인 값을 바꿀 수 없다.
+`--out`의 canonical path가 레포 루트, `raw/**`, `wiki/**` 안이면 stage·receipt·output을
+만들기 전에 거부한다.
 
 통과 시 sibling stage에 전체 bundle과 `share-manifest.json`을 만든다. 기존 디렉토리 교체는
 portable POSIX에서 단일 atomic rename이 아니므로 두 rename 사이 아주 짧게 경로가 없을 수 있다.

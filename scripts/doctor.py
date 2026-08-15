@@ -151,9 +151,14 @@ def render_guided(root: Path, profile: str | None = None) -> str:
         action = f"Preview the user-managed sources config only: sed -n '1,200p' {sources}"
         label = "Personal-private"
     else:
+        share_command = (
+            f"cd {shlex.quote(str(root))} && uv run python scripts/okf_export.py "
+            "--share --approve-share I_ACKNOWLEDGE_SHARE_READY_EXPORT"
+        )
         action = (
-            "STOP — Share-ready is unavailable until the Task 3 manifest gate exists; "
-            "do not publish or export."
+            "After confirming canonical schema/okf_export.yaml, local security config "
+            "schema/okf_export.local.yaml, and explicit scope: shared|private on every "
+            f"candidate, run: {share_command}"
         )
         label = "Share-ready"
     lines.extend([f"Profile: {label}", f"Next action: {action}"])

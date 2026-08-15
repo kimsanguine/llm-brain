@@ -88,7 +88,15 @@ def test_guided_lists_exactly_three_profiles_from_any_working_directory(tmp_path
     [
         ("demo", ("examples/seed-wiki/wiki", "smoke")),
         ("personal-private", ("schema/sources.yaml", "preview")),
-        ("share-ready", ("unavailable", "Task 3", "do not publish or export")),
+        (
+            "share-ready",
+            (
+                "schema/okf_export.yaml",
+                "schema/okf_export.local.yaml",
+                "explicit scope",
+                "--share --approve-share I_ACKNOWLEDGE_SHARE_READY_EXPORT",
+            ),
+        ),
     ],
 )
 def test_guided_profile_returns_exactly_one_safe_next_action(

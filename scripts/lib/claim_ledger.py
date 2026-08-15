@@ -24,6 +24,7 @@ _DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 _OPINION_MARKERS = ("권장", "추천", "의견", "생각", "should", "prefer")
 _INFERENCE_MARKERS = ("아마", "추정", "가능성", "보인다", "might", "may", "could")
 _UNTRUSTED_DIR_MARKERS = ("/newsletters/", "/clippings/", "/captures/")
+ABSTENTION_RESPONSE = "관련 정보 없음"
 _VALIDITY_WINDOW_DAYS = 180
 _KINDS = frozenset({"fact", "inference", "opinion"})
 _STATUSES = frozenset({"active", "stale", "superseded"})
@@ -337,9 +338,11 @@ def build_claim_ledger(
             continue
         post = frontmatter.load(page_path)
         sources = _normalize_sources(post.metadata.get("sources"))
-        raw_path = next((source for source in sources if source.startswith("raw/")), None)
-        if raw_path is None:
-            raise ClaimLedgerError(f"wiki/{slug} has no immutable raw/ source")
+        if len(sources) != 1 or not sources[0].startswith("raw/"):
+            raise ClaimLedgerError(
+                f"wiki/{slug} must have exactly one raw/ source before claims are built"
+            )
+        raw_path = sources[0]
         source_file = _raw_file(raw_path, project_root)
         if not source_file.is_file():
             raise ClaimLedgerError(f"raw source not found: {raw_path}")
@@ -484,8 +487,19 @@ def render_cited_answer(
             used_ids.append(claim_id)
 
     cleaned = answer.strip()
+    has_usable_trusted_claim = any(
+        claim_exclusion_reason(record, project_root=project_root, now=now) is None
+        for record in records
+    )
+    if not has_usable_trusted_claim:
+        if not used_ids and cleaned == ABSTENTION_RESPONSE:
+            return cleaned
+        raise ClaimCitationError(
+            f"no usable trusted claim; only the exact abstention is allowed: "
+            f"{ABSTENTION_RESPONSE}"
+        )
     if not used_ids:
-        return cleaned
+        raise ClaimCitationError("answer requires at least one valid trusted citation")
     lines = [cleaned, "", "## 출처"]
     for claim_id in used_ids:
         record = records_by_id[claim_id]

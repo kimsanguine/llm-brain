@@ -129,6 +129,62 @@ def _share(repo: Path, *args: str) -> subprocess.CompletedProcess[str]:
     return _run(repo, "--share", "--approve-share", APPROVAL, *args)
 
 
+@pytest.mark.parametrize(
+    "unsafe_out",
+    [".", "raw/public-share", "wiki/public-share"],
+    ids=["repo-root", "raw-child", "wiki-child"],
+)
+def test_share_rejects_private_input_output_targets_before_any_write(
+    tmp_path, unsafe_out
+):
+    """A share destination inside private inputs must not create publication state."""
+    repo = _make_repo(tmp_path)
+    before_private = {
+        path.relative_to(repo).as_posix(): path.read_bytes()
+        for root_name in ("raw", "wiki")
+        if (repo / root_name).exists()
+        for path in (repo / root_name).rglob("*")
+        if path.is_file()
+    }
+
+    result = _share(repo, "--out", unsafe_out)
+
+    after_private = {
+        path.relative_to(repo).as_posix(): path.read_bytes()
+        for root_name in ("raw", "wiki")
+        if (repo / root_name).exists()
+        for path in (repo / root_name).rglob("*")
+        if path.is_file()
+    }
+    assert result.returncode != 0
+    assert "unsafe" in (result.stdout + result.stderr).lower()
+    assert after_private == before_private
+    assert not (repo / "share-manifest.json").exists()
+    assert not (repo / ".okf-share-bundle").exists()
+    assert not list(repo.rglob("*.publish.json"))
+    assert not any(".stage-" in path.name for path in repo.rglob("*"))
+
+
+def test_share_rejects_canonical_output_path_resolving_into_raw_before_any_write(
+    tmp_path,
+):
+    """An apparently external path through a symlinked parent must resolve fail closed."""
+    repo = _make_repo(tmp_path)
+    (repo / "raw").mkdir()
+    (repo / "public-alias").symlink_to(repo / "raw", target_is_directory=True)
+    before_raw = sorted(path.relative_to(repo).as_posix() for path in (repo / "raw").rglob("*"))
+
+    result = _share(repo, "--out", "public-alias/public-share")
+
+    assert result.returncode != 0
+    assert "unsafe" in (result.stdout + result.stderr).lower()
+    assert sorted(
+        path.relative_to(repo).as_posix() for path in (repo / "raw").rglob("*")
+    ) == before_raw
+    assert not (repo / "raw" / "public-share").exists()
+    assert not (repo / ".public-share.publish.json").exists()
+
+
 def _snapshot(root: Path) -> dict[str, bytes]:
     return {
         path.relative_to(root).as_posix(): path.read_bytes()

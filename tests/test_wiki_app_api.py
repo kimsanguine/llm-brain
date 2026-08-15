@@ -214,7 +214,7 @@ class FakeProc:
         if self._communicate_hang:
             await asyncio.Future()  # 영원히 hang → wait_for timeout 유발
         self.returncode = 0
-        return (b"answer text", b"")
+        return ("관련 정보 없음".encode(), b"")
 
     def kill(self):
         self.killed = True
@@ -280,7 +280,7 @@ def test_ai_answer_normal_does_not_leave_running_proc(client, patched_subprocess
     assert r.status_code == 200
     data = r.json()
     assert data["status"] == "done"
-    assert data["answer"] == "answer text"
+    assert data["answer"] == "관련 정보 없음"
     # 정상 종료(returncode 설정됨) → 살아있지 않으므로 강제 kill 불필요
     assert proc.killed is False
 
@@ -1026,3 +1026,48 @@ def test_ai_answer_stream_emits_no_unvalidated_untrusted_citation(tmp_path, monk
     assert "untrusted" in body
     assert "event: chunk" not in body
     assert "Unsafe answer" not in body
+
+
+def test_ai_answer_rejects_success_without_a_trusted_citation(tmp_path, monkeypatch):
+    """Non-stream success cannot return an uncited factual answer."""
+    _project_root, wiki_root = _make_stream_claim_project(tmp_path)
+    local_client = TestClient(create_app(wiki_root=wiki_root))
+    monkeypatch.setattr(api_module.llm_client, "load_llm_config", lambda: {"engine": "api"})
+
+    async def fake_call(*args, **kwargs):
+        return "Alpha answer without provenance."
+
+    monkeypatch.setattr(api_module.llm_client, "call_llm", fake_call)
+
+    response = local_client.post(
+        "/api/ai-answer",
+        json={"question": "요약", "context_slugs": ["alpha"]},
+    )
+
+    assert response.json()["status"] == "error"
+    assert "trusted citation" in response.json()["message"].lower()
+    assert response.json()["answer"] == ""
+
+
+def test_ai_answer_stream_emits_no_uncited_success_tokens(tmp_path, monkeypatch):
+    """SSE must buffer and reject an uncited factual answer before any chunk event."""
+    _project_root, wiki_root = _make_stream_claim_project(tmp_path)
+    local_client = TestClient(create_app(wiki_root=wiki_root))
+    monkeypatch.setattr(api_module.llm_client, "load_llm_config", lambda: {"engine": "api"})
+
+    async def fake_stream(*args, **kwargs):
+        yield "Alpha answer without provenance."
+
+    monkeypatch.setattr(api_module.llm_client, "stream_llm", fake_stream)
+
+    with local_client.stream(
+        "POST",
+        "/api/ai-answer/stream",
+        json={"question": "요약", "context_slugs": ["alpha"]},
+    ) as response:
+        body = response.read().decode("utf-8")
+
+    assert "event: error" in body
+    assert "trusted citation" in body.lower()
+    assert "event: chunk" not in body
+    assert "Alpha answer" not in body

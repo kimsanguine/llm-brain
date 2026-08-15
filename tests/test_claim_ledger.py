@@ -119,6 +119,51 @@ def test_build_claims_records_original_raw_hash_and_separate_status_from_trust(t
     ]
 
 
+def test_build_claims_fails_closed_on_mixed_multi_source_page(tmp_path):
+    """A second external source must not inherit the first source's trusted hash."""
+    root = _build_project(tmp_path)
+    _write(root / "raw" / "notes" / "trusted.md", "Trusted source statement.\n")
+    _write(
+        root / "raw" / "newsletters" / "external.md",
+        "External capture statement.\n",
+    )
+    _write(
+        root / "wiki" / "concepts" / "mixed.md",
+        (
+            "---\n"
+            "title: Mixed\n"
+            "updated: 2026-08-10\n"
+            "sources:\n"
+            "  - raw/notes/trusted.md\n"
+            "  - raw/newsletters/external.md\n"
+            "---\n\n"
+            "Trusted source statement. External capture statement.\n"
+        ),
+    )
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(_REPO_ROOT / "scripts" / "claims.py"),
+            "build",
+            "--wiki-root",
+            str(root / "wiki"),
+            "--ledger",
+            str(root / "claims.jsonl"),
+            "--slug",
+            "mixed",
+        ],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode == 2
+    assert "exactly one raw/ source" in result.stderr
+    assert result.stdout == ""
+    assert not (root / "claims.jsonl").exists()
+
+
 def test_claims_jsonl_round_trip_is_strict_and_does_not_mutate_raw(tmp_path):
     """Mutation caught: writer must serialize validated records only and never touch raw/."""
     root = _build_project(tmp_path)
@@ -310,6 +355,58 @@ def test_render_cited_answer_rejects_untrusted_claim(tmp_path):
             project_root=root,
             now=date(2026, 8, 14),
         )
+
+
+def test_grounded_answer_requires_at_least_one_usable_trusted_citation(tmp_path):
+    """Removing the citation from a factual answer must reject the whole answer."""
+    root = _build_project(tmp_path)
+    raw_bytes = b"Alpha current fact.\n"
+    (root / "raw" / "notes" / "alpha.md").write_bytes(raw_bytes)
+    trusted = _record(raw_sha256=hashlib.sha256(raw_bytes).hexdigest())
+
+    with pytest.raises(claim_ledger.ClaimCitationError, match="trusted citation"):
+        claim_ledger.render_cited_answer(
+            "Alpha is current.",
+            [trusted],
+            project_root=root,
+            now=date(2026, 8, 14),
+        )
+
+
+@pytest.mark.parametrize(
+    "answer",
+    ["No information.", "관련 정보 없음.", "관련 정보 없음 [claim:alpha-1]"],
+)
+def test_no_usable_claims_allow_only_the_exact_uncited_abstention(tmp_path, answer):
+    """Any non-standard or citation-bearing no-evidence response must fail closed."""
+    root = _build_project(tmp_path)
+
+    with pytest.raises(claim_ledger.ClaimCitationError):
+        claim_ledger.render_cited_answer(
+            answer, [], project_root=root, now=date(2026, 8, 14)
+        )
+
+
+def test_no_usable_claims_accept_the_standard_abstention(tmp_path):
+    root = _build_project(tmp_path)
+    raw_bytes = b"External capture only.\n"
+    source = root / "raw" / "newsletters" / "external.md"
+    source.write_bytes(raw_bytes)
+    untrusted = _record(
+        claim_id="claim:external-1",
+        statement="External capture only.",
+        raw_path="raw/newsletters/external.md",
+        raw_sha256=hashlib.sha256(raw_bytes).hexdigest(),
+        locator="raw/newsletters/external.md#L1-L1",
+        trust="untrusted",
+    )
+
+    assert (
+        claim_ledger.render_cited_answer(
+            "관련 정보 없음", [untrusted], project_root=root, now=date(2026, 8, 14)
+        )
+        == "관련 정보 없음"
+    )
 
 
 @pytest.mark.parametrize(

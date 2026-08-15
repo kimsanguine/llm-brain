@@ -20,7 +20,10 @@ llm-brain의 doctor 커맨드입니다. 설치를 진단·복구하거나, `--gu
 
 - **Demo** — 기존 `examples/seed-wiki/wiki`를 사용하는 read-only smoke 안내
 - **Personal-private** — 사용자가 직접 관리하는 `schema/sources.yaml` preview만 안내
-- **Share-ready** — Task 3 manifest gate 구현 전에는 unavailable이며 publish/export 금지
+- **Share-ready** — canonical `schema/okf_export.yaml`, local
+  `schema/okf_export.local.yaml`, 모든 후보의 명시적 `scope: shared|private` 확인 후
+  정확한 `scripts/okf_export.py --share --approve-share I_ACKNOWLEDGE_SHARE_READY_EXPORT`
+  다음 행동 하나를 안내
 
 ## 실행
 
