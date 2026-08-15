@@ -18,9 +18,14 @@ from __future__ import annotations
 import argparse
 import datetime
 import fnmatch
+import hashlib
+import json
+import os
 import re
 import shutil
 import sys
+import tempfile
+import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -42,6 +47,19 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 # memory_health_report.md 도 추가(SPEC §D 누출 봉인): episode 집계 = 격리한 사적 운영맥락의
 # 파생이라 공개 OKF 번들에 절대 새면 안 된다(Claude#1·Codex C1, Phase 3 US-008 동반).
 META_FILES = _EG_META_FILES | {"curate_report.md", "memory_health_report.md"}
+
+SHARE_MANIFEST = "share-manifest.json"
+SHARE_SENTINEL = ".okf-share-bundle"
+KNOWN_SHARE_SCOPES = {"private", "shared"}
+KNOWN_SHARE_CLASSIFICATIONS = {
+    "business",
+    "concept",
+    "insight",
+    "lecture",
+    "person",
+    "project",
+    "tool",
+}
 
 # OKF 예약 필드 순서 (계약 §4). x-llmbrain 보존에서 제외할 소스 키 집합도 여기서 파생.
 RESERVED_ORDER = ["type", "title", "description", "resource", "tags", "timestamp"]
@@ -136,6 +154,10 @@ class _Page:
     fm: dict            # 원본 frontmatter
     body: str           # frontmatter 제거된 본문
     bundle_path: str    # 링크 타깃 = "/" + rel
+
+
+class ShareGateError(RuntimeError):
+    """A fail-closed Share-ready policy rejection safe to show without details."""
 
 
 def load_config(path: Path | None) -> dict:
@@ -561,9 +583,10 @@ def export_bundle(
         rendered[page.rel] = (page, fm_block, new_body, description)
         stats.pages_exported += 1
         stats.by_dir[page.dir] = stats.by_dir.get(page.dir, 0) + 1
-        # 본문 평문 민감정보 스캔(표면화만, 차단 아님). 실제 public되는 new_body+description 대상.
+        # 실제 게시 바이트(frontmatter + 본문)를 스캔한다. title/tags/resource를 빼면
+        # Share-ready preflight가 민감 제목을 놓치므로 rendered frontmatter도 포함한다.
         if sensitive_patterns:
-            haystack = (new_body + "\n" + description).lower()
+            haystack = (page.rel + "\n" + fm_block + new_body + "\n" + description).lower()
             for pat in sensitive_patterns:
                 if pat and pat.lower() in haystack:
                     stats.sensitive_hits.append((page.rel, pat))
@@ -709,11 +732,384 @@ def _resolve_exclude_paths(config: dict, cli_paths: list[str]) -> list[str]:
     return list(base) + list(cli_paths or [])
 
 
+def _read_required_share_config(path: Path, label: str) -> dict:
+    """Load one required share config strictly instead of using legacy defaults."""
+    path = Path(path)
+    if not path.is_file():
+        raise ShareGateError(f"required config is absent ({label})")
+    try:
+        data = yaml.safe_load(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, yaml.YAMLError) as exc:
+        raise ShareGateError(f"required config is invalid ({label})") from exc
+    if not isinstance(data, dict):
+        raise ShareGateError(f"required config is invalid ({label})")
+    return data
+
+
+def _require_list(config: dict, key: str, label: str) -> list:
+    value = config.get(key)
+    if not isinstance(value, list):
+        raise ShareGateError(f"required config contract is invalid ({label}.{key})")
+    return value
+
+
+def _require_string_list(config: dict, key: str, label: str) -> list[str]:
+    value = _require_list(config, key, label)
+    if any(not isinstance(item, str) or not item.strip() for item in value):
+        raise ShareGateError(f"required config contract is invalid ({label}.{key})")
+    return value
+
+
+def _load_share_policy(
+    config_path: Path,
+    local_config_paths: list[Path],
+    *,
+    extra_exclude_paths: list[str] | None = None,
+    extra_exclude_domains: list[str] | None = None,
+    extra_exclude_slugs: list[str] | None = None,
+) -> dict:
+    """Load and validate both committed policy and user-local security layers."""
+    base = _read_required_share_config(config_path, "policy")
+    for key in ("exclude_paths", "exclude_domains", "exclude_slugs", "sensitive_patterns"):
+        _require_string_list(base, key, "policy")
+
+    policy = base.get("share_policy")
+    if not isinstance(policy, dict):
+        raise ShareGateError("required config contract is invalid (share_policy)")
+    approval_value = policy.get("approval_value")
+    allowed_scopes = policy.get("allowed_scopes")
+    allowed_classifications = policy.get("allowed_classifications")
+    if not isinstance(approval_value, str) or not approval_value.strip():
+        raise ShareGateError("required config contract is invalid (approval)")
+    if not isinstance(allowed_scopes, list) or {
+        str(value).strip().lower() for value in allowed_scopes
+    } != KNOWN_SHARE_SCOPES:
+        raise ShareGateError("required config contract is invalid (scope policy)")
+    if not isinstance(allowed_classifications, list) or {
+        str(value).strip().lower() for value in allowed_classifications
+    } != KNOWN_SHARE_CLASSIFICATIONS:
+        raise ShareGateError("required config contract is invalid (classification policy)")
+
+    if not local_config_paths:
+        raise ShareGateError("required config is absent (local security)")
+    local_configs: list[dict] = []
+    for path in sorted({Path(p) for p in local_config_paths}, key=lambda p: p.as_posix()):
+        local = _read_required_share_config(path, "local security")
+        _require_string_list(local, "exclude_slugs", "local security")
+        _require_string_list(local, "sensitive_patterns", "local security")
+        local_configs.append(local)
+
+    exclude_paths = list(base["exclude_paths"]) + list(extra_exclude_paths or [])
+    # The structural defaults cannot be disabled by a weakened policy file.
+    for required in ("business/**", "canvas/**"):
+        if required not in exclude_paths:
+            raise ShareGateError("required config contract is invalid (structural exclusions)")
+    exclude_domains = list(base["exclude_domains"]) + list(extra_exclude_domains or [])
+    exclude_slugs = list(base["exclude_slugs"]) + list(extra_exclude_slugs or [])
+    sensitive_patterns = list(base["sensitive_patterns"])
+    for local in local_configs:
+        exclude_slugs.extend(local["exclude_slugs"])
+        sensitive_patterns.extend(local["sensitive_patterns"])
+
+    fingerprint_payload = {
+        "policy": base,
+        "local_security": local_configs,
+        "cli_overrides": {
+            "exclude_domains": list(extra_exclude_domains or []),
+            "exclude_paths": list(extra_exclude_paths or []),
+            "exclude_slugs": list(extra_exclude_slugs or []),
+        },
+    }
+    encoded = json.dumps(
+        fingerprint_payload,
+        ensure_ascii=False,
+        separators=(",", ":"),
+        sort_keys=True,
+        default=str,
+    ).encode("utf-8")
+    return {
+        "approval_value": approval_value,
+        "allowed_classifications": KNOWN_SHARE_CLASSIFICATIONS,
+        "exclude_paths": exclude_paths,
+        "exclude_domains": exclude_domains,
+        "exclude_slugs": exclude_slugs,
+        "sensitive_patterns": sensitive_patterns,
+        "fingerprint": "sha256:" + hashlib.sha256(encoded).hexdigest(),
+    }
+
+
+def _wiki_fingerprint(wiki_dir: Path) -> str:
+    """Hash input paths and bytes so a mid-export mutation cannot pass preflight."""
+    digest = hashlib.sha256()
+    try:
+        pages = sorted(Path(wiki_dir).rglob("*.md"))
+        for page in pages:
+            digest.update(page.relative_to(wiki_dir).as_posix().encode("utf-8"))
+            digest.update(b"\0")
+            digest.update(page.read_bytes())
+            digest.update(b"\0")
+    except (OSError, ValueError) as exc:
+        raise ShareGateError("wiki input could not be validated") from exc
+    return digest.hexdigest()
+
+
+def _normalized_scope(page: _Page) -> str | None:
+    value = page.fm.get("scope")
+    if not isinstance(value, str) or not value.strip():
+        return None
+    return value.strip().lower()
+
+
+def _normalized_classification(page: _Page) -> str | None:
+    value = page.fm.get("type")
+    if not isinstance(value, str) or not value.strip():
+        return None
+    return value.strip().lower()
+
+
+def _increment(counter: dict[str, int], key: str) -> None:
+    counter[key] = counter.get(key, 0) + 1
+
+
+def _source_summary(pages: list[_Page]) -> dict[str, int]:
+    pages_with_sources = 0
+    references = 0
+    for page in pages:
+        sources = page.fm.get("sources")
+        if isinstance(sources, list):
+            count = len(sources)
+        elif sources in (None, ""):
+            count = 0
+        else:
+            count = 1
+        if count:
+            pages_with_sources += 1
+            references += count
+    return {"pages_with_sources": pages_with_sources, "references": references}
+
+
+def _build_share_manifest(
+    pages: list[_Page],
+    stats: ExportStats,
+    policy: dict,
+) -> dict:
+    included: list[_Page] = []
+    excluded: list[_Page] = []
+    scope_counts: dict[str, int] = {}
+    included_classes: dict[str, int] = {}
+    excluded_classes: dict[str, int] = {}
+
+    for page in pages:
+        structurally_excluded = _is_excluded(
+            page,
+            policy["exclude_paths"],
+            policy["exclude_domains"],
+            policy["exclude_slugs"],
+        )
+        scope = _normalized_scope(page)
+        classification = _normalized_classification(page)
+
+        if not structurally_excluded:
+            if scope not in KNOWN_SHARE_SCOPES:
+                raise ShareGateError("candidate scope is absent or unknown")
+            if classification not in policy["allowed_classifications"]:
+                raise ShareGateError("candidate classification is absent or unknown")
+
+        scope_label = scope if scope in KNOWN_SHARE_SCOPES else (
+            "absent" if scope is None else "unknown"
+        )
+        _increment(scope_counts, scope_label)
+
+        is_excluded = structurally_excluded or scope == "private"
+        target = excluded if is_excluded else included
+        target.append(page)
+        # Never put an arbitrary frontmatter value into the public manifest.
+        class_label = (
+            classification
+            if classification in policy["allowed_classifications"]
+            else "unknown"
+        )
+        _increment(excluded_classes if is_excluded else included_classes, class_label)
+
+    if not included:
+        raise ShareGateError("share policy rejected an empty public bundle")
+    if len(included) != stats.pages_exported or len(excluded) != len(stats.excluded):
+        raise ShareGateError("share policy inventory mismatch")
+
+    return {
+        "classification_counts": {
+            "excluded": dict(sorted(excluded_classes.items())),
+            "included": dict(sorted(included_classes.items())),
+        },
+        "config_fingerprint": policy["fingerprint"],
+        "counts": {"excluded": len(excluded), "included": len(included)},
+        "operation": "share-ready",
+        "schema_version": "1",
+        "scope_counts": dict(sorted(scope_counts.items())),
+        "source_counts": {
+            "excluded": _source_summary(excluded),
+            "included": _source_summary(included),
+        },
+    }
+
+
+def _validate_share_target(wiki_dir: Path, out_dir: Path) -> Path:
+    """Validate the publication target without mutating it."""
+    raw_out = Path(out_dir)
+    if raw_out.is_symlink():
+        raise ShareGateError("share output target is unsafe")
+    resolved_wiki = Path(wiki_dir).resolve()
+    resolved_out = raw_out.resolve()
+    if resolved_out == resolved_wiki or resolved_out in resolved_wiki.parents:
+        raise ShareGateError("share output target is unsafe")
+    if resolved_out.exists():
+        if not resolved_out.is_dir():
+            raise ShareGateError("share output target is unsafe")
+        if any(resolved_out.iterdir()) and not (
+            (resolved_out / ".okf-bundle").is_file()
+            and (resolved_out / SHARE_SENTINEL).is_file()
+        ):
+            raise ShareGateError("share output target is not a managed share bundle")
+    return resolved_out
+
+
+def _write_share_log(out_dir: Path, stats: ExportStats) -> None:
+    """Replace the legacy path-rich log with share-safe aggregate counts only."""
+    lines = [
+        "# Share-ready OKF export",
+        "",
+        f"- included: {stats.pages_exported}",
+        f"- excluded: {len(stats.excluded)}",
+        f"- links_converted: {stats.links_converted}",
+        f"- excluded_link_refs: {len(stats.excluded_link_refs)}",
+        "- sensitive_hits: 0",
+        "",
+    ]
+    (out_dir / "log.md").write_text("\n".join(lines), encoding="utf-8")
+
+
+def export_share_bundle(
+    wiki_dir: Path,
+    out_dir: Path,
+    *,
+    config_path: Path,
+    local_config_paths: list[Path],
+    approval: str | None,
+    extra_exclude_paths: list[str] | None = None,
+    extra_exclude_domains: list[str] | None = None,
+    extra_exclude_slugs: list[str] | None = None,
+) -> tuple[ExportStats, dict]:
+    """Validate, stage, and atomically publish an explicitly approved share bundle."""
+    wiki_dir = Path(wiki_dir).resolve()
+    if not wiki_dir.is_dir():
+        raise ShareGateError("wiki input is absent")
+    out_dir = _validate_share_target(wiki_dir, out_dir)
+    policy = _load_share_policy(
+        config_path,
+        local_config_paths,
+        extra_exclude_paths=extra_exclude_paths,
+        extra_exclude_domains=extra_exclude_domains,
+        extra_exclude_slugs=extra_exclude_slugs,
+    )
+    if approval != policy["approval_value"]:
+        raise ShareGateError("explicit human approval is required or invalid")
+
+    input_fingerprint = _wiki_fingerprint(wiki_dir)
+    inventory_stats = ExportStats()
+    pages = _load_pages(wiki_dir, inventory_stats)
+    stats = export_bundle(
+        wiki_dir,
+        out_dir,
+        strip_internal=True,
+        exclude_paths=policy["exclude_paths"],
+        exclude_domains=policy["exclude_domains"],
+        exclude_slugs=policy["exclude_slugs"],
+        sensitive_patterns=policy["sensitive_patterns"],
+        dry_run=True,
+    )
+    if stats.skipped:
+        raise ShareGateError("share policy rejected unreadable or incomplete pages")
+    if stats.broken_links:
+        raise ShareGateError("share policy rejected broken links")
+    if stats.sensitive_hits:
+        raise ShareGateError(
+            f"sensitive content detected ({len(stats.sensitive_hits)} hits); no share output written"
+        )
+    manifest = _build_share_manifest(pages, stats, policy)
+
+    # No temporary or destination write occurs until every gate above passes.
+    out_dir.parent.mkdir(parents=True, exist_ok=True)
+    stage = Path(tempfile.mkdtemp(prefix=f".{out_dir.name}.stage-", dir=out_dir.parent))
+    backup: Path | None = None
+    try:
+        staged_stats = export_bundle(
+            wiki_dir,
+            stage,
+            strip_internal=True,
+            exclude_paths=policy["exclude_paths"],
+            exclude_domains=policy["exclude_domains"],
+            exclude_slugs=policy["exclude_slugs"],
+            sensitive_patterns=policy["sensitive_patterns"],
+        )
+        if staged_stats.sensitive_hits or _wiki_fingerprint(wiki_dir) != input_fingerprint:
+            raise ShareGateError("share inputs changed during staged export")
+        refreshed_policy = _load_share_policy(
+            config_path,
+            local_config_paths,
+            extra_exclude_paths=extra_exclude_paths,
+            extra_exclude_domains=extra_exclude_domains,
+            extra_exclude_slugs=extra_exclude_slugs,
+        )
+        if refreshed_policy["fingerprint"] != policy["fingerprint"]:
+            raise ShareGateError("share policy changed during staged export")
+        if (
+            staged_stats.pages_exported != stats.pages_exported
+            or len(staged_stats.excluded) != len(stats.excluded)
+            or staged_stats.broken_links
+            or staged_stats.skipped
+        ):
+            raise ShareGateError("share inventory changed during staged export")
+
+        _write_share_log(stage, staged_stats)
+        (stage / SHARE_MANIFEST).write_text(
+            json.dumps(manifest, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+        (stage / SHARE_SENTINEL).write_text(
+            "Complete Share-ready OKF bundle; replace only through --share.\n",
+            encoding="utf-8",
+        )
+
+        if out_dir.exists():
+            backup = out_dir.parent / f".{out_dir.name}.backup-{uuid.uuid4().hex}"
+            os.replace(out_dir, backup)
+        try:
+            os.replace(stage, out_dir)
+        except BaseException:
+            if backup is not None and backup.exists() and not out_dir.exists():
+                os.replace(backup, out_dir)
+            raise
+        if backup is not None:
+            shutil.rmtree(backup)
+            backup = None
+    finally:
+        if stage.exists():
+            shutil.rmtree(stage)
+        if backup is not None and backup.exists() and not out_dir.exists():
+            os.replace(backup, out_dir)
+
+    return stats, manifest
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description="wiki/ → OKF v0.1 호환 번들 okf/ export (Phase 1)"
     )
-    parser.add_argument("--out", default="okf/", help="출력 번들 루트 (기본 okf/)")
+    parser.add_argument(
+        "--out",
+        default=None,
+        help="출력 번들 루트 (기본: private okf/, share okf-share/)",
+    )
     parser.add_argument(
         "--strip-internal",
         action="store_true",
@@ -738,17 +1134,31 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="파일 0개 작성, export 대상·통계만 출력 (보안 게이트용)",
     )
+    parser.add_argument(
+        "--share",
+        action="store_true",
+        help="별도 Share-ready 승인·manifest 게이트로 공개 번들 생성",
+    )
+    parser.add_argument(
+        "--approve-share",
+        metavar="VALUE",
+        help="Share-ready 정책에 정의된 사람 승인 값을 명시",
+    )
     args = parser.parse_args(argv)
 
+    if args.approve_share is not None and not args.share:
+        parser.error("--approve-share requires --share")
+    if args.share and args.dry_run:
+        parser.error("--share performs its own preflight and cannot be combined with --dry-run")
+
     wiki_dir = REPO_ROOT / "wiki"
-    out_dir = Path(args.out)
+    out_dir = Path(args.out or ("okf-share/" if args.share else "okf/"))
     if not out_dir.is_absolute():
         out_dir = REPO_ROOT / out_dir
 
     config_path = Path(args.config)
     if not config_path.is_absolute():
         config_path = REPO_ROOT / config_path
-    config = load_config(config_path)
     # gitignored 로컬 오버라이드(.local.yaml): 실명 등 민감 키워드를 커밋되는 yaml에 넣지
     # 않고 로컬에서만 sensitive_patterns·exclude_slugs를 보강한다(P3 privacy 게이트).
     # GAP-3: config별 `<config>.local.yaml` + 기본 `schema/okf_export.local.yaml`를 모두
@@ -757,6 +1167,31 @@ def main(argv: list[str] | None = None) -> int:
         config_path.with_suffix(".local.yaml"),
         REPO_ROOT / "schema" / "okf_export.local.yaml",
     }
+
+    if args.share:
+        try:
+            stats, manifest = export_share_bundle(
+                wiki_dir,
+                out_dir,
+                config_path=config_path,
+                local_config_paths=[p for p in local_paths if p.is_file()],
+                approval=args.approve_share,
+                extra_exclude_paths=args.exclude_path,
+                extra_exclude_domains=args.exclude_domain,
+                extra_exclude_slugs=args.exclude_slug,
+            )
+        except ShareGateError as exc:
+            print(f"[okf_export] SHARE BLOCKED: {exc}", file=sys.stderr)
+            return 1
+        print(f"[okf_export] SHARE-READY → {out_dir}")
+        print(
+            f"included={stats.pages_exported} excluded={len(stats.excluded)} "
+            f"manifest={SHARE_MANIFEST} "
+            f"config={manifest['config_fingerprint']}"
+        )
+        return 0
+
+    config = load_config(config_path)
     local_present = any(p.is_file() for p in local_paths)
     local_sensitive: list = []
     local_exclude_slugs: list = []

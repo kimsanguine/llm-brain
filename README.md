@@ -263,10 +263,12 @@ uv run python -m wiki_app
 ```
 /llm-brain:okf                  # 먼저 dry-run 검토 후 okf/ 번들 생성
 /llm-brain:okf --dry-run        # 내보낼·제외할 목록과 통계만 미리보기 (파일 미작성)
-/llm-brain:okf --strip-internal # 외부 공유본 (내부 전용 필드 제거)
+/llm-brain:okf --strip-internal # 개인용 최소본 (내부 전용 필드 제거; 공유 승인 아님)
+/llm-brain:okf --share --approve-share I_ACKNOWLEDGE_SHARE_READY_EXPORT
+                                # 사람 승인 + manifest gate를 통과한 별도 okf-share/ 생성
 ```
 
-> 🔴 **보안 (한 줄):** `okf/`를 public으로 커밋하면 history가 영구로 남는다. 커밋 전 반드시 `--dry-run`으로 민감 항목이 빠졌는지(`sensitive_hits=0`) 사람이 직접 확인한다. 제외·민감 설정과 보안 게이트 동작 상세: `SPEC.md`.
+> 🔴 **보안 (한 줄):** 기본 `okf/`와 `--strip-internal`은 private export이며 공개 승인 증거가 아니다. 외부 공유는 gitignored `schema/okf_export.local.yaml`을 명시하고 `--share` + 정확한 사람 승인 값을 사용한다. 민감 hit·설정 부재·scope/policy 위반이면 파일을 쓰기 전에 중단하며, 통과한 `okf-share/`만 redacted manifest를 포함한다. 상세: `SPEC.md`.
 > 🔒 **v0.3:** 페이지 frontmatter에 `scope: private`를 두면 (플래그 없이도) OKF 공개 번들에서 **항상 제외**된다. `owner` 필드로 소유자를 태깅할 수 있다(팀 확장 대비).
 
 ---
@@ -446,7 +448,8 @@ llm-brain/
 ├── express/                   # 창작물 출력 (.gitignore)
 ├── episodes/                  # 🧠 에피소드 원장 YYYY-MM.jsonl (.gitignore · 사적)
 ├── procedures/                # 🧠 재사용 절차 메모리 (Git 커밋 대상)
-└── okf/                       # OKF v0.1 호환 번들 (okf_export.py 생성, Git 커밋 대상)
+├── okf/                       # 기존 private OKF v0.1 projection
+└── okf-share/                 # --share gate를 통과한 bundle + redacted manifest
 ```
 
 ---

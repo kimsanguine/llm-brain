@@ -46,3 +46,20 @@ exclude_slugs: []
 #      schema/okf_export.local.yaml 에만 둔다(아래 exclude_slugs 도 동일).
 #   예: ["<본인-실명>", "<내부-프로젝트-코드명>"] 형태로 .local.yaml 에 작성.
 sensitive_patterns: []
+
+# share_policy — `--share`에서만 적용되는 fail-closed 공개 경계.
+# 기본 OKF export는 개인용/레거시 호환 경로이며 이 정책을 강제하지 않는다.
+# 승인 값은 사람이 CLI에 직접 제공해야 하며 manifest에는 기록되지 않는다.
+share_policy:
+  approval_value: "I_ACKNOWLEDGE_SHARE_READY_EXPORT"
+  allowed_scopes:
+    - private
+    - shared
+  allowed_classifications:
+    - business
+    - concept
+    - insight
+    - lecture
+    - person
+    - project
+    - tool

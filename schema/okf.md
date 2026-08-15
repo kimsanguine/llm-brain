@@ -39,7 +39,8 @@ OKF 예약 필드는 아래 순서로 출력한다(`type`·`title` 외에는 소
 
 ### `--strip-internal` (strip 모드)
 
-OKF 예약 6필드만 남기고 `x-llmbrain-*`를 전부 생략한다. 외부 공유용 최소본.
+OKF 예약 6필드만 남기고 `x-llmbrain-*`를 전부 생략한다. 이는 최소 투영일 뿐
+Share-ready 승인은 아니며, 공개 경계는 §6의 `--share`를 사용한다.
 
 ### 네임스페이스 보존의 근거
 
@@ -110,9 +111,9 @@ OKF minimal consumer(Google 공개판)는 이 정규식으로 본문에서 엣�
 - `exclude_domains`(frontmatter domain 라벨)·`exclude_slugs`(개별 페이지)는 보조 필터.
   `business/` 밖에 산재한 민감 페이지는 dry-run 검토 후 `exclude_slugs`로 추가한다.
 
-### public 커밋 전 게이트 (one-way door)
+### legacy private dry-run 검토
 
-`okf/`는 Git 커밋 대상이고 git history는 영구다(비가역). 커밋 전:
+기본 `okf/`를 검토할 때:
 
 1. `--dry-run`으로 export 대상 목록을 사람이 눈으로 확인
 2. `business/` 페이지가 목록에 **0개**임을 확인
@@ -120,3 +121,15 @@ OKF minimal consumer(Google 공개판)는 이 정규식으로 본문에서 엣�
 
 exclude는 *추론*이 아니라 *감사 가능한 설정*이라야 이 게이트가 신뢰할 수 있다 →
 제외 규칙을 코드에 숨기지 않고 `schema/okf_export.yaml`에 명시한다.
+
+## 6. Share-ready manifest gate
+
+기본 `okf/` export는 기존 private 동작을 유지한다. 외부 공유는 반드시 별도 `--share`와
+사람이 직접 입력한 `--approve-share I_ACKNOWLEDGE_SHARE_READY_EXPORT`를 함께 사용한다.
+
+- base policy와 gitignored local security config가 모두 필요하다.
+- 구조적으로 제외되지 않은 모든 후보는 명시적 `scope: shared|private`와 허용된 `type`이 필요하다.
+- 민감 hit, skipped page, broken link, 빈 공개 번들은 출력 전에 hard-stop한다.
+- 통과한 결과만 sibling stage에서 완성 후 `okf-share/`로 원자 교체한다.
+- `share-manifest.json`은 included/excluded, source, classification, scope 집계와 설정 SHA-256만
+  기록하며, 경로·본문·민감 패턴·승인 값을 기록하지 않는다.

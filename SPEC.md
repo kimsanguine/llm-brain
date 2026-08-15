@@ -93,11 +93,12 @@
 │   ├── summary/                 # 주간·월간 요약 초안
 │   └── report/                  # 심층 리포트 초안
 │
-├── okf/                         # OKF v0.1 호환 번들 (okf_export.py 생성, Git 커밋 대상)
+├── okf/                         # 기존 private OKF v0.1 projection
 │   ├── index.md                 # 번들 루트 목차 (type별 그룹 + 디렉토리 index 링크)
 │   ├── log.md                   # export 이력 + 변환 경고
 │   ├── .okf-bundle              # 번들 센티넬 (재export 시 안전 정리용 마커)
 │   └── {dir}/                   # 디렉토리별 미러 + index.md (business/·canvas/ 제외)
+├── okf-share/                   # --share gate 통과 bundle + redacted manifest
 │
 ├── wiki_app/                    # HTML 검색·페이지뷰 (FastAPI + vanilla JS, port 8000)
 │   ├── __main__.py              # uv run python -m wiki_app
@@ -357,12 +358,14 @@ score = Σ weight·norm(signal),  norm(x) = min(x / CAP, 1.0)
 | 인자 | 타입 | 기본값 | 설명 |
 |------|------|--------|------|
 | `--out PATH` | str | `okf/` | 출력 번들 루트. 상대경로는 레포 루트 기준 |
-| `--strip-internal` | flag | off | OKF 예약 6필드만 남기고 `x-llmbrain-*` 전부 제거 (외부 공유 최소본) |
+| `--strip-internal` | flag | off | OKF 예약 6필드만 남기고 `x-llmbrain-*` 제거. 단독으로는 Share-ready 승인 아님 |
 | `--config PATH` | str | `schema/okf_export.yaml` | 제외 설정 파일. 부재 시 하드코딩 기본값 사용 |
 | `--exclude-path GLOB` | str (복수) | `[]` | 추가 제외 경로 글롭. 설정 파일 값에 누적 |
 | `--exclude-domain D` | str (복수) | `[]` | frontmatter `domain` 라벨 기준 제외 (보조 필터) |
 | `--exclude-slug SLUG` | str (복수) | `[]` | 특정 slug 명시 제외 |
 | `--dry-run` | flag | off | 파일 0개 작성, export 대상·통계만 출력 (public 커밋 전 보안 게이트용) |
+| `--share` | flag | off | 기존 private export와 분리된 Share-ready hard-stop gate. 기본 출력 `okf-share/` |
+| `--approve-share VALUE` | str | 없음 | `--share` 전용 사람 승인 값. 정책의 정확한 값이 아니면 출력 전 중단 |
 
 `exclude_paths`·`exclude_domains`·`exclude_slugs`·`sensitive_patterns` 최종값 = `schema/okf_export.yaml`(커밋됨) + gitignored `schema/okf_export.local.yaml` + CLI 인자(누적).
 
@@ -376,6 +379,17 @@ score = Σ weight·norm(signal),  norm(x) = min(x / CAP, 1.0)
 | 로컬 분리 | 🔴 실명·내부명 같은 민감 값은 **gitignored `schema/okf_export.local.yaml`에만** 둔다. 커밋되는 `okf_export.yaml`에 넣으면 그 자체가 누출. main()이 두 파일을 병합 |
 | fail-loud 경고 | `okf_export.local.yaml` 부재 시(fresh clone/CI) 게이트 비활성 → stderr에 🔴 경고. 그 상태로 커밋 금지 |
 
+기본 export는 기존 private 동작을 유지한다. 공개용 `--share`는 더 엄격한 별도 경계다.
+`schema/okf_export.yaml`과 하나 이상의 gitignored local security config가 모두 있어야 하며,
+모든 비-구조제외 후보가 명시적 `scope: shared|private` 및 허용된 `type`을 가져야 한다.
+민감 hit, skipped page, broken link, 빈 공개 번들, 설정/인벤토리 drift는 hard-stop이다.
+
+통과 시 `strip_internal=True`로 sibling stage에 전체 번들을 만든다. 입력 wiki bytes와 설정
+fingerprint를 재검증하고 `share-manifest.json`·`.okf-share-bundle`까지 완성한 뒤 디렉토리
+rename으로만 게시한다. 실패 시 stage를 제거하며 기존 share bundle은 보존한다. manifest는
+결정적 JSON이고 included/excluded 수, source reference 수, classification/scope 수,
+`sha256:` configuration fingerprint만 기록한다. 페이지 경로·본문·민감 패턴·승인 값은 금지한다.
+
 #### 출력 파일
 
 | 파일 | 설명 |
@@ -385,6 +399,8 @@ score = Σ weight·norm(signal),  norm(x) = min(x / CAP, 1.0)
 | `okf/index.md` | 번들 루트 목차 (type별 섹션 + Directories 섹션) |
 | `okf/log.md` | export 이력 + 변환 경고 (깨진 링크·제외 페이지·skipped) |
 | `okf/.okf-bundle` | 번들 센티넬. 재export 시 이 마커가 있는 디렉토리만 안전하게 정리 |
+| `okf-share/share-manifest.json` | Share-ready 집계와 configuration fingerprint만 담은 redacted deterministic manifest |
+| `okf-share/.okf-share-bundle` | 완성된 share bundle만 원자 교체하기 위한 추가 센티넬 |
 
 #### 안전 가드
 
@@ -956,7 +972,7 @@ score = 35·norm(express_reuse) + 25·norm(episode_ref) + 15·norm(centrality)
 
 - `episodes/`·`procedures/`는 **repo 루트**(wiki/ 밖) → `okf_export.py`는 `wiki/`만 rglob 스캔하므로 **구조적으로 OKF에 안 보임**.
 - **방어 이중망**: `schema/okf_export.yaml` `exclude_paths`에 `episodes/**`·`procedures/**` 명시(향후 wiki/ 밑 오배치 대비). 게이트는 탐지형이 아니라 규칙형이라 명시 규칙만이 누출을 막는다.
-- 새 메모리 필드 → keep 모드 `x-llmbrain-*` / `--strip-internal` 전부 제거. **외부 공유는 strip 필수**.
+- 새 메모리 필드 → keep 모드 `x-llmbrain-*` / `--strip-internal` 전부 제거. **외부 공유는 `--share` 필수이며 strip을 강제**.
 - `.gitignore`: `episodes/` 전체. 예외 = `examples/episode-schema-example.jsonl` 1개만 커밋(문서·테스트용).
 - 커밋 전 dry-run ceremony(기존)에 점검 항목 추가: export 목록에 `episodes`/`procedures`/`memory_health_report` 미등장 단언.
 - 🔴 **memory_health 리포트 누출 차단(Claude#1·Codex C1, HIGH):** `memory_health.py`는 `wiki/memory_health_report.md`에 쓰는데 `okf_export.py`가 `wiki/`를 rglob 스캔하고 현 `META_FILES`에 이 파일이 **없다**(episode 요약 = 격리한 사적 운영맥락의 파생). → ① `memory_health_report.md`를 okf `META_FILES`에 **명시 추가**(루트 직속 skip 작동; title-부재 skip은 취약해 의존 금지) ② 리포트는 **집계 수치만**(verbatim episode 본문 금지). 이 확장은 리포트를 도입하는 **Phase 3에서 동반**.
