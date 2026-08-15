@@ -1,14 +1,26 @@
 ---
-description: llm-brain 설치 상태 진단·수정 (디렉토리·스크립트·커맨드·설정·의존성 점검, --fix로 안전 복구)
+description: llm-brain 설치 진단·수정 또는 읽기 전용 guided 운영 프로필 안내
 ---
 
-llm-brain의 doctor 커맨드입니다. 설치가 제대로 됐는지 진단하고, `--fix`로 안전하게 복구합니다.
+llm-brain의 doctor 커맨드입니다. 설치를 진단·복구하거나, `--guided`로 쓰기 전
+운영 프로필을 선택합니다.
 `$ARGUMENTS`에 따라 아래를 실행하세요.
 
 ## 인자
 
 - 인자 없음 → **진단만** (점검 결과 출력, 파일 변경 0)
 - `--fix` → 안전 복구: 누락 디렉토리 생성 + `schema/sources.yaml`이 없으면 `sources.example.yaml`에서 복사. **기존 파일은 절대 덮어쓰지 않음.**
+- `--guided` → **읽기 전용** 프로필 3개(`Demo`, `Personal-private`, `Share-ready`)만 표시
+- `--guided --profile demo|personal-private|share-ready` → 선택한 프로필의 명시적 다음 행동 1개만 표시
+
+`--guided`는 `--fix`와 함께 쓸 수 없고, 진단·디렉터리 생성·config 복사·개인
+콘텐츠 스캔을 실행하지 않습니다.
+
+### Guided 프로필
+
+- **Demo** — 기존 `examples/seed-wiki/wiki`를 사용하는 read-only smoke 안내
+- **Personal-private** — 사용자가 직접 관리하는 `schema/sources.yaml` preview만 안내
+- **Share-ready** — Task 3 manifest gate 구현 전에는 unavailable이며 publish/export 금지
 
 ## 실행
 
@@ -34,4 +46,5 @@ uv run python scripts/doctor.py $ARGUMENTS
 - ⚠️ **WARN** = 선택/환경별(설정 파일·claude CLI 등) — 필요 시 안내대로.
 - exit 0 = FAIL 없음(설치 정상) · exit 1 = FAIL 있음.
 
-> 새 클론/설치 직후 `doctor --fix` 한 번이면 디렉토리·소스 설정이 정비됩니다. 의존성은 그 전에 `uv sync`.
+> 먼저 `doctor --guided`로 운영 프로필을 고를 수 있습니다. 실제 초기화가 필요할
+> 때만 별도로 `doctor --fix`를 실행하세요. 의존성은 그 전에 `uv sync`.

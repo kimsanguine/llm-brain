@@ -11,11 +11,21 @@ from __future__ import annotations
 
 import argparse
 import importlib.util
+import shlex
 import shutil
-import sys
 from pathlib import Path
 
-ROOT = Path(__file__).parent.parent
+
+def detect_repo_root(script_file: Path | None = None) -> Path:
+    """Resolve the repository from this script, never from the caller's cwd."""
+    script = Path(script_file or __file__).resolve()
+    root = script.parent.parent
+    if not (root / "scripts" / "doctor.py").is_file() or not (root / "pyproject.toml").is_file():
+        raise RuntimeError(f"llm-brain repository root not found from {script}")
+    return root
+
+
+ROOT = detect_repo_root()
 
 REQUIRED_DIRS = ["schema", "scripts", "commands", "procedures", "examples"]
 PERSONAL_DATA_DIRS = ["raw", "wiki"]
@@ -30,6 +40,8 @@ REQUIRED_DEPS = [
     ("yaml", "pyyaml"), ("fastapi", "fastapi"), ("uvicorn", "uvicorn"),
     ("httpx", "httpx"), ("frontmatter", "python-frontmatter"),
 ]
+
+GUIDED_PROFILES = ("Demo", "Personal-private", "Share-ready")
 
 
 def _r(name: str, status: str, detail: str = "") -> dict:
@@ -116,11 +128,57 @@ def run_checks(root: Path = ROOT, *, fix: bool = False) -> list[dict]:
     return results
 
 
-def main() -> None:
+def render_guided(root: Path, profile: str | None = None) -> str:
+    """Render a read-only profile choice or one explicit next action."""
+    root = Path(root).resolve()
+    lines = ["=== llm-brain guided setup ===", f"Repository root: {root}"]
+    if profile is None:
+        lines.append("Profiles:")
+        lines.extend(f"  - {name}" for name in GUIDED_PROFILES)
+        lines.append("Select with: --guided --profile {demo|personal-private|share-ready}")
+        return "\n".join(lines)
+
+    if profile == "demo":
+        action = (
+            f"Run the read-only demo smoke for {root / 'examples' / 'seed-wiki' / 'wiki'}: "
+            f"cd {shlex.quote(str(root))} && uv run python -c \"from pathlib import Path; "
+            "from wiki_app.api import create_app; "
+            "create_app(wiki_root=Path('examples/seed-wiki/wiki')); print('Demo smoke OK')\""
+        )
+        label = "Demo"
+    elif profile == "personal-private":
+        sources = shlex.quote(str(root / "schema" / "sources.yaml"))
+        action = f"Preview the user-managed sources config only: sed -n '1,200p' {sources}"
+        label = "Personal-private"
+    else:
+        action = (
+            "STOP — Share-ready is unavailable until the Task 3 manifest gate exists; "
+            "do not publish or export."
+        )
+        label = "Share-ready"
+    lines.extend([f"Profile: {label}", f"Next action: {action}"])
+    return "\n".join(lines)
+
+
+def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="llm-brain 설치 진단·수정")
-    parser.add_argument("--fix", action="store_true",
-                        help="누락 디렉토리 생성 + sources 설정 복사(안전 — 기존 파일 미덮어씀)")
-    args = parser.parse_args()
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument("--fix", action="store_true",
+                      help="누락 디렉토리 생성 + sources 설정 복사(안전 — 기존 파일 미덮어씀)")
+    mode.add_argument("--guided", action="store_true",
+                      help="읽기 전용 운영 프로필 안내")
+    parser.add_argument(
+        "--profile",
+        choices=("demo", "personal-private", "share-ready"),
+        help="--guided에서 선택할 운영 프로필",
+    )
+    args = parser.parse_args(argv)
+
+    if args.profile and not args.guided:
+        parser.error("--profile requires --guided")
+    if args.guided:
+        print(render_guided(ROOT, args.profile))
+        return 0
 
     results = run_checks(fix=args.fix)
     icon = {"OK": "✅", "FIXED": "🔧", "WARN": "⚠️", "FAIL": "❌"}
@@ -140,9 +198,10 @@ def main() -> None:
 
     if fails:
         print("❌ 설치 문제 — 위 FAIL 항목 해결 필요(디렉토리는 `doctor --fix`, 의존성은 `uv sync`).")
-        sys.exit(1)
+        return 1
     print("✅ 설치 정상." + (" (⚠️ 항목은 선택/환경별 — 필요 시 안내대로)" if warns else ""))
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

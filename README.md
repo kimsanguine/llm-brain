@@ -102,6 +102,16 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 git clone https://github.com/kimsanguine/llm-brain.git && cd llm-brain
 ```
 
+아직 파일을 만들거나 개인 소스를 읽지 않고 운영 방식을 먼저 고르려면:
+
+```bash
+uv run python scripts/doctor.py --guided
+uv run python scripts/doctor.py --guided --profile demo  # 프로필별 다음 행동 1개
+```
+
+프로필은 `Demo`, `Personal-private`, `Share-ready` 세 가지다. `Share-ready`는
+manifest gate가 구현되기 전까지 unavailable이며 안전한 publish/export를 약속하지 않는다.
+
 ### 1) 먼저 1분 체험 — 데모 위키 둘러보기 (추천)
 
 설정 없이 동작을 먼저 본다. 예시 위키를 복사해 로컬 화면으로 바로 둘러보기:

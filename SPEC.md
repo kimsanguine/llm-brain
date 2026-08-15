@@ -794,6 +794,8 @@ response = client.messages.create(
 | `uv run python scripts/okf_export.py [--dry-run] [--strip-internal]` | `okf_export.py` | 없음 (규칙 기반 변환 → `okf/` 번들 생성, dry-run은 목록만) |
 | `uv run python scripts/brain_context.py --task "…" --topic "…" --type query\|express\|curate\|custom [--max-pages N] [--json]` | `brain_context.py` | 없음 (작업기억 팩 조립 출력 — Claude가 읽고 실행) |
 | `uv run python scripts/memory_health.py --report` | `memory_health.py` | 없음 (읽기전용 집계 → `wiki/memory_health_report.md`, 페이지 무변경) |
+| `uv run python scripts/doctor.py --guided [--profile demo\|personal-private\|share-ready]` | `doctor.py` | 없음 (repo root를 script 기준으로 확인하고, 쓰기·개인 콘텐츠 스캔 없이 정확히 3개 프로필 또는 선택 프로필의 다음 행동 1개 출력) |
+| `uv run python scripts/doctor.py [--fix]` | `doctor.py` | 없음 (기존 설치 진단; `--fix`일 때만 디렉터리·sources 설정 생성) |
 | (라이브러리 — `procedures.list_procedures`/`read_procedure`) | `procedures.py` | 없음 (`brain_context`·`memory_health`가 import; 독립 CLI 아님) |
 | `uv run python scripts/curate.py --purge` | `curate.py` | 없음 (파일 이동) |
 | `uv run python scripts/curate.py --record-access SLUG` | `curate.py` | 없음 (stats 기록) |
