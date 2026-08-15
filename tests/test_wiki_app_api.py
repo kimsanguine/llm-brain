@@ -76,7 +76,7 @@ def test_api_ai_answer_contract(client):
     })
     assert r.status_code == 200
     data = r.json()
-    assert data["status"] in ("done", "unavailable", "timeout", "error")
+    assert data["status"] in ("done", "abstained", "unavailable", "timeout", "error")
     assert "answer" in data
     assert "sources" in data
     assert data["question"] == "ping"
@@ -139,6 +139,37 @@ def test_search_endpoint_empty_index_returns_no_results(tmp_path):
     r = client.get("/api/search", params={"q": "alpha"})
     assert r.status_code == 200
     assert r.json()["total"] == 0
+
+
+def test_page_display_and_search_preserve_raw_wiki_bytes_and_access_files(tmp_path):
+    """Display/search are read paths; access tracking requires an explicit action."""
+    wiki_root = _build_project(tmp_path, with_index=True, with_graph=False)
+    project_root = wiki_root.parent
+    raw_root = project_root / "raw"
+    (raw_root / "notes").mkdir(parents=True)
+    (raw_root / "notes" / "alpha.md").write_bytes(b"PRIVATE SOURCE\n")
+
+    def snapshot():
+        return {
+            str(path.relative_to(project_root)): path.read_bytes()
+            for root in (raw_root, wiki_root)
+            for path in root.rglob("*")
+            if path.is_file()
+        }
+
+    before = snapshot()
+    client = TestClient(create_app(wiki_root=wiki_root))
+
+    page_response = client.get("/api/page/alpha")
+    search_response = client.get("/api/search", params={"q": "alpha"})
+
+    assert page_response.status_code == 200
+    assert page_response.json()["slug"] == "alpha"
+    assert search_response.status_code == 200
+    assert search_response.json()["total"] == 1
+    assert snapshot() == before
+    assert not (project_root / "wiki_stats.json").exists()
+    assert not (project_root / ".access.lock").exists()
 
 
 # --- 과제 2(a): /api/page/{slug}/graph 는 graph.json 부재 시 503 (현 분기 고정) ---
@@ -279,7 +310,7 @@ def test_ai_answer_normal_does_not_leave_running_proc(client, patched_subprocess
     r = client.post("/api/ai-answer", json={"question": "ping", "context_slugs": []})
     assert r.status_code == 200
     data = r.json()
-    assert data["status"] == "done"
+    assert data["status"] == "abstained"
     assert data["answer"] == "관련 정보 없음"
     # 정상 종료(returncode 설정됨) → 살아있지 않으므로 강제 kill 불필요
     assert proc.killed is False
@@ -638,7 +669,7 @@ def test_ai_answer_accepts_valid_slug_pattern(client, patched_subprocess):
     r = client.post("/api/ai-answer",
                     json={"question": "ping", "context_slugs": ["habix-profile", "개념-노트"]})
     assert r.status_code == 200
-    assert r.json()["status"] == "done"
+    assert r.json()["status"] == "abstained"
 
 
 # ---------------------------------------------------------------------------
@@ -659,8 +690,8 @@ def test_ai_answer_accepts_nested_slug(tmp_path, monkeypatch):
     """회귀: 중첩 slug('sub/nested')는 422 가 아니라 정상 처리돼야 한다.
 
     wiki_root 내부의 중첩 페이지를 만들어, 그 slug 를 context_slugs 로 보냈을 때
-    (a) 422 가 안 나고 (b) status=done 으로 정상 처리되며 (c) 그 페이지가 실제
-    context(sources)로 수집되는지까지 확인한다.
+    (a) 422 가 안 나고 (b) 근거 ledger가 없으므로 status=abstained이며 (c) 그
+    페이지가 context_slugs로 수집되되 출처로 오표시되지 않는지 확인한다.
     """
     # 중첩 페이지 fixture: wiki_root/concepts/sub/nested.md (slug = "sub/nested")
     project_root = tmp_path / "proj"
@@ -686,9 +717,9 @@ def test_ai_answer_accepts_nested_slug(tmp_path, monkeypatch):
                           json={"question": "ping", "context_slugs": ["sub/nested"]})
     assert r.status_code == 200, "중첩 slug 가 422 로 거부되면 회귀 미해결"
     data = r.json()
-    assert data["status"] == "done"
-    # containment 통과 → 중첩 페이지가 실제 context(sources)로 수집됨
-    assert "sub/nested" in data["sources"], "중첩 페이지가 context 로 수집돼야 함"
+    assert data["status"] == "abstained"
+    assert "sub/nested" in data["context_slugs"], "중첩 페이지가 context 로 수집돼야 함"
+    assert data["sources"] == [], "usable claim 없는 페이지를 출처로 표시하면 안 됨"
 
 
 def test_ai_answer_excludes_traversal_slug_silently(tmp_path, monkeypatch):
@@ -720,7 +751,7 @@ def test_ai_answer_excludes_traversal_slug_silently(tmp_path, monkeypatch):
                           json={"question": "ping", "context_slugs": ["sub/missing"]})
     assert r.status_code == 200
     data = r.json()
-    assert data["status"] == "done"
+    assert data["status"] == "abstained"
     # containment 미통과 → sources 에서 조용히 제외 (422 아님)
     assert data["sources"] == []
 
@@ -998,8 +1029,14 @@ def test_query_rejects_legacy_trusted_claim_when_current_page_inventory_is_unsaf
     assert response.status_code == 200
     assert response.json()["status"] == "error"
     assert "source inventory" in response.json()["message"].lower()
+    assert "mixed" in response.json()["message"]
+    assert "uv run python scripts/claims.py build" in response.json()["message"]
+    assert response.json()["affected_slugs"] == ["mixed"]
+    assert response.json()["affected_count"] == 1
     assert response.json()["answer"] == ""
     assert "claim:mixed-1" not in response.json()["message"]
+    assert "raw/notes/trusted.md" not in response.json()["message"]
+    assert "External capture statement" not in response.json()["message"]
     assert after == before
 
 
@@ -1078,10 +1115,102 @@ def test_ai_answer_stream_buffers_then_renders_valid_citations(tmp_path, monkeyp
         body = response.read().decode("utf-8")
 
     assert body.count("event: chunk") == 1
+    assert '"delivery_mode": "verified-buffered"' in body
+    assert '"source_slugs": ["alpha"]' in body
     assert "[claim:alpha-1]" in body
     assert "## 출처" in body
     assert "raw/notes/alpha.md#L1-L1" in body
     assert "event: done" in body
+
+
+def test_ai_answer_returns_abstained_with_safe_exclusion_summary(tmp_path, monkeypatch):
+    _project_root, wiki_root = _make_stream_claim_project(tmp_path)
+    local_client = TestClient(create_app(wiki_root=wiki_root))
+    monkeypatch.setattr(api_module.llm_client, "load_llm_config", lambda: {"engine": "api"})
+
+    async def fake_call(*args, **kwargs):
+        return "관련 정보 없음"
+
+    monkeypatch.setattr(api_module.llm_client, "call_llm", fake_call)
+    response = local_client.post(
+        "/api/ai-answer",
+        json={"question": "외부 캡처 내용?", "context_slugs": ["beta"]},
+    )
+
+    data = response.json()
+    assert data["status"] == "abstained"
+    assert data["answer"] == "관련 정보 없음"
+    assert data["sources"] == []
+    assert data["exclusion_reason_counts"] == {"untrusted": 1}
+    assert data["recommended_next_action"] == {
+        "command": "uv run python scripts/claims.py build"
+    }
+    assert "Beta external capture" not in json.dumps(data, ensure_ascii=False)
+    assert "raw/newsletters" not in json.dumps(data, ensure_ascii=False)
+
+
+def test_ai_answer_stream_abstention_matches_nonstream_contract(tmp_path, monkeypatch):
+    _project_root, wiki_root = _make_stream_claim_project(tmp_path)
+    local_client = TestClient(create_app(wiki_root=wiki_root))
+    monkeypatch.setattr(api_module.llm_client, "load_llm_config", lambda: {"engine": "api"})
+
+    async def fake_stream(*args, **kwargs):
+        yield "관련 정보 없음"
+
+    monkeypatch.setattr(api_module.llm_client, "stream_llm", fake_stream)
+    with local_client.stream(
+        "POST",
+        "/api/ai-answer/stream",
+        json={"question": "외부 캡처 내용?", "context_slugs": ["beta"]},
+    ) as response:
+        body = response.read().decode("utf-8")
+
+    assert '"delivery_mode": "verified-buffered"' in body
+    assert '"source_slugs": []' in body
+    assert '"exclusion_reason_counts": {"untrusted": 1}' in body
+    assert '"recommended_next_action": {"command": "uv run python scripts/claims.py build"}' in body
+    assert 'event: chunk\ndata: {"text": "관련 정보 없음"}' in body
+    assert 'event: done\ndata: {"status": "abstained"}' in body
+    assert "raw/newsletters" not in body
+
+
+def test_ai_answer_stream_inventory_error_is_sanitized_and_actionable(tmp_path, monkeypatch):
+    project_root, wiki_root = _make_stream_claim_project(tmp_path)
+    (wiki_root / "concepts" / "alpha.md").write_text(
+        "---\ntitle: alpha\nsources:\n"
+        "  - raw/notes/alpha.md\n"
+        "  - raw/newsletters/beta.md\n"
+        "---\n\nAlpha current fact.\n",
+        encoding="utf-8",
+    )
+    local_client = TestClient(create_app(wiki_root=wiki_root))
+    monkeypatch.setattr(api_module.llm_client, "load_llm_config", lambda: {"engine": "api"})
+
+    with local_client.stream(
+        "POST",
+        "/api/ai-answer/stream",
+        json={"question": "요약", "context_slugs": ["alpha"]},
+    ) as response:
+        body = response.read().decode("utf-8")
+
+    assert "event: error" in body
+    assert "alpha" in body
+    assert "uv run python scripts/claims.py build" in body
+    assert '"affected_slugs": ["alpha"]' in body
+    assert "raw/notes/alpha.md" not in body
+    assert "Alpha current fact" not in body
+
+
+def test_ai_ui_labels_verified_buffering_and_uses_only_source_slugs():
+    script = (Path(__file__).parent.parent / "wiki_app" / "static" / "app.js").read_text(
+        encoding="utf-8"
+    )
+
+    assert "verified-buffered" in script
+    assert "검증 후 일괄 표시" in script
+    assert "ev.data.source_slugs" in script
+    assert "exclusion_reason_counts" in script
+    assert "recommended_next_action" in script
 
 
 def test_ai_answer_stream_emits_no_unvalidated_untrusted_citation(tmp_path, monkeypatch):

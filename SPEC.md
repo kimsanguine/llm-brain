@@ -106,7 +106,7 @@
 │   ├── search.py                # Index + B 알고리즘 + C 확장 (본문 grep)
 │   ├── pages.py                 # 페이지 로더 (frontmatter + body + graph metadata)
 │   ├── render.py                # markdown-it + [[wikilink]] SPA 앵커 후처리
-│   ├── access.py                # access_count 갱신 (명시적 경로·원자적 쓰기·threading.Lock)
+│   ├── access.py                # 명시적 access_count 기록 helper (원자적 쓰기·threading.Lock)
 │   └── static/
 │       ├── index.html           # 3 views (empty / results / empty-results)
 │       ├── styles.css           # Pretendard + 디자인 톤
@@ -336,7 +336,11 @@ score = Σ weight·norm(signal),  norm(x) = min(x / CAP, 1.0)
 }
 ```
 
-`curate --record-access PAGE_SLUG` 호출 시 `wiki_stats.json`의 `access_count` 증가, `last_accessed` 갱신 (frontmatter는 갱신하지 않음). 웹 페이지뷰(`wiki_app/access.track`)는 frontmatter와 `wiki_stats.json` 둘 다 갱신한다. distill 시 frontmatter의 `access_count`와 `wiki_stats.json`의 값 중 큰 값을 사용한다.
+`curate --record-access PAGE_SLUG`를 명시적으로 호출할 때만 `wiki_stats.json`의
+`access_count`와 `last_accessed`를 갱신한다(frontmatter는 갱신하지 않음).
+웹 검색·페이지 보기·AI query는 `access.track`을 자동 호출하지 않으며
+`raw/`·`wiki/`·`wiki_stats.json`·접근 lock을 변경하지 않는다. distill 시
+frontmatter의 기존 `access_count`와 `wiki_stats.json`의 값 중 큰 값을 사용한다.
 
 ---
 
@@ -632,7 +636,7 @@ created: YYYY-MM-DD
 updated: YYYY-MM-DD
 sources: [raw/파일경로1, raw/파일경로2]
 distill_level: 0          # 0~3, curate --distill이 관리
-access_count: 0           # 웹 페이지뷰(wiki_app)가 갱신; CLI curate --record-access는 wiki_stats.json만 갱신 후 distill 시 동기화
+access_count: 0           # 자동 pageview 기록 없음; 명시적 curate --record-access의 stats를 distill 시 동기화
 last_accessed: null       # YYYY-MM-DD
 last_distilled: null      # YYYY-MM-DD
 resonance: high | medium | low   # ingest 시 수동 지정 (선택)
@@ -694,14 +698,16 @@ scope: private | shared    # (선택) private=okf 공개 번들 제외 / shared�
 }
 ```
 
-파일 위치: WIKI_ROOT 바로 아래 (`wiki_stats.json`). 갱신 경로는 두 가지이며 동작이 다르다.
+파일 위치: WIKI_ROOT 바로 아래 (`wiki_stats.json`). 기본 browse/query 경로는 읽기
+전용이고, 갱신은 명시적 CLI 동작으로 분리한다.
 
 | 경로 | frontmatter 갱신 | wiki_stats.json 갱신 |
 |------|-----------------|----------------------|
-| 웹 페이지뷰 (`wiki_app/access.track`) | O (원자적 쓰기) | O |
 | CLI `curate --record-access SLUG` | X | O |
 
-`distill` 실행 시 두 값 중 큰 값을 취해 frontmatter와 동기화한다.
+`wiki_app/access.track`은 기존 명시적 library write API로 남지만 검색·페이지 보기·AI
+query에서는 호출하지 않는다. `distill` 실행 시 두 값 중 큰 값을 취해 frontmatter와
+동기화한다.
 
 ---
 
@@ -817,7 +823,7 @@ response = client.messages.create(
 | `uv run python scripts/okf_export.py [--dry-run] [--strip-internal]` | `okf_export.py` | 없음 (규칙 기반 변환 → `okf/` 번들 생성, dry-run은 목록만) |
 | `uv run python scripts/brain_context.py --task "…" --topic "…" --type query\|express\|curate\|custom [--max-pages N] [--json]` | `brain_context.py` | 없음 (작업기억 팩 조립 출력 — Claude가 읽고 실행) |
 | `uv run python scripts/memory_health.py --report` | `memory_health.py` | 없음 (읽기전용 집계 → `wiki/memory_health_report.md`, 페이지 무변경) |
-| `uv run python scripts/doctor.py --guided [--profile demo\|personal-private\|share-ready]` | `doctor.py` | 없음 (repo root를 script 기준으로 확인하고, 쓰기·개인 콘텐츠 스캔 없이 정확히 3개 프로필 또는 선택 프로필의 다음 행동 1개 출력. Share-ready는 policy/local config/explicit scope 전제와 정확한 승인 명령을 안내) |
+| `uv run python scripts/doctor.py --guided [--profile demo\|personal-private\|share-ready]` | `doctor.py` | 없음 (repo root를 script 기준으로 확인하고, 제품/개인 데이터 쓰기·개인 콘텐츠 스캔 없이 정확히 3개 프로필 또는 선택 프로필의 다음 행동 1개 출력. Personal-private는 `sources.yaml` 또는 없을 때 committed example을 preview하고 Demo는 UI가 아닌 설치 검증임을 표시. Share-ready는 policy/local config/explicit scope 전제와 정확한 승인 명령을 안내. 단, `uv run` 자체의 Python 환경/cache 생성 가능성은 별도) |
 | `uv run python scripts/doctor.py [--fix]` | `doctor.py` | 없음 (기존 설치 진단; `--fix`일 때만 디렉터리·sources 설정 생성) |
 | (라이브러리 — `procedures.list_procedures`/`read_procedure`) | `procedures.py` | 없음 (`brain_context`·`memory_health`가 import; 독립 CLI 아님) |
 | `uv run python scripts/curate.py --purge` | `curate.py` | 없음 (파일 이동) |
@@ -903,7 +909,7 @@ response = client.messages.create(
   "read_pages": ["wiki/concepts/x.md"],
   "procedures_used": ["collect_related_pages"],
   "outputs": {},
-  "status": "ok|pending_wiki_compilation|draft_ready|timeout|error",
+  "status": "ok|abstained|pending_wiki_compilation|draft_ready|timeout|error",
   "notes": "string" }
 ```
 
@@ -951,11 +957,16 @@ markdown 기본, `--json`은 동일 구조. <1s 목표(file-first, 임베딩 없
   `raw_sha256`, `valid_from`, `valid_until`, `status`, `trust`; `locator`만 optional
 - allowed status: `active | stale | superseded`; trust: `trusted | untrusted`
 - malformed/partial/unknown-field/duplicate record 하나라도 있으면 API/CLI 전체 fail closed
+- source inventory 오류는 전체 ledger 검증을 유지하면서 affected slug/count와 정확한
+  `uv run python scripts/claims.py build` 복구 명령만 노출하고 statement/raw path는 숨김
 - trusted query/citation: `active + trusted + current validity + current raw hash match`만 허용
 - stale와 raw mutation은 각각 `stale`, `source_hash_mismatch`로 구분해 제외
 - 외부 capture statement는 single-line canonical JSON data로 격리하고 명령/인용 불허
 - LLM citation token: `[claim:slug-N]`; invalid/non-active claim 하나라도 있으면 답변 거부
-- SSE는 `_AI_STREAM_MAX_CHUNKS`/`_AI_STREAM_MAX_BYTES` 안에서 buffering 후 동일 gate 적용
+- usable trusted claim이 없으면 exact `관련 정보 없음`만 허용하고 API/SSE status를
+  `abstained`로 구분. source 목록은 비우며 안전한 제외 사유 count와 다음 행동 하나 제공
+- SSE meta는 `delivery_mode: verified-buffered`를 명시하고 UI도 "검증 후 일괄 표시"로
+  표현. `_AI_STREAM_MAX_CHUNKS`/`_AI_STREAM_MAX_BYTES` 안에서 buffering 후 동일 gate 적용
 
 ### C4. memory_score (US-006, 재사용 우선·결정적)
 

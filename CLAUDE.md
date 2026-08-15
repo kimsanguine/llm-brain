@@ -73,7 +73,8 @@ OKF v0.1(Google Open Knowledge Format) 호환 번들 `okf/`로 투영한다 (동
 ```
 `index.md` 검색 → 관련 `wiki/` 페이지 로드 → wiki 기반 답변
 wiki에 없으면: "raw 데이터가 필요합니다" 응답
-접근한 페이지 `access_count` 갱신
+읽기 전용: `raw/`·`wiki/`·`wiki_stats.json`·접근 lock을 변경하지 않음
+접근 통계가 필요할 때만 별도 `curate --record-access PAGE_SLUG` 실행
 
 ### express
 ```
@@ -94,11 +95,11 @@ uv run python -m wiki_app
 로컬 HTML 검색·페이지뷰 인터페이스. CLI `/query`의 시각화 버전.
 
 - **검색 알고리즘**: 제목+desc+tags+page_title 점수 매칭 (B). 결과 < 3개 시 본문 grep 자동 확장 (C). 한국어/영문 모두 작동.
-- **AI 답변 토글**: `claude -p` CLI 라이브 연결 (SSE 스트리밍 `/api/ai-answer/stream` 포함). CLI 부재 시 `status: unavailable` fallback.
+- **AI 답변 토글**: `claude -p` CLI 연결. SSE endpoint는 citation 검증을 위해 bounded buffering 후 한 번에 내보내는 `verified-buffered`이며 UI도 이를 표시. usable trusted claim이 없으면 `status: abstained`, 출처 `[]`, 안전한 제외 사유 count와 다음 행동 하나를 반환. CLI 부재 시 `status: unavailable` fallback.
 - **백엔드**: `wiki_app/` (FastAPI · uv) — 6 endpoints (`/api/index`, `/api/search`, `/api/page/{slug}`, `/api/page/{slug}/graph`, `/api/ai-answer`, `/api/ai-answer/stream`)
 - **프론트엔드**: `wiki_app/static/` (vanilla JS + Pretendard)
 - **테스트**: `tests/test_wiki_app_*.py` (5 modules, 73 tests)
-- **운영 가드레일**: 페이지뷰 시 wiki frontmatter `access_count` 자동 +1 (CLI query와 동등)
+- **운영 가드레일**: 검색·페이지뷰·AI query는 `raw/`·`wiki/`·`wiki_stats.json`·접근 lock을 변경하지 않음. 접근 기록은 명시적 `curate --record-access PAGE_SLUG`만 사용
 - **에피소드 자동기록**: AI 답변 1건마다 `episodes/YYYY-MM.jsonl`에 append (task_type `ai_answer`, fail-soft — `finally`에서 최종 status 기록, 응답 경로 절대 불간섭)
 - **설계 기준**: `SPEC.md`의 현재 계약을 따른다. 과거 계획 문서는 로컬 비공개 보관소에 있다.
 

@@ -109,7 +109,7 @@ def test_non_stream_records_one_ai_answer_episode(tmp_path, monkeypatch):
                     json={"question": "알파란?", "context_slugs": ["alpha"]})
 
     assert r.status_code == 200
-    assert r.json()["status"] == "done"
+    assert r.json()["status"] == "abstained"
 
     # 정확히 1건 기록
     assert len(captured) == 1
@@ -120,9 +120,8 @@ def test_non_stream_records_one_ai_answer_episode(tmp_path, monkeypatch):
     # 유효 slug 가 wiki/ 경로로
     assert rec["read_pages"] == ["wiki/alpha.md"]
     assert rec["procedures_used"] == []
-    assert rec["outputs"] == {"answer_status": "done"}
-    # done → 스키마 status "ok"
-    assert rec["status"] == "ok"
+    assert rec["outputs"] == {"answer_status": "abstained"}
+    assert rec["status"] == "abstained"
     assert rec["notes"] == ""
     # timestamp 는 tz-aware ISO (오프셋 포함)
     assert "T" in rec["timestamp"]
@@ -154,8 +153,8 @@ def test_stream_records_one_ai_answer_episode(tmp_path, monkeypatch):
     assert rec["task_type"] == "ai_answer"
     assert rec["user_goal"] == "알파란?"
     assert rec["read_pages"] == ["wiki/alpha.md"]
-    assert rec["outputs"] == {"answer_status": "done"}
-    assert rec["status"] == "ok"
+    assert rec["outputs"] == {"answer_status": "abstained"}
+    assert rec["status"] == "abstained"
 
 
 # ---------------------------------------------------------------------------
@@ -164,7 +163,7 @@ def test_stream_records_one_ai_answer_episode(tmp_path, monkeypatch):
 
 
 def test_non_stream_episode_failure_is_fail_soft(tmp_path, monkeypatch):
-    """episode.append 가 raise 해도 /api/ai-answer 는 평소 200/done 을 반환한다.
+    """episode.append 가 raise 해도 /api/ai-answer 는 평소 200/abstained를 반환한다.
 
     episode 기록 실패가 AI 답변 응답을 절대 깨거나(500) 바꾸지 않는다(US-002 AC).
     """
@@ -183,9 +182,9 @@ def test_non_stream_episode_failure_is_fail_soft(tmp_path, monkeypatch):
     # 핵심 단언: 500 도, 예외 전파도 없이 평소 응답 그대로
     assert r.status_code == 200
     data = r.json()
-    assert data["status"] == "done"
+    assert data["status"] == "abstained"
     assert data["answer"] == "관련 정보 없음"
-    assert data["sources"] == ["alpha"]
+    assert data["sources"] == []
 
 
 def test_stream_episode_failure_is_fail_soft(tmp_path, monkeypatch):

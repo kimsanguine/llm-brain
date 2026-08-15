@@ -86,8 +86,8 @@ def test_guided_lists_exactly_three_profiles_from_any_working_directory(tmp_path
 @pytest.mark.parametrize(
     ("profile", "required_text"),
     [
-        ("demo", ("examples/seed-wiki/wiki", "smoke")),
-        ("personal-private", ("schema/sources.yaml", "preview")),
+        ("demo", ("examples/seed-wiki/wiki", "installation verification", "no browser ui")),
+        ("personal-private", ("schema/sources", "preview")),
         (
             "share-ready",
             (
@@ -139,6 +139,45 @@ def test_guided_profile_is_read_only_and_does_not_run_default_checks(tmp_path):
     assert after == before
     assert "PRIVATE_MARKER" not in result.stdout
     assert "private-note.md" not in result.stdout
+
+
+def test_personal_private_guided_action_uses_example_and_succeeds_in_fresh_clone(tmp_path):
+    """Fresh clones have no gitignored sources.yaml, so the one action must exist."""
+    root = tmp_path / "fresh-clone"
+    schema = root / "schema"
+    schema.mkdir(parents=True)
+    example = schema / "sources.example.yaml"
+    example.write_text("sources: []\n", encoding="utf-8")
+    before = {str(p.relative_to(root)): p.read_bytes() for p in root.rglob("*") if p.is_file()}
+
+    output = doctor.render_guided(root, "personal-private")
+
+    assert output.count("Next action:") == 1
+    action = output.rsplit(": ", 1)[1]
+    assert str(example) in action
+    assert str(schema / "sources.yaml") not in action
+    completed = subprocess.run(
+        action, cwd=root, shell=True, text=True, capture_output=True, check=False
+    )
+    assert completed.returncode == 0, completed.stderr
+    assert completed.stdout == "sources: []\n"
+    after = {str(p.relative_to(root)): p.read_bytes() for p in root.rglob("*") if p.is_file()}
+    assert after == before
+
+
+def test_personal_private_guided_action_prefers_existing_user_config(tmp_path):
+    root = tmp_path / "configured-clone"
+    schema = root / "schema"
+    schema.mkdir(parents=True)
+    (schema / "sources.example.yaml").write_text("sources: []\n", encoding="utf-8")
+    sources = schema / "sources.yaml"
+    sources.write_text("sources:\n  - path: ~/notes\n", encoding="utf-8")
+
+    output = doctor.render_guided(root, "personal-private")
+
+    assert output.count("Next action:") == 1
+    assert str(sources) in output
+    assert str(schema / "sources.example.yaml") not in output
 
 
 def test_guided_and_fix_are_mutually_exclusive(tmp_path):

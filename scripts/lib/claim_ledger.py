@@ -26,6 +26,7 @@ _OPINION_MARKERS = ("권장", "추천", "의견", "생각", "should", "prefer")
 _INFERENCE_MARKERS = ("아마", "추정", "가능성", "보인다", "might", "may", "could")
 _UNTRUSTED_DIR_MARKERS = ("/newsletters/", "/clippings/", "/captures/")
 ABSTENTION_RESPONSE = "관련 정보 없음"
+CLAIM_REBUILD_COMMAND = "uv run python scripts/claims.py build"
 _VALIDITY_WINDOW_DAYS = 180
 _KINDS = frozenset({"fact", "inference", "opinion"})
 _STATUSES = frozenset({"active", "stale", "superseded"})
@@ -52,6 +53,18 @@ class ClaimLedgerError(ValueError):
 
 class ClaimCitationError(ClaimLedgerError):
     """An answer cites a claim that is not currently active and trusted."""
+
+
+class ClaimSourceInventoryError(ClaimLedgerError):
+    """Current wiki source inventory cannot safely authorize persisted claims."""
+
+    def __init__(self, affected_slugs: Iterable[str]):
+        self.affected_slugs = tuple(sorted(set(affected_slugs)))
+        count = len(self.affected_slugs)
+        pages = ", ".join(self.affected_slugs)
+        super().__init__(
+            f"current wiki source inventory is invalid for {count} page(s): {pages}"
+        )
 
 
 def _strict_date(value: object, field: str) -> date:
@@ -398,23 +411,31 @@ def validate_claim_source_inventory(
 ) -> None:
     """Reject legacy records whose current page no longer has one matching raw source."""
     wiki_root = Path(wiki_root)
+    invalid_slugs: set[str] = set()
     for record in records:
-        page_path = _find_page_path(claim_slug(record), wiki_root)
+        slug = claim_slug(record)
+        page_path = _find_page_path(slug, wiki_root)
         if page_path is None:
-            raise ClaimLedgerError("current wiki source inventory is invalid")
+            invalid_slugs.add(slug)
+            continue
         try:
             post = frontmatter.load(page_path)
-        except (OSError, UnicodeError, ValueError, yaml.YAMLError) as exc:
-            raise ClaimLedgerError("current wiki source inventory is invalid") from exc
+        except (OSError, UnicodeError, ValueError, yaml.YAMLError, RecursionError):
+            invalid_slugs.add(slug)
+            continue
         sources = _normalize_sources(post.metadata.get("sources"))
         if len(sources) != 1:
-            raise ClaimLedgerError("current wiki source inventory is invalid")
+            invalid_slugs.add(slug)
+            continue
         try:
             current_source = _validate_raw_path(sources[0])
-        except ClaimLedgerError as exc:
-            raise ClaimLedgerError("current wiki source inventory is invalid") from exc
+        except ClaimLedgerError:
+            invalid_slugs.add(slug)
+            continue
         if record.raw_path != current_source:
-            raise ClaimLedgerError("current wiki source inventory does not match persisted claims")
+            invalid_slugs.add(slug)
+    if invalid_slugs:
+        raise ClaimSourceInventoryError(invalid_slugs)
 
 
 def claim_exclusion_reason(
@@ -445,6 +466,32 @@ def claim_exclusion_reason(
     if _is_untrusted_source(record.raw_path) or record.trust != "trusted":
         return "untrusted"
     return None
+
+
+def summarize_claim_provenance(
+    records: Iterable[ClaimRecord],
+    *,
+    project_root: Path,
+    now: date | datetime | None = None,
+) -> dict[str, object]:
+    """Return deterministic aggregate provenance without raw values or statements."""
+    usable_count = 0
+    usable_slugs: set[str] = set()
+    exclusion_counts: dict[str, int] = {}
+    for record in records:
+        reason = claim_exclusion_reason(record, project_root=project_root, now=now)
+        if reason is None:
+            usable_count += 1
+            usable_slugs.add(claim_slug(record))
+        else:
+            exclusion_counts[reason] = exclusion_counts.get(reason, 0) + 1
+    return {
+        "usable_count": usable_count,
+        "usable_slugs": sorted(usable_slugs),
+        "exclusion_reason_counts": {
+            reason: exclusion_counts[reason] for reason in sorted(exclusion_counts)
+        },
+    }
 
 
 def _canonical_json(value: object) -> str:

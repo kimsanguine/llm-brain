@@ -112,6 +112,14 @@ uv run python scripts/doctor.py --guided --profile demo  # 프로필별 다음 �
 프로필은 `Demo`, `Personal-private`, `Share-ready` 세 가지다. `Share-ready`는
 canonical/local security 설정과 모든 후보의 명시적 scope를 확인한 뒤, 사람 승인 값을
 포함한 별도 `--share` manifest gate 실행 하나만 다음 행동으로 안내한다.
+`Demo` 프로필의 한 번짜리 명령은 브라우저 데모가 아니라 seed wiki를 읽을 수 있는지
+확인하는 **설치 검증**이다. 실제 화면 체험은 바로 아래의 1분 체험 절차를 실행한다.
+`Personal-private`는 `schema/sources.yaml`이 있으면 그 파일을, fresh clone처럼 없으면
+`schema/sources.example.yaml` 템플릿을 읽기 전용으로 미리 보는 명령을 안내한다.
+
+> 위 guided 동작은 llm-brain의 제품/개인 데이터(`raw/`, `wiki/`, 설정)를 만들거나
+> 변경하지 않고 개인 콘텐츠를 스캔하지 않는다. 다만 명령 실행기인 `uv run`은 Python
+> 환경이나 패키지 캐시를 생성·갱신할 수 있다.
 
 ### 1) 먼저 1분 체험 — 데모 위키 둘러보기 (추천)
 
@@ -184,7 +192,7 @@ cp paper.pdf raw/docs/
 /llm-brain:curate --all         # 전체 실행 (점검 + 압축 + 수명 관리)
 ```
 
-각 페이지는 frontmatter(페이지 머리말 정보)에 `distill_level`(압축 단계: 0=원문 → 3=한 줄)과 `access_count`(열어본 횟수)를 기록한다. 자주 열어본 페이지일수록 자동으로 먼저 정리된다.
+각 페이지는 frontmatter(페이지 머리말 정보)에 `distill_level`(압축 단계: 0=원문 → 3=한 줄)과 `access_count`(명시적으로 기록한 접근 횟수)를 둘 수 있다. 검색·페이지 보기·AI query는 이 값을 자동 변경하지 않는다. 접근을 집계하려면 별도의 `curate --record-access PAGE_SLUG`를 실행하고, 기록된 값은 distill 우선순위에 사용할 수 있다.
 
 **v0.3 품질 정책** — 새 페이지는 **Promotion Gates**(반복 ≥2회·본문 ≥800자·근거 ≥2건 등)를 통과해야 정식 승격되고, 미달은 `wiki/observing/`(7일 유예)·`wiki/rejected/`로 라우팅된다. `--reweave`는 약한 노드(본문<800자·근거<2건)를 매일 잡아 기계적 결손만 자동 수리하고 판단이 필요한 건 큐로 남긴다(가짜 보강 금지). 여러 메모가 같은 주제를 건드리면 `## 인사이트 (종합)`으로 교차 종합하고, 모순이 감지되면 옛 주장을 지우지 않고 `## 반론/갱신` + `superseded` 표시로 화해한다.
 
@@ -232,6 +240,10 @@ v0.4 P0부터는 persisted `claims.jsonl`의 `active + trusted` claim 중 원래
 현재 bytes와 일치하는 근거만 답변과 `[claim:slug-N]`/`## 출처`에 사용할 수 있다.
 `raw/newsletters/**`·`raw/clippings/**` 같은 외부 capture는 명령으로 해석할 수 없는
 data-only JSON payload로 격리되며 인용할 수 없다.
+source inventory가 persisted ledger와 다르면 전체 query를 막고, 민감한 statement/raw
+경로 대신 영향받은 page slug 수와 `uv run python scripts/claims.py build` 복구 명령만
+표시한다. usable trusted claim이 없으면 성공(`done`)이 아닌 `abstained`와 정확히
+`관련 정보 없음`을 반환하며, 안전한 제외 사유별 건수와 다음 행동 하나를 제공한다.
 
 ### 🌐 wiki-web — 웹으로 보기: HTML 검색·페이지뷰 *Local HTML Search UI*
 
@@ -249,9 +261,12 @@ uv run python -m wiki_app
 - **AI 답변 토글**: 결과 부족도에 비례해 CTA 강조 차등 (작은 버튼 / 노란 박스 / 큰 검정 버튼)
 - **URL hash**: `#q=...&page=...` 형태로 검색·페이지 상태 보존, 새로고침 시 복원
 
+검색·페이지 보기·AI query는 읽기 경로이며 `raw/`·`wiki/`·`wiki_stats.json`·접근 lock을
+변경하지 않는다. 접근 통계는 명시적인 `curate --record-access PAGE_SLUG`에서만 기록한다.
+
 스크린샷: `assets/screenshots/dod-*.png`
 
-> AI 답변은 `claude -p` CLI(명령줄 도구)로 라이브 동작하며 SSE 스트리밍(실시간 출력)을 지원한다. Claude Code 미설치 시 `status: unavailable`로 graceful 처리(없으면 조용히 비활성). **v0.3:** `schema/config.yaml`의 `llm.engine`을 `cli`(기본, Claude Code) 또는 `api`(anthropic SDK)로 선택할 수 있다 — 무인 배치·서버 환경 대비.
+> AI 답변은 `claude -p` CLI(명령줄 도구)로 라이브 동작한다. SSE 연결을 사용하지만 citation 검증 전 토큰은 내보내지 않고, 출력 상한 안에서 전부 버퍼링한 뒤 검증된 결과를 한 번에 보내는 `verified-buffered` 방식이다. UI도 이 전달 방식을 표시한다. Claude Code 미설치 시 `status: unavailable`로 graceful 처리(없으면 조용히 비활성). **v0.3:** `schema/config.yaml`의 `llm.engine`을 `cli`(기본, Claude Code) 또는 `api`(anthropic SDK)로 선택할 수 있다 — 무인 배치·서버 환경 대비.
 
 ---
 
@@ -440,7 +455,7 @@ llm-brain/
 │   ├── search.py              # 검색 인덱스 + B/C 알고리즘
 │   ├── pages.py               # 페이지 로더
 │   ├── render.py              # markdown + wikilink 변환
-│   ├── access.py              # access_count wrapper
+│   ├── access.py              # 명시적 access_count 기록 helper
 │   └── static/                # vanilla JS + CSS + HTML
 ├── tools/
 │   └── intro-video/           # Remotion 소개 영상

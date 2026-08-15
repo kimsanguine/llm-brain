@@ -140,15 +140,28 @@ def render_guided(root: Path, profile: str | None = None) -> str:
 
     if profile == "demo":
         action = (
-            f"Run the read-only demo smoke for {root / 'examples' / 'seed-wiki' / 'wiki'}: "
+            "Run this installation verification (no browser UI) against "
+            f"{root / 'examples' / 'seed-wiki' / 'wiki'}: "
             f"cd {shlex.quote(str(root))} && uv run python -c \"from pathlib import Path; "
             "from wiki_app.api import create_app; "
-            "create_app(wiki_root=Path('examples/seed-wiki/wiki')); print('Demo smoke OK')\""
+            "create_app(wiki_root=Path('examples/seed-wiki/wiki')); "
+            "print('Demo installation verification OK')\""
         )
         label = "Demo"
     elif profile == "personal-private":
-        sources = shlex.quote(str(root / "schema" / "sources.yaml"))
-        action = f"Preview the user-managed sources config only: sed -n '1,200p' {sources}"
+        user_sources = root / "schema" / "sources.yaml"
+        preview_path = (
+            user_sources
+            if user_sources.is_file()
+            else root / "schema" / "sources.example.yaml"
+        )
+        sources = shlex.quote(str(preview_path))
+        subject = (
+            "user-managed sources config"
+            if user_sources.is_file()
+            else "sources config template"
+        )
+        action = f"Preview the {subject} only: sed -n '1,200p' {sources}"
         label = "Personal-private"
     else:
         share_command = (

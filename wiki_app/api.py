@@ -16,7 +16,7 @@ from fastapi.responses import StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import AfterValidator, BaseModel, Field
 
-from wiki_app import access, pages, render, search
+from wiki_app import pages, render, search
 
 # scripts/ 를 sys.path 에 추가해 episode 원장 모듈을 import 한다 (access.py 와 동일
 # 컨벤션). wiki_app 은 `python -m wiki_app` 로 실행돼 scripts/ 가 sys.path 에 없을
@@ -146,6 +146,27 @@ def _build_claim_prompt(question: str, context: str) -> str:
     )
 
 
+def _rebuild_action() -> dict[str, str]:
+    return {"command": claim_ledger.CLAIM_REBUILD_COMMAND}
+
+
+def _claim_ledger_error_payload(exc: claim_ledger.ClaimLedgerError) -> dict[str, object]:
+    payload: dict[str, object] = {"message": f"claim ledger invalid: {exc}"}
+    if isinstance(exc, claim_ledger.ClaimSourceInventoryError):
+        payload.update(
+            {
+                "message": (
+                    f"claim ledger invalid: {exc}. Rebuild with: "
+                    f"{claim_ledger.CLAIM_REBUILD_COMMAND}"
+                ),
+                "affected_slugs": list(exc.affected_slugs),
+                "affected_count": len(exc.affected_slugs),
+                "recommended_next_action": _rebuild_action(),
+            }
+        )
+    return payload
+
+
 def create_app(wiki_root: Path | None = None) -> FastAPI:
     """앱 팩토리 — wiki_root 인자로 test 격리 가능."""
     if wiki_root is None:
@@ -269,11 +290,6 @@ def create_app(wiki_root: Path | None = None) -> FastAPI:
             page = pages.load_page(slug, wiki_root=wiki_root)
         except pages.PageNotFound:
             raise HTTPException(status_code=404, detail=f"page not found: {slug}")
-        # access_count 갱신 (조용히 실패)
-        try:
-            access.track(slug, wiki_root=wiki_root)
-        except Exception:
-            pass
         return {
             "slug": page["slug"],
             "title": page["frontmatter"].get("title", slug),
@@ -296,12 +312,18 @@ def create_app(wiki_root: Path | None = None) -> FastAPI:
         except claim_ledger.ClaimLedgerError as exc:
             return {
                 "status": "error",
-                "message": f"claim ledger invalid: {exc}",
                 "question": req.question,
                 "context_slugs": [],
                 "answer": "",
                 "sources": [],
+                **_claim_ledger_error_payload(exc),
             }
+
+        provenance = claim_ledger.summarize_claim_provenance(
+            ledger, project_root=wiki_root.parent, now=_dt.date.today()
+        )
+        source_slugs = provenance["usable_slugs"]
+        exclusion_counts = provenance["exclusion_reason_counts"]
 
         llm_config = llm_client.load_llm_config()
         # cli 엔진 & CLI 부재 시 graceful fallback (기존 계약)
@@ -313,6 +335,7 @@ def create_app(wiki_root: Path | None = None) -> FastAPI:
                 "context_slugs": req.context_slugs,
                 "answer": "",
                 "sources": [],
+                "exclusion_reason_counts": exclusion_counts,
             }
 
         prompt = _build_claim_prompt(req.question, context)
@@ -330,7 +353,12 @@ def create_app(wiki_root: Path | None = None) -> FastAPI:
                 project_root=wiki_root.parent,
                 now=_dt.date.today(),
             )
-            answer_status = "done"
+            answer_status = (
+                "abstained"
+                if provenance["usable_count"] == 0
+                and answer == claim_ledger.ABSTENTION_RESPONSE
+                else "done"
+            )
         except asyncio.TimeoutError:
             answer_status = "timeout"
             return {
@@ -339,7 +367,8 @@ def create_app(wiki_root: Path | None = None) -> FastAPI:
                 "question": req.question,
                 "context_slugs": valid_slugs,
                 "answer": "",
-                "sources": valid_slugs,
+                "sources": source_slugs,
+                "exclusion_reason_counts": exclusion_counts,
             }
         except claim_ledger.ClaimCitationError as e:
             answer_status = "error"
@@ -365,41 +394,56 @@ def create_app(wiki_root: Path | None = None) -> FastAPI:
             # 최종 status 로 episode 기록 (fail-soft — 응답에 영향 없음)
             _record_ai_episode(req.question, valid_slugs, answer_status)
 
-        return {
-            "status": "done",
+        response = {
+            "status": answer_status,
             "message": "",
             "question": req.question,
             "context_slugs": valid_slugs,
             "answer": answer,
-            "sources": valid_slugs,
+            "sources": source_slugs,
+            "exclusion_reason_counts": exclusion_counts,
         }
+        if answer_status == "abstained":
+            response["recommended_next_action"] = _rebuild_action()
+        return response
 
     @app.post("/api/ai-answer/stream")
     async def api_ai_answer_stream(req: AIAnswerRequest):
         """SSE streaming version of /api/ai-answer.
 
         Event types:
-          - meta:   {context_slugs}    # 한 번
-          - chunk:  {text}              # 여러 번 (claude stdout 라인 단위)
-          - done:   {}                  # 마지막
+          - meta:   {context_slugs, source_slugs, delivery_mode, ...}  # 한 번
+          - chunk:  {text}              # 검증 완료 후 한 번
+          - done:   {status}            # 마지막
           - error:  {message}           # 실패 시
         """
         import json as _json
 
         async def event_gen():
-            llm_config = llm_client.load_llm_config()
-            if llm_config["engine"] == "cli" and shutil.which("claude") is None:
-                yield f"event: error\ndata: {_json.dumps({'message': 'Claude Code CLI 없음'}, ensure_ascii=False)}\n\n"
-                return
-
             # malformed/partial persistence rejects the request before LLM invocation.
             try:
                 context, valid_slugs, ledger = _collect_context(req.context_slugs, wiki_root)
             except claim_ledger.ClaimLedgerError as exc:
-                yield f"event: error\ndata: {_json.dumps({'message': f'claim ledger invalid: {exc}'}, ensure_ascii=False)}\n\n"
+                yield f"event: error\ndata: {_json.dumps(_claim_ledger_error_payload(exc), ensure_ascii=False)}\n\n"
                 return
 
-            yield f"event: meta\ndata: {_json.dumps({'context_slugs': valid_slugs}, ensure_ascii=False)}\n\n"
+            provenance = claim_ledger.summarize_claim_provenance(
+                ledger, project_root=wiki_root.parent, now=_dt.date.today()
+            )
+            meta = {
+                "context_slugs": valid_slugs,
+                "source_slugs": provenance["usable_slugs"],
+                "delivery_mode": "verified-buffered",
+                "exclusion_reason_counts": provenance["exclusion_reason_counts"],
+            }
+            if provenance["usable_count"] == 0:
+                meta["recommended_next_action"] = _rebuild_action()
+            yield f"event: meta\ndata: {_json.dumps(meta, ensure_ascii=False)}\n\n"
+
+            llm_config = llm_client.load_llm_config()
+            if llm_config["engine"] == "cli" and shutil.which("claude") is None:
+                yield f"event: error\ndata: {_json.dumps({'message': 'Claude Code CLI 없음'}, ensure_ascii=False)}\n\n"
+                return
 
             prompt = _build_claim_prompt(req.question, context)
 
@@ -449,8 +493,13 @@ def create_app(wiki_root: Path | None = None) -> FastAPI:
                     else:
                         yield f"event: chunk\ndata: {_json.dumps({'text': rendered}, ensure_ascii=False)}\n\n"
                 if not terminated_early:
-                    answer_status = "done"
-                    yield "event: done\ndata: {}\n\n"
+                    answer_status = (
+                        "abstained"
+                        if provenance["usable_count"] == 0
+                        and rendered == claim_ledger.ABSTENTION_RESPONSE
+                        else "done"
+                    )
+                    yield f"event: done\ndata: {_json.dumps({'status': answer_status}, ensure_ascii=False)}\n\n"
             except claim_ledger.ClaimCitationError as e:
                 answer_status = "error"
                 yield f"event: error\ndata: {_json.dumps({'message': f'claim citation rejected: {e}'}, ensure_ascii=False)}\n\n"

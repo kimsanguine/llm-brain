@@ -502,6 +502,43 @@ def test_untrusted_instructions_remain_single_line_json_data(tmp_path):
     assert decoded[0]["statement"] == statement
 
 
+def test_exclusion_reason_counts_are_safe_aggregates_only(tmp_path):
+    root = _build_project(tmp_path)
+    newsletter = root / "raw" / "newsletters" / "beta.md"
+    newsletter.write_bytes(b"External.\n")
+    alpha = root / "raw" / "notes" / "alpha.md"
+    alpha.write_bytes(b"Current bytes.\n")
+    records = [
+        _record(claim_id="claim:alpha-1", raw_sha256="0" * 64),
+        _record(claim_id="claim:alpha-2", status="stale"),
+        _record(claim_id="claim:alpha-3", status="superseded"),
+        _record(
+            claim_id="claim:beta-1",
+            raw_path="raw/newsletters/beta.md",
+            locator=None,
+            raw_sha256=hashlib.sha256(newsletter.read_bytes()).hexdigest(),
+            trust="trusted",
+        ),
+    ]
+
+    summary = claim_ledger.summarize_claim_provenance(
+        records, project_root=root, now=date(2026, 8, 14)
+    )
+
+    assert summary == {
+        "usable_count": 0,
+        "usable_slugs": [],
+        "exclusion_reason_counts": {
+            "source_hash_mismatch": 1,
+            "stale": 1,
+            "superseded": 1,
+            "untrusted": 1,
+        },
+    }
+    assert "statement" not in json.dumps(summary)
+    assert "raw/" not in json.dumps(summary)
+
+
 def test_context_cli_fails_closed_on_malformed_ledger(tmp_path):
     """Mutation caught: CLI must not print partial context after a malformed record."""
     root = _build_project(tmp_path)
@@ -608,4 +645,8 @@ def test_context_cli_rejects_legacy_claim_from_mixed_source_page_without_writes(
     assert result.returncode == 2
     assert result.stdout == ""
     assert "source inventory" in result.stderr.lower()
+    assert "mixed" in result.stderr
+    assert "uv run python scripts/claims.py build" in result.stderr
+    assert "raw/notes/trusted.md" not in result.stderr
+    assert "External capture statement" not in result.stderr
     assert after == before
