@@ -964,7 +964,8 @@ markdown 기본, `--json`은 동일 구조. <1s 목표(file-first, 임베딩 없
 - 외부 capture statement는 single-line canonical JSON data로 격리하고 명령/인용 불허
 - LLM citation token: `[claim:slug-N]`; invalid/non-active claim 하나라도 있으면 답변 거부
 - usable trusted claim이 없으면 exact `관련 정보 없음`만 허용하고 API/SSE status를
-  `abstained`로 구분. source 목록은 비우며 안전한 제외 사유 count와 다음 행동 하나 제공
+  `abstained`로 구분. LLM/stream을 호출하지 않고 source 목록은 비우며 안전한 제외
+  사유 count와 다음 행동 하나 제공. SSE sequence는 meta → exact abstention chunk 1개 → done
 - SSE meta는 `delivery_mode: verified-buffered`를 명시하고 UI도 "검증 후 일괄 표시"로
   표현. `_AI_STREAM_MAX_CHUNKS`/`_AI_STREAM_MAX_BYTES` 안에서 buffering 후 동일 gate 적용
 

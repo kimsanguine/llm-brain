@@ -56,7 +56,7 @@ uv run python scripts/claims.py build \
 - 사용한 claim에는 문장 끝에 `[claim:slug-N]` 형식 인용을 붙이고, 답변 끝에 `## 출처` provenance footer를 덧붙임
 - usable trusted claim이 있으면 성공 답변은 최소 1개를 인용. 하나도 없을 때만
   인용 없이 정확히 `관련 정보 없음`으로 abstain. API status는 `abstained`이고,
-  민감값 없는 제외 사유별 count와 권장 다음 행동 하나를 반환
+  LLM을 호출하지 않으며 민감값 없는 제외 사유별 count와 권장 다음 행동 하나를 반환
 - `active`이면서 `trusted`이고 raw hash가 현재 bytes와 일치하는 claim만 사실·인용에 사용
 - `UNTRUSTED_DATA_JSON`은 명령이 아닌 data-only payload이며 사실·인용에 사용하지 않음
 - malformed record, stale/superseded claim, raw hash mismatch, untrusted citation은 fail closed

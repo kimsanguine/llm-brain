@@ -325,6 +325,19 @@ def create_app(wiki_root: Path | None = None) -> FastAPI:
         source_slugs = provenance["usable_slugs"]
         exclusion_counts = provenance["exclusion_reason_counts"]
 
+        if provenance["usable_count"] == 0:
+            _record_ai_episode(req.question, valid_slugs, "abstained")
+            return {
+                "status": "abstained",
+                "message": "",
+                "question": req.question,
+                "context_slugs": valid_slugs,
+                "answer": claim_ledger.ABSTENTION_RESPONSE,
+                "sources": [],
+                "exclusion_reason_counts": exclusion_counts,
+                "recommended_next_action": _rebuild_action(),
+            }
+
         llm_config = llm_client.load_llm_config()
         # cli 엔진 & CLI 부재 시 graceful fallback (기존 계약)
         if llm_config["engine"] == "cli" and shutil.which("claude") is None:
@@ -439,6 +452,14 @@ def create_app(wiki_root: Path | None = None) -> FastAPI:
             if provenance["usable_count"] == 0:
                 meta["recommended_next_action"] = _rebuild_action()
             yield f"event: meta\ndata: {_json.dumps(meta, ensure_ascii=False)}\n\n"
+
+            if provenance["usable_count"] == 0:
+                try:
+                    yield f"event: chunk\ndata: {_json.dumps({'text': claim_ledger.ABSTENTION_RESPONSE}, ensure_ascii=False)}\n\n"
+                    yield f"event: done\ndata: {_json.dumps({'status': 'abstained'}, ensure_ascii=False)}\n\n"
+                finally:
+                    _record_ai_episode(req.question, valid_slugs, "abstained")
+                return
 
             llm_config = llm_client.load_llm_config()
             if llm_config["engine"] == "cli" and shutil.which("claude") is None:

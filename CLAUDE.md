@@ -95,7 +95,7 @@ uv run python -m wiki_app
 로컬 HTML 검색·페이지뷰 인터페이스. CLI `/query`의 시각화 버전.
 
 - **검색 알고리즘**: 제목+desc+tags+page_title 점수 매칭 (B). 결과 < 3개 시 본문 grep 자동 확장 (C). 한국어/영문 모두 작동.
-- **AI 답변 토글**: `claude -p` CLI 연결. SSE endpoint는 citation 검증을 위해 bounded buffering 후 한 번에 내보내는 `verified-buffered`이며 UI도 이를 표시. usable trusted claim이 없으면 `status: abstained`, 출처 `[]`, 안전한 제외 사유 count와 다음 행동 하나를 반환. CLI 부재 시 `status: unavailable` fallback.
+- **AI 답변 토글**: `claude -p` CLI 연결. SSE endpoint는 citation 검증을 위해 bounded buffering 후 한 번에 내보내는 `verified-buffered`이며 UI도 이를 표시. usable trusted claim이 없으면 LLM/stream을 호출하지 않고 `status: abstained`, 출처 `[]`, 안전한 제외 사유 count와 다음 행동 하나를 반환. CLI 부재 시 usable claim이 있는 요청은 `status: unavailable` fallback.
 - **백엔드**: `wiki_app/` (FastAPI · uv) — 6 endpoints (`/api/index`, `/api/search`, `/api/page/{slug}`, `/api/page/{slug}/graph`, `/api/ai-answer`, `/api/ai-answer/stream`)
 - **프론트엔드**: `wiki_app/static/` (vanilla JS + Pretendard)
 - **테스트**: `tests/test_wiki_app_*.py` (5 modules, 73 tests)

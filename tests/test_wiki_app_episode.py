@@ -13,6 +13,8 @@ claude CLI 는 fake subprocess 로 대체하고, episode.append 는 monkeypatch 
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import json
 import sys
 from pathlib import Path
 
@@ -77,6 +79,32 @@ def _make_wiki(tmp_path) -> Path:
         "---\ntitle: Alpha\ntags: [misc]\n---\n# Alpha\n\n본문.\n"
     )
     (project_root / "index.md").write_text("## concepts/ (1개)\n- [[alpha]] — 알파\n")
+    return wiki_root
+
+
+def _make_trusted_wiki(tmp_path) -> Path:
+    wiki_root = _make_wiki(tmp_path)
+    project_root = wiki_root.parent
+    raw_bytes = b"Alpha current fact.\n"
+    raw_path = project_root / "raw" / "notes" / "alpha.md"
+    raw_path.parent.mkdir(parents=True)
+    raw_path.write_bytes(raw_bytes)
+    (wiki_root / "concepts" / "alpha.md").write_text(
+        "---\ntitle: Alpha\nsources: [raw/notes/alpha.md]\n---\n\nAlpha current fact.\n",
+        encoding="utf-8",
+    )
+    record = {
+        "claim_id": "claim:alpha-1",
+        "statement": "Alpha current fact.",
+        "kind": "fact",
+        "raw_path": "raw/notes/alpha.md",
+        "raw_sha256": hashlib.sha256(raw_bytes).hexdigest(),
+        "valid_from": "2026-08-01",
+        "valid_until": "2099-12-31",
+        "status": "active",
+        "trust": "trusted",
+    }
+    (project_root / "claims.jsonl").write_text(json.dumps(record) + "\n", encoding="utf-8")
     return wiki_root
 
 
@@ -218,7 +246,7 @@ def test_stream_episode_failure_is_fail_soft(tmp_path, monkeypatch):
 def test_non_stream_unavailable_records_no_episode(tmp_path, monkeypatch):
     """claude CLI 부재 → unavailable early-return (subprocess try 진입 전).
     finally 가 실행되지 않으므로 episode 는 기록되지 않는다."""
-    wiki_root = _make_wiki(tmp_path)
+    wiki_root = _make_trusted_wiki(tmp_path)
     monkeypatch.setattr(api_module.shutil, "which", lambda name: None)
 
     captured: list[dict] = []

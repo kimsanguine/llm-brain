@@ -232,11 +232,13 @@ class FakeProc:
     """asyncio subprocess 흉내. kill()/wait() 호출을 플래그로 추적."""
 
     def __init__(self, *, communicate_hang: bool = False, stdout_hang: bool = False,
-                 stdout_lines: list[bytes] | None = None, returncode_after_wait: int = 0):
+                 stdout_lines: list[bytes] | None = None, returncode_after_wait: int = 0,
+                 communicate_output: bytes = "관련 정보 없음".encode()):
         self.stdout = _FakeStreamReader(hang=stdout_hang, lines=stdout_lines)
         self.stderr = _FakeStreamReader(lines=[])
         self._communicate_hang = communicate_hang
         self._returncode_after_wait = returncode_after_wait
+        self._communicate_output = communicate_output
         self.returncode = None
         self.killed = False
         self.waited = False
@@ -245,7 +247,7 @@ class FakeProc:
         if self._communicate_hang:
             await asyncio.Future()  # 영원히 hang → wait_for timeout 유발
         self.returncode = 0
-        return ("관련 정보 없음".encode(), b"")
+        return (self._communicate_output, b"")
 
     def kill(self):
         self.killed = True
@@ -278,7 +280,9 @@ def patched_subprocess(monkeypatch):
     return install
 
 
-def test_ai_answer_timeout_kills_and_waits_subprocess(client, patched_subprocess, monkeypatch):
+def test_ai_answer_timeout_kills_and_waits_subprocess(
+    trusted_client, patched_subprocess, monkeypatch
+):
     """non-stream: communicate() 가 timeout 되면 endpoint 는 status=timeout 을
     반환하면서 child 를 kill() + wait() 해야 한다 (좀비 방지)."""
     proc = patched_subprocess(FakeProc(communicate_hang=True))
@@ -293,7 +297,9 @@ def test_ai_answer_timeout_kills_and_waits_subprocess(client, patched_subprocess
 
     monkeypatch.setattr(api_module.asyncio, "wait_for", fast_wait_for)
 
-    r = client.post("/api/ai-answer", json={"question": "ping", "context_slugs": []})
+    r = trusted_client.post(
+        "/api/ai-answer", json={"question": "ping", "context_slugs": ["alpha"]}
+    )
     assert r.status_code == 200
     assert r.json()["status"] == "timeout"
 
@@ -302,21 +308,27 @@ def test_ai_answer_timeout_kills_and_waits_subprocess(client, patched_subprocess
     assert proc.waited is True, "kill 후 proc.wait() 가 await 되어야 함"
 
 
-def test_ai_answer_normal_does_not_leave_running_proc(client, patched_subprocess):
+def test_ai_answer_normal_does_not_leave_running_proc(trusted_client, patched_subprocess):
     """non-stream 정상 경로: 정상 종료한 proc 은 done 을 반환하고,
     이미 종료된 proc 에 대해 추가 kill 로 깨지지 않아야 한다."""
-    proc = patched_subprocess(FakeProc(communicate_hang=False))
+    proc = patched_subprocess(
+        FakeProc(communicate_output=b"Alpha answer [claim:alpha-1].")
+    )
 
-    r = client.post("/api/ai-answer", json={"question": "ping", "context_slugs": []})
+    r = trusted_client.post(
+        "/api/ai-answer", json={"question": "ping", "context_slugs": ["alpha"]}
+    )
     assert r.status_code == 200
     data = r.json()
-    assert data["status"] == "abstained"
-    assert data["answer"] == "관련 정보 없음"
+    assert data["status"] == "done"
+    assert "[claim:alpha-1]" in data["answer"]
     # 정상 종료(returncode 설정됨) → 살아있지 않으므로 강제 kill 불필요
     assert proc.killed is False
 
 
-def test_ai_answer_stream_hang_kills_and_waits_subprocess(client, patched_subprocess, monkeypatch):
+def test_ai_answer_stream_hang_kills_and_waits_subprocess(
+    trusted_client, patched_subprocess, monkeypatch
+):
     """stream: readline() 이 영원히 hang 하면 idle/전체 timeout 후 proc 을
     kill() + wait() 하고 event: error 를 방출해야 한다."""
     proc = patched_subprocess(FakeProc(stdout_hang=True))
@@ -337,8 +349,8 @@ def test_ai_answer_stream_hang_kills_and_waits_subprocess(client, patched_subpro
 
     monkeypatch.setattr(api_module.asyncio, "wait_for", fast_wait_for)
 
-    with client.stream("POST", "/api/ai-answer/stream",
-                       json={"question": "ping", "context_slugs": []}) as r:
+    with trusted_client.stream("POST", "/api/ai-answer/stream",
+                               json={"question": "ping", "context_slugs": ["alpha"]}) as r:
         body = r.read().decode("utf-8")
 
     # 핵심 단언: stream hang 시 proc 정리
@@ -417,7 +429,7 @@ class StderrDrainFakeProc:
         return self.returncode
 
 
-def test_ai_answer_stream_drains_stderr_concurrently(client, patched_subprocess):
+def test_ai_answer_stream_drains_stderr_concurrently(trusted_client, patched_subprocess):
     """stream: claude 가 stderr 를 많이 뱉어도 stderr 를 stdout 과 동시 drain 해
     데드락 없이 완료해야 하고, returncode≠0 이면 stderr 메시지가 event: error 로
     표면화돼야 한다.
@@ -433,8 +445,8 @@ def test_ai_answer_stream_drains_stderr_concurrently(client, patched_subprocess)
         returncode=1,
     ))
 
-    with client.stream("POST", "/api/ai-answer/stream",
-                       json={"question": "ping", "context_slugs": []}) as r:
+    with trusted_client.stream("POST", "/api/ai-answer/stream",
+                               json={"question": "ping", "context_slugs": ["alpha"]}) as r:
         body = r.read().decode("utf-8")
 
     # (a) stderr 가 drain 돼 hang 없이 완료
@@ -499,7 +511,9 @@ class InfiniteFakeProc:
         return self.returncode
 
 
-def test_ai_answer_stream_absolute_deadline_terminates(client, patched_subprocess, monkeypatch):
+def test_ai_answer_stream_absolute_deadline_terminates(
+    trusted_client, patched_subprocess, monkeypatch
+):
     """stream: claude 가 deadline 안에 한 줄씩 계속 써도(idle timeout 미발동)
     전체 absolute deadline 을 넘기면 event: error + proc kill/wait 로 끊어야 한다."""
     proc = patched_subprocess(InfiniteFakeProc())
@@ -514,8 +528,8 @@ def test_ai_answer_stream_absolute_deadline_terminates(client, patched_subproces
 
     monkeypatch.setattr(api_module.time, "monotonic", fake_monotonic)
 
-    with client.stream("POST", "/api/ai-answer/stream",
-                       json={"question": "ping", "context_slugs": []}) as r:
+    with trusted_client.stream("POST", "/api/ai-answer/stream",
+                               json={"question": "ping", "context_slugs": ["alpha"]}) as r:
         body = r.read().decode("utf-8")
 
     assert "event: error" in body, "deadline 초과 시 event: error 방출해야 함"
@@ -525,7 +539,9 @@ def test_ai_answer_stream_absolute_deadline_terminates(client, patched_subproces
     assert proc.stdout.count < 100000, "deadline 이 무한 스트림을 끊지 못함"
 
 
-def test_ai_answer_stream_chunk_cap_terminates(client, patched_subprocess, monkeypatch):
+def test_ai_answer_stream_chunk_cap_terminates(
+    trusted_client, patched_subprocess, monkeypatch
+):
     """stream: deadline 전이라도 chunk/byte cap 을 넘으면 event: error + 종료.
 
     시계는 진행시키지 않고(deadline 미발동) cap 을 작게 낮춰 chunk 수 초과만으로
@@ -536,8 +552,8 @@ def test_ai_answer_stream_chunk_cap_terminates(client, patched_subprocess, monke
     monkeypatch.setattr(api_module.time, "monotonic", lambda: 0.0)
     monkeypatch.setattr(api_module, "_AI_STREAM_MAX_CHUNKS", 5)
 
-    with client.stream("POST", "/api/ai-answer/stream",
-                       json={"question": "ping", "context_slugs": []}) as r:
+    with trusted_client.stream("POST", "/api/ai-answer/stream",
+                               json={"question": "ping", "context_slugs": ["alpha"]}) as r:
         body = r.read().decode("utf-8")
 
     assert "event: error" in body, "chunk cap 초과 시 event: error 방출해야 함"
@@ -547,7 +563,7 @@ def test_ai_answer_stream_chunk_cap_terminates(client, patched_subprocess, monke
     assert proc.stdout.count <= 100, "chunk cap 이 무한 스트림을 끊지 못함"
 
 
-def test_stream_subprocess_started_in_new_session(client, patched_subprocess):
+def test_stream_subprocess_started_in_new_session(trusted_client, patched_subprocess):
     """stream: create_subprocess_exec 호출이 start_new_session=True 로 child 를
     새 process group/session 에 띄워야 descendant 까지 process-group kill 가능."""
     proc = patched_subprocess(FakeProc(stdout_lines=[b"hi\n"]))
@@ -561,8 +577,8 @@ def test_stream_subprocess_started_in_new_session(client, patched_subprocess):
 
     api_module.asyncio.create_subprocess_exec = capturing_exec
     try:
-        with client.stream("POST", "/api/ai-answer/stream",
-                           json={"question": "ping", "context_slugs": []}) as r:
+        with trusted_client.stream("POST", "/api/ai-answer/stream",
+                                   json={"question": "ping", "context_slugs": ["alpha"]}) as r:
             r.read()
     finally:
         api_module.asyncio.create_subprocess_exec = real_exec
@@ -1096,6 +1112,12 @@ def _make_stream_claim_project(tmp_path):
     return project_root, wiki_root
 
 
+@pytest.fixture
+def trusted_client(tmp_path):
+    _project_root, wiki_root = _make_stream_claim_project(tmp_path)
+    return TestClient(create_app(wiki_root=wiki_root))
+
+
 def test_ai_answer_stream_buffers_then_renders_valid_citations(tmp_path, monkeypatch):
     project_root, wiki_root = _make_stream_claim_project(tmp_path)
     local_client = TestClient(create_app(wiki_root=wiki_root))
@@ -1149,6 +1171,41 @@ def test_ai_answer_returns_abstained_with_safe_exclusion_summary(tmp_path, monke
     assert "raw/newsletters" not in json.dumps(data, ensure_ascii=False)
 
 
+def test_ai_answer_zero_usable_claims_skips_llm_and_records_abstention(
+    tmp_path, monkeypatch
+):
+    _project_root, wiki_root = _make_stream_claim_project(tmp_path)
+    local_client = TestClient(create_app(wiki_root=wiki_root))
+    monkeypatch.setattr(api_module.llm_client, "load_llm_config", lambda: {"engine": "api"})
+    captured_episodes = []
+    monkeypatch.setattr(
+        api_module.episode,
+        "append",
+        lambda record, **kwargs: captured_episodes.append(record),
+    )
+
+    async def forbidden_llm_call(*args, **kwargs):
+        pytest.fail("zero-usable provenance must skip call_llm")
+
+    monkeypatch.setattr(api_module.llm_client, "call_llm", forbidden_llm_call)
+    response = local_client.post(
+        "/api/ai-answer",
+        json={"question": "외부 캡처 내용?", "context_slugs": ["beta"]},
+    )
+
+    data = response.json()
+    assert data["status"] == "abstained"
+    assert data["answer"] == "관련 정보 없음"
+    assert data["sources"] == []
+    assert data["exclusion_reason_counts"] == {"untrusted": 1}
+    assert data["recommended_next_action"] == {
+        "command": "uv run python scripts/claims.py build"
+    }
+    assert len(captured_episodes) == 1
+    assert captured_episodes[0]["outputs"] == {"answer_status": "abstained"}
+    assert captured_episodes[0]["status"] == "abstained"
+
+
 def test_ai_answer_stream_abstention_matches_nonstream_contract(tmp_path, monkeypatch):
     _project_root, wiki_root = _make_stream_claim_project(tmp_path)
     local_client = TestClient(create_app(wiki_root=wiki_root))
@@ -1172,6 +1229,29 @@ def test_ai_answer_stream_abstention_matches_nonstream_contract(tmp_path, monkey
     assert 'event: chunk\ndata: {"text": "관련 정보 없음"}' in body
     assert 'event: done\ndata: {"status": "abstained"}' in body
     assert "raw/newsletters" not in body
+
+
+def test_ai_answer_stream_zero_usable_claims_skips_llm_stream(tmp_path, monkeypatch):
+    _project_root, wiki_root = _make_stream_claim_project(tmp_path)
+    local_client = TestClient(create_app(wiki_root=wiki_root))
+    monkeypatch.setattr(api_module.llm_client, "load_llm_config", lambda: {"engine": "api"})
+
+    def forbidden_llm_stream(*args, **kwargs):
+        pytest.fail("zero-usable provenance must skip stream_llm")
+
+    monkeypatch.setattr(api_module.llm_client, "stream_llm", forbidden_llm_stream)
+    with local_client.stream(
+        "POST",
+        "/api/ai-answer/stream",
+        json={"question": "외부 캡처 내용?", "context_slugs": ["beta"]},
+    ) as response:
+        body = response.read().decode("utf-8")
+
+    events = [line for line in body.splitlines() if line.startswith("event:")]
+    assert events == ["event: meta", "event: chunk", "event: done"]
+    assert '"delivery_mode": "verified-buffered"' in body
+    assert 'event: chunk\ndata: {"text": "관련 정보 없음"}' in body
+    assert 'event: done\ndata: {"status": "abstained"}' in body
 
 
 def test_ai_answer_stream_inventory_error_is_sanitized_and_actionable(tmp_path, monkeypatch):
@@ -1230,9 +1310,9 @@ def test_ai_answer_stream_emits_no_unvalidated_untrusted_citation(tmp_path, monk
     ) as response:
         body = response.read().decode("utf-8")
 
-    assert "event: error" in body
-    assert "untrusted" in body
-    assert "event: chunk" not in body
+    assert '"exclusion_reason_counts": {"untrusted": 1}' in body
+    assert 'event: chunk\ndata: {"text": "관련 정보 없음"}' in body
+    assert 'event: done\ndata: {"status": "abstained"}' in body
     assert "Unsafe answer" not in body
 
 
