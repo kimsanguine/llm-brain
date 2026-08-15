@@ -93,11 +93,12 @@
 │   ├── summary/                 # 주간·월간 요약 초안
 │   └── report/                  # 심층 리포트 초안
 │
-├── okf/                         # OKF v0.1 호환 번들 (okf_export.py 생성, Git 커밋 대상)
+├── okf/                         # 기존 private OKF v0.1 projection
 │   ├── index.md                 # 번들 루트 목차 (type별 그룹 + 디렉토리 index 링크)
 │   ├── log.md                   # export 이력 + 변환 경고
 │   ├── .okf-bundle              # 번들 센티넬 (재export 시 안전 정리용 마커)
 │   └── {dir}/                   # 디렉토리별 미러 + index.md (business/·canvas/ 제외)
+├── okf-share/                   # --share gate 통과 bundle + redacted manifest
 │
 ├── wiki_app/                    # HTML 검색·페이지뷰 (FastAPI + vanilla JS, port 8000)
 │   ├── __main__.py              # uv run python -m wiki_app
@@ -105,7 +106,7 @@
 │   ├── search.py                # Index + B 알고리즘 + C 확장 (본문 grep)
 │   ├── pages.py                 # 페이지 로더 (frontmatter + body + graph metadata)
 │   ├── render.py                # markdown-it + [[wikilink]] SPA 앵커 후처리
-│   ├── access.py                # access_count 갱신 (명시적 경로·원자적 쓰기·threading.Lock)
+│   ├── access.py                # 명시적 access_count 기록 helper (원자적 쓰기·threading.Lock)
 │   └── static/
 │       ├── index.html           # 3 views (empty / results / empty-results)
 │       ├── styles.css           # Pretendard + 디자인 톤
@@ -232,7 +233,7 @@ wiki 전체를 감사(audit) + 압축(distill) + 수명 관리(lifecycle)하는 
 | `--distill` | distill 후보 분류 및 `wiki/distill_queue.md` 생성 |
 | `--lifecycle` | lifecycle archive/delete 후보 목록 생성 |
 | `--purge` | `curate_report.md`의 archive 후보를 `wiki/archive/`로 실제 이동 |
-| `--record-access PAGE_SLUG` | `wiki_stats.json`에 페이지 접근 기록 (query 모드에서 호출) |
+| `--record-access PAGE_SLUG` | `wiki_stats.json`에 페이지 접근 기록 (명시적 opt-in; query는 자동 호출하지 않음) |
 | `--health` | graph health 지표 출력 (avg degree, components, BC top, low-degree count) |
 | `--suggest-bridges N` | betweenness/structural-hole 기반 missing link 추천 N개 |
 | `--reweave` | weak content 스캔(본문<800자 OR 근거<2건 OR H2<3개) → `wiki/reweave_queue.md` 큐 생성 + `wiki/observing/` 만료 페이지 `wiki/rejected/` 이동 (v0.3.0 WS-3, 매일) |
@@ -335,7 +336,11 @@ score = Σ weight·norm(signal),  norm(x) = min(x / CAP, 1.0)
 }
 ```
 
-`curate --record-access PAGE_SLUG` 호출 시 `wiki_stats.json`의 `access_count` 증가, `last_accessed` 갱신 (frontmatter는 갱신하지 않음). 웹 페이지뷰(`wiki_app/access.track`)는 frontmatter와 `wiki_stats.json` 둘 다 갱신한다. distill 시 frontmatter의 `access_count`와 `wiki_stats.json`의 값 중 큰 값을 사용한다.
+`curate --record-access PAGE_SLUG`를 명시적으로 호출할 때만 `wiki_stats.json`의
+`access_count`와 `last_accessed`를 갱신한다(frontmatter는 갱신하지 않음).
+웹 검색·페이지 보기·AI query는 `access.track`을 자동 호출하지 않으며
+`raw/`·`wiki/`·`wiki_stats.json`·접근 lock을 변경하지 않는다. distill 시
+frontmatter의 기존 `access_count`와 `wiki_stats.json`의 값 중 큰 값을 사용한다.
 
 ---
 
@@ -357,12 +362,14 @@ score = Σ weight·norm(signal),  norm(x) = min(x / CAP, 1.0)
 | 인자 | 타입 | 기본값 | 설명 |
 |------|------|--------|------|
 | `--out PATH` | str | `okf/` | 출력 번들 루트. 상대경로는 레포 루트 기준 |
-| `--strip-internal` | flag | off | OKF 예약 6필드만 남기고 `x-llmbrain-*` 전부 제거 (외부 공유 최소본) |
-| `--config PATH` | str | `schema/okf_export.yaml` | 제외 설정 파일. 부재 시 하드코딩 기본값 사용 |
+| `--strip-internal` | flag | off | OKF 예약 6필드만 남기고 `x-llmbrain-*` 제거. 단독으로는 Share-ready 승인 아님 |
+| `--config PATH` | str | `schema/okf_export.yaml` | private export override. Share-ready는 canonical 기본 경로 외 값을 거부 |
 | `--exclude-path GLOB` | str (복수) | `[]` | 추가 제외 경로 글롭. 설정 파일 값에 누적 |
 | `--exclude-domain D` | str (복수) | `[]` | frontmatter `domain` 라벨 기준 제외 (보조 필터) |
 | `--exclude-slug SLUG` | str (복수) | `[]` | 특정 slug 명시 제외 |
 | `--dry-run` | flag | off | 파일 0개 작성, export 대상·통계만 출력 (public 커밋 전 보안 게이트용) |
+| `--share` | flag | off | 기존 private export와 분리된 Share-ready hard-stop gate. 기본 출력 `okf-share/` |
+| `--approve-share VALUE` | str | 없음 | `--share` 전용 사람 승인 값. 정책의 정확한 값이 아니면 출력 전 중단 |
 
 `exclude_paths`·`exclude_domains`·`exclude_slugs`·`sensitive_patterns` 최종값 = `schema/okf_export.yaml`(커밋됨) + gitignored `schema/okf_export.local.yaml` + CLI 인자(누적).
 
@@ -376,6 +383,24 @@ score = Σ weight·norm(signal),  norm(x) = min(x / CAP, 1.0)
 | 로컬 분리 | 🔴 실명·내부명 같은 민감 값은 **gitignored `schema/okf_export.local.yaml`에만** 둔다. 커밋되는 `okf_export.yaml`에 넣으면 그 자체가 누출. main()이 두 파일을 병합 |
 | fail-loud 경고 | `okf_export.local.yaml` 부재 시(fresh clone/CI) 게이트 비활성 → stderr에 🔴 경고. 그 상태로 커밋 금지 |
 
+기본 export는 기존 private 동작을 유지한다. 공개용 `--share`는 더 엄격한 별도 경계다.
+`schema/okf_export.yaml`과 하나 이상의 gitignored local security config가 모두 있어야 하며,
+모든 비-구조제외 후보가 명시적 `scope: shared|private` 및 허용된 `type`을 가져야 한다.
+local security는 `exclude_slugs`·`sensitive_patterns`만 추가하며 base policy/승인 재정의는 거부한다.
+wiki 후보 symlink·root 밖 해석 경로, malformed/recursive YAML, 민감 hit, skipped page, broken link,
+빈 공개 번들, 설정/인벤토리 drift는 hard-stop이다.
+`--share --out`의 canonical path가 레포 루트 또는 private input root인 `raw/**`·`wiki/**`
+안에 있으면 stage·receipt·output을 만들기 전에 hard-stop한다.
+
+통과 시 `strip_internal=True`로 sibling stage에 전체 번들을 만든다. 입력 wiki bytes와 설정
+fingerprint를 재검증하고 `share-manifest.json`·`.okf-share-bundle`까지 완성한 뒤 디렉토리
+rename으로만 게시한다. portable POSIX에서 기존 디렉토리 갱신은 단일 atomic replace가 아니므로
+두 rename 사이 reader가 경로 부재를 볼 수 있다. 첫 rename 전 sibling recovery receipt를 durable
+write하며, 각 전환 뒤 hard exit 시 기존/신규 완성본을 다음 share 실행에서 복구한다. published
+bundle과 receipt가 모두 없는 상태는 만들지 않는다. manifest는
+결정적 JSON이고 included/excluded 수, source reference 수, classification/scope 수,
+`sha256:` configuration fingerprint만 기록한다. 페이지 경로·본문·민감 패턴·승인 값은 금지한다.
+
 #### 출력 파일
 
 | 파일 | 설명 |
@@ -385,6 +410,8 @@ score = Σ weight·norm(signal),  norm(x) = min(x / CAP, 1.0)
 | `okf/index.md` | 번들 루트 목차 (type별 섹션 + Directories 섹션) |
 | `okf/log.md` | export 이력 + 변환 경고 (깨진 링크·제외 페이지·skipped) |
 | `okf/.okf-bundle` | 번들 센티넬. 재export 시 이 마커가 있는 디렉토리만 안전하게 정리 |
+| `okf-share/share-manifest.json` | Share-ready 집계와 configuration fingerprint만 담은 redacted deterministic manifest |
+| `okf-share/.okf-share-bundle` | 완성된 share bundle만 원자 교체하기 위한 추가 센티넬 |
 
 #### 안전 가드
 
@@ -609,7 +636,7 @@ created: YYYY-MM-DD
 updated: YYYY-MM-DD
 sources: [raw/파일경로1, raw/파일경로2]
 distill_level: 0          # 0~3, curate --distill이 관리
-access_count: 0           # 웹 페이지뷰(wiki_app)가 갱신; CLI curate --record-access는 wiki_stats.json만 갱신 후 distill 시 동기화
+access_count: 0           # 자동 pageview 기록 없음; 명시적 curate --record-access의 stats를 distill 시 동기화
 last_accessed: null       # YYYY-MM-DD
 last_distilled: null      # YYYY-MM-DD
 resonance: high | medium | low   # ingest 시 수동 지정 (선택)
@@ -671,14 +698,16 @@ scope: private | shared    # (선택) private=okf 공개 번들 제외 / shared�
 }
 ```
 
-파일 위치: WIKI_ROOT 바로 아래 (`wiki_stats.json`). 갱신 경로는 두 가지이며 동작이 다르다.
+파일 위치: WIKI_ROOT 바로 아래 (`wiki_stats.json`). 기본 browse/query 경로는 읽기
+전용이고, 갱신은 명시적 CLI 동작으로 분리한다.
 
 | 경로 | frontmatter 갱신 | wiki_stats.json 갱신 |
 |------|-----------------|----------------------|
-| 웹 페이지뷰 (`wiki_app/access.track`) | O (원자적 쓰기) | O |
 | CLI `curate --record-access SLUG` | X | O |
 
-`distill` 실행 시 두 값 중 큰 값을 취해 frontmatter와 동기화한다.
+`wiki_app/access.track`은 기존 명시적 library write API로 남지만 검색·페이지 보기·AI
+query에서는 호출하지 않는다. `distill` 실행 시 두 값 중 큰 값을 취해 frontmatter와
+동기화한다.
 
 ---
 
@@ -794,6 +823,8 @@ response = client.messages.create(
 | `uv run python scripts/okf_export.py [--dry-run] [--strip-internal]` | `okf_export.py` | 없음 (규칙 기반 변환 → `okf/` 번들 생성, dry-run은 목록만) |
 | `uv run python scripts/brain_context.py --task "…" --topic "…" --type query\|express\|curate\|custom [--max-pages N] [--json]` | `brain_context.py` | 없음 (작업기억 팩 조립 출력 — Claude가 읽고 실행) |
 | `uv run python scripts/memory_health.py --report` | `memory_health.py` | 없음 (읽기전용 집계 → `wiki/memory_health_report.md`, 페이지 무변경) |
+| `uv run python scripts/doctor.py --guided [--profile demo\|personal-private\|share-ready]` | `doctor.py` | 없음 (repo root를 script 기준으로 확인하고, 제품/개인 데이터 쓰기·개인 콘텐츠 스캔 없이 정확히 3개 프로필 또는 선택 프로필의 다음 행동 1개 출력. Personal-private는 `sources.yaml` 또는 없을 때 committed example을 preview하고 Demo는 UI가 아닌 설치 검증임을 표시. Share-ready는 policy/local config/explicit scope 전제와 정확한 승인 명령을 안내. 단, `uv run` 자체의 Python 환경/cache 생성 가능성은 별도) |
+| `uv run python scripts/doctor.py [--fix]` | `doctor.py` | 없음 (기존 설치 진단; `--fix`일 때만 디렉터리·sources 설정 생성) |
 | (라이브러리 — `procedures.list_procedures`/`read_procedure`) | `procedures.py` | 없음 (`brain_context`·`memory_health`가 import; 독립 CLI 아님) |
 | `uv run python scripts/curate.py --purge` | `curate.py` | 없음 (파일 이동) |
 | `uv run python scripts/curate.py --record-access SLUG` | `curate.py` | 없음 (stats 기록) |
@@ -878,7 +909,7 @@ response = client.messages.create(
   "read_pages": ["wiki/concepts/x.md"],
   "procedures_used": ["collect_related_pages"],
   "outputs": {},
-  "status": "ok|pending_wiki_compilation|draft_ready|timeout|error",
+  "status": "ok|abstained|pending_wiki_compilation|draft_ready|timeout|error",
   "notes": "string" }
 ```
 
@@ -916,6 +947,28 @@ decay_policy: default     # 명명된 정책 키 (선택)
 
 markdown 기본, `--json`은 동일 구조. <1s 목표(file-first, 임베딩 없음).
 
+### C3-b. claim_ledger (P0 query provenance)
+
+`schema/claim_ledger.md` 계약의 strict `ClaimRecord`를 repository-root
+`claims.jsonl`에 저장한다. `scripts/claims.py build`만 atomic replace를 수행하고,
+`context`와 API query는 읽기 전용이다.
+
+- required provenance: `claim_id`, `statement`, `kind`, `raw_path`, 정확한 64-hex
+  `raw_sha256`, `valid_from`, `valid_until`, `status`, `trust`; `locator`만 optional
+- allowed status: `active | stale | superseded`; trust: `trusted | untrusted`
+- malformed/partial/unknown-field/duplicate record 하나라도 있으면 API/CLI 전체 fail closed
+- source inventory 오류는 전체 ledger 검증을 유지하면서 affected slug/count와 정확한
+  `uv run python scripts/claims.py build` 복구 명령만 노출하고 statement/raw path는 숨김
+- trusted query/citation: `active + trusted + current validity + current raw hash match`만 허용
+- stale와 raw mutation은 각각 `stale`, `source_hash_mismatch`로 구분해 제외
+- 외부 capture statement는 single-line canonical JSON data로 격리하고 명령/인용 불허
+- LLM citation token: `[claim:slug-N]`; invalid/non-active claim 하나라도 있으면 답변 거부
+- usable trusted claim이 없으면 exact `관련 정보 없음`만 허용하고 API/SSE status를
+  `abstained`로 구분. LLM/stream을 호출하지 않고 source 목록은 비우며 안전한 제외
+  사유 count와 다음 행동 하나 제공. SSE sequence는 meta → exact abstention chunk 1개 → done
+- SSE meta는 `delivery_mode: verified-buffered`를 명시하고 UI도 "검증 후 일괄 표시"로
+  표현. `_AI_STREAM_MAX_CHUNKS`/`_AI_STREAM_MAX_BYTES` 안에서 buffering 후 동일 gate 적용
+
 ### C4. memory_score (US-006, 재사용 우선·결정적)
 
 ```
@@ -938,7 +991,7 @@ score = 35·norm(express_reuse) + 25·norm(episode_ref) + 15·norm(centrality)
 
 - `episodes/`·`procedures/`는 **repo 루트**(wiki/ 밖) → `okf_export.py`는 `wiki/`만 rglob 스캔하므로 **구조적으로 OKF에 안 보임**.
 - **방어 이중망**: `schema/okf_export.yaml` `exclude_paths`에 `episodes/**`·`procedures/**` 명시(향후 wiki/ 밑 오배치 대비). 게이트는 탐지형이 아니라 규칙형이라 명시 규칙만이 누출을 막는다.
-- 새 메모리 필드 → keep 모드 `x-llmbrain-*` / `--strip-internal` 전부 제거. **외부 공유는 strip 필수**.
+- 새 메모리 필드 → keep 모드 `x-llmbrain-*` / `--strip-internal` 전부 제거. **외부 공유는 `--share` 필수이며 strip을 강제**.
 - `.gitignore`: `episodes/` 전체. 예외 = `examples/episode-schema-example.jsonl` 1개만 커밋(문서·테스트용).
 - 커밋 전 dry-run ceremony(기존)에 점검 항목 추가: export 목록에 `episodes`/`procedures`/`memory_health_report` 미등장 단언.
 - 🔴 **memory_health 리포트 누출 차단(Claude#1·Codex C1, HIGH):** `memory_health.py`는 `wiki/memory_health_report.md`에 쓰는데 `okf_export.py`가 `wiki/`를 rglob 스캔하고 현 `META_FILES`에 이 파일이 **없다**(episode 요약 = 격리한 사적 운영맥락의 파생). → ① `memory_health_report.md`를 okf `META_FILES`에 **명시 추가**(루트 직속 skip 작동; title-부재 skip은 취약해 의존 금지) ② 리포트는 **집계 수치만**(verbatim episode 본문 금지). 이 확장은 리포트를 도입하는 **Phase 3에서 동반**.

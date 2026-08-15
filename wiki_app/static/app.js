@@ -392,10 +392,26 @@ async function callAI(question, contextSlugs) {
         const ev = parseSseEvent(evt);
         if (!ev) continue;
         if (ev.event === "meta") {
-          const slugs = ev.data.context_slugs || [];
+          const slugs = ev.data.source_slugs || [];
+          const details = [];
+          if (ev.data.delivery_mode === "verified-buffered") {
+            details.push("<strong>전달 방식:</strong> 검증 후 일괄 표시 (verified-buffered)");
+          }
           if (slugs.length) {
+            details.push(`<strong>검증된 출처 wiki 페이지:</strong> ${slugs.map(s => `<a href="#page=${encodeURIComponent(s)}" onclick="document.getElementById('ai-modal').classList.add('hidden')"><code>${escapeHtml(s)}</code></a>`).join(", ")}`);
+          }
+          const reasonCounts = ev.data.exclusion_reason_counts || {};
+          const reasonEntries = Object.entries(reasonCounts);
+          if (reasonEntries.length) {
+            details.push(`<strong>제외 사유:</strong> ${reasonEntries.map(([reason, count]) => `${escapeHtml(reason)} ${count}`).join(", ")}`);
+          }
+          const action = ev.data.recommended_next_action;
+          if (action && action.command) {
+            details.push(`<strong>다음 행동:</strong> <code>${escapeHtml(action.command)}</code>`);
+          }
+          if (details.length) {
             sourcesEl.style.display = "block";
-            sourcesEl.innerHTML = `<strong>참고한 wiki 페이지:</strong> ${slugs.map(s => `<a href="#page=${encodeURIComponent(s)}" onclick="document.getElementById('ai-modal').classList.add('hidden')"><code>${s}</code></a>`).join(", ")}`;
+            sourcesEl.innerHTML = details.join("<br>");
           }
         } else if (ev.event === "chunk") {
           if (!gotFirstChunk) {
