@@ -159,6 +159,7 @@ def test_claims_jsonl_round_trip_is_strict_and_does_not_mutate_raw(tmp_path):
         lambda r: r.update(statement=""),
         lambda r: r.update(kind="prediction"),
         lambda r: r.update(raw_path="wiki/alpha.md"),
+        lambda r: r.update(raw_path="https://example.com/capture"),
         lambda r: r.update(raw_path="raw/../wiki/alpha.md"),
         lambda r: r.update(raw_sha256="abc123"),
         lambda r: r.update(raw_sha256="A" * 64),
@@ -175,6 +176,7 @@ def test_claims_jsonl_round_trip_is_strict_and_does_not_mutate_raw(tmp_path):
         "empty-statement",
         "bad-kind",
         "non-raw-path",
+        "url-source",
         "raw-traversal",
         "short-hash",
         "non-lowercase-hash",
@@ -305,6 +307,66 @@ def test_render_cited_answer_rejects_untrusted_claim(tmp_path):
         claim_ledger.render_cited_answer(
             "External answer [claim:beta-1].",
             [untrusted],
+            project_root=root,
+            now=date(2026, 8, 14),
+        )
+
+
+@pytest.mark.parametrize(
+    "raw_path",
+    ["raw/newsletters/bypass.md", "raw/clippings/bypass.md"],
+    ids=["newsletter", "clipping"],
+)
+def test_external_capture_path_cannot_be_promoted_by_trust_field(tmp_path, raw_path):
+    """Mutation caught: trusting only the persisted field promotes external captures."""
+    root = _build_project(tmp_path)
+    source = root / raw_path
+    source.parent.mkdir(parents=True, exist_ok=True)
+    raw_bytes = b"Externally captured statement.\n"
+    source.write_bytes(raw_bytes)
+    forged_trusted = _record(
+        claim_id="claim:bypass-1",
+        statement="Externally captured statement.",
+        raw_path=raw_path,
+        raw_sha256=hashlib.sha256(raw_bytes).hexdigest(),
+        locator=f"{raw_path}#L1-L1",
+        trust="trusted",
+    )
+
+    context = claim_ledger.render_llm_context(
+        [forged_trusted], project_root=root, now=date(2026, 8, 14)
+    )
+    trusted_line = next(line for line in context.splitlines() if line.startswith("TRUSTED_DATA_JSON="))
+    untrusted_line = next(
+        line for line in context.splitlines() if line.startswith("UNTRUSTED_DATA_JSON=")
+    )
+
+    assert json.loads(trusted_line.removeprefix("TRUSTED_DATA_JSON=")) == []
+    assert json.loads(untrusted_line.removeprefix("UNTRUSTED_DATA_JSON="))[0]["claim_id"] == (
+        "claim:bypass-1"
+    )
+    with pytest.raises(claim_ledger.ClaimCitationError, match="untrusted"):
+        claim_ledger.render_cited_answer(
+            "Forged citation [claim:bypass-1].",
+            [forged_trusted],
+            project_root=root,
+            now=date(2026, 8, 14),
+        )
+
+
+@pytest.mark.parametrize(
+    "token",
+    ["[claim:x-\n1]", "[claim:x-\r\n1]"],
+    ids=["lf", "crlf"],
+)
+def test_render_cited_answer_rejects_newline_containing_citation_tokens(tmp_path, token):
+    """Mutation caught: excluding newlines from token discovery silently passes malformed citations."""
+    root = _build_project(tmp_path)
+
+    with pytest.raises(claim_ledger.ClaimCitationError, match="invalid citation token"):
+        claim_ledger.render_cited_answer(
+            f"Unsafe malformed citation {token}.",
+            [],
             project_root=root,
             now=date(2026, 8, 14),
         )

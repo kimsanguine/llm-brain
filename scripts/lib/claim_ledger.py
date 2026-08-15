@@ -18,7 +18,7 @@ _CATEGORIES = ("concepts", "tools", "people", "projects", "business", "lecture",
 _CLAIM_SPLIT_RE = re.compile(r"(?<=[.!?])\s+|\n+")
 _CLAIM_ID_RE = re.compile(r"^claim:([\w가-힣/-]+)-([1-9]\d*)$")
 _CITATION_RE = re.compile(r"\[(claim:[\w가-힣/-]+-[1-9]\d*)\]")
-_ANY_CITATION_RE = re.compile(r"\[claim:[^\]\r\n]+\]")
+_ANY_CITATION_RE = re.compile(r"\[claim:[^\]]*\]")
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 _DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 _OPINION_MARKERS = ("권장", "추천", "의견", "생각", "should", "prefer")
@@ -414,7 +414,7 @@ def claim_exclusion_reason(
     current_sha256 = hashlib.sha256(source_file.read_bytes()).hexdigest()
     if current_sha256 != record.raw_sha256:
         return "source_hash_mismatch"
-    if record.trust != "trusted":
+    if _is_untrusted_source(record.raw_path) or record.trust != "trusted":
         return "untrusted"
     return None
 
