@@ -528,3 +528,84 @@ def test_context_cli_fails_closed_on_malformed_ledger(tmp_path):
     assert result.returncode == 2
     assert result.stdout == ""
     assert "claim ledger invalid" in result.stderr.lower()
+
+
+def test_context_cli_rejects_legacy_claim_from_mixed_source_page_without_writes(
+    tmp_path,
+):
+    """The read-only CLI must reject legacy first-source trust for mixed pages."""
+    root = _build_project(tmp_path)
+    trusted_bytes = b"Trusted source statement.\n"
+    alpha_bytes = b"Alpha current fact.\n"
+    (root / "raw" / "notes" / "alpha.md").write_bytes(alpha_bytes)
+    (root / "raw" / "notes" / "trusted.md").write_bytes(trusted_bytes)
+    (root / "raw" / "newsletters" / "external.md").write_text(
+        "External capture statement.\n", encoding="utf-8"
+    )
+    _write(
+        root / "wiki" / "concepts" / "alpha.md",
+        _wiki_page(
+            title="Alpha",
+            source="raw/notes/alpha.md",
+            body="Alpha current fact.",
+        ),
+    )
+    _write(
+        root / "wiki" / "concepts" / "mixed.md",
+        "---\n"
+        "title: Mixed\n"
+        "sources:\n"
+        "  - raw/notes/trusted.md\n"
+        "  - raw/newsletters/external.md\n"
+        "---\n\n"
+        "External capture statement.\n",
+    )
+    _write_jsonl(
+        root / "claims.jsonl",
+        [
+            _raw_record(
+                raw_sha256=hashlib.sha256(alpha_bytes).hexdigest(),
+            ),
+            _raw_record(
+                claim_id="claim:mixed-1",
+                statement="External capture statement.",
+                raw_path="raw/notes/trusted.md",
+                raw_sha256=hashlib.sha256(trusted_bytes).hexdigest(),
+                locator="raw/notes/trusted.md#L1-L1",
+            )
+        ],
+    )
+    before = {
+        path.relative_to(root).as_posix(): path.read_bytes()
+        for directory in (root / "raw", root / "wiki")
+        for path in directory.rglob("*")
+        if path.is_file()
+    }
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(_REPO_ROOT / "scripts" / "claims.py"),
+            "context",
+            "--wiki-root",
+            str(root / "wiki"),
+            "--ledger",
+            str(root / "claims.jsonl"),
+            "--slug",
+            "alpha",
+        ],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    after = {
+        path.relative_to(root).as_posix(): path.read_bytes()
+        for directory in (root / "raw", root / "wiki")
+        for path in directory.rglob("*")
+        if path.is_file()
+    }
+
+    assert result.returncode == 2
+    assert result.stdout == ""
+    assert "source inventory" in result.stderr.lower()
+    assert after == before

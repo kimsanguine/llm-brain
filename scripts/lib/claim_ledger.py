@@ -12,6 +12,7 @@ import tempfile
 from typing import Iterable, Mapping
 
 import frontmatter
+import yaml
 
 
 _CATEGORIES = ("concepts", "tools", "people", "projects", "business", "lecture", "insights")
@@ -390,6 +391,30 @@ def claim_slug(record: ClaimRecord) -> str:
 def claims_for_slugs(records: Iterable[ClaimRecord], slugs: Iterable[str]) -> list[ClaimRecord]:
     wanted = set(slugs)
     return [record for record in records if claim_slug(record) in wanted]
+
+
+def validate_claim_source_inventory(
+    records: Iterable[ClaimRecord], *, wiki_root: Path
+) -> None:
+    """Reject legacy records whose current page no longer has one matching raw source."""
+    wiki_root = Path(wiki_root)
+    for record in records:
+        page_path = _find_page_path(claim_slug(record), wiki_root)
+        if page_path is None:
+            raise ClaimLedgerError("current wiki source inventory is invalid")
+        try:
+            post = frontmatter.load(page_path)
+        except (OSError, UnicodeError, ValueError, yaml.YAMLError) as exc:
+            raise ClaimLedgerError("current wiki source inventory is invalid") from exc
+        sources = _normalize_sources(post.metadata.get("sources"))
+        if len(sources) != 1:
+            raise ClaimLedgerError("current wiki source inventory is invalid")
+        try:
+            current_source = _validate_raw_path(sources[0])
+        except ClaimLedgerError as exc:
+            raise ClaimLedgerError("current wiki source inventory is invalid") from exc
+        if record.raw_path != current_source:
+            raise ClaimLedgerError("current wiki source inventory does not match persisted claims")
 
 
 def claim_exclusion_reason(

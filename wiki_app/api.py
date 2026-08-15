@@ -120,6 +120,7 @@ def _collect_context(slugs, wiki_root):
     ledger_path = wiki_root.parent / "claims.jsonl"
     if ledger_path.exists():
         persisted = claim_ledger.read_claims_jsonl(ledger_path)
+        claim_ledger.validate_claim_source_inventory(persisted, wiki_root=wiki_root)
         ledger = claim_ledger.claims_for_slugs(persisted, valid)
     else:
         # Missing persistence authorizes zero claims. Query remains read-only; an

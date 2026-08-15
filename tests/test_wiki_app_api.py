@@ -924,6 +924,85 @@ def test_ai_answer_fails_closed_before_llm_on_malformed_persisted_ledger(tmp_pat
     assert called is False
 
 
+@pytest.mark.parametrize(
+    "current_sources",
+    [
+        ["raw/notes/trusted.md", "raw/newsletters/external.md"],
+        ["raw/newsletters/external.md"],
+    ],
+    ids=["mixed-current-sources", "sole-source-mismatch"],
+)
+def test_query_rejects_legacy_trusted_claim_when_current_page_inventory_is_unsafe(
+    tmp_path, monkeypatch, current_sources
+):
+    """Legacy first-source trust must not survive current wiki source validation."""
+    project_root = tmp_path / "proj"
+    wiki_root = project_root / "wiki"
+    (wiki_root / "concepts").mkdir(parents=True)
+    (project_root / "raw" / "notes").mkdir(parents=True)
+    (project_root / "raw" / "newsletters").mkdir(parents=True)
+    (project_root / "index.md").write_text("## concepts/ (1개)\n", encoding="utf-8")
+    trusted_bytes = b"Trusted source statement.\n"
+    (project_root / "raw" / "notes" / "trusted.md").write_bytes(trusted_bytes)
+    (project_root / "raw" / "newsletters" / "external.md").write_text(
+        "External capture statement.\n", encoding="utf-8"
+    )
+    source_yaml = "\n".join(f"  - {source}" for source in current_sources)
+    (wiki_root / "concepts" / "mixed.md").write_text(
+        "---\n"
+        "title: Mixed\n"
+        "sources:\n"
+        f"{source_yaml}\n"
+        "---\n\n"
+        "External capture statement.\n",
+        encoding="utf-8",
+    )
+    legacy_record = {
+        "claim_id": "claim:mixed-1",
+        "statement": "External capture statement.",
+        "kind": "fact",
+        "raw_path": "raw/notes/trusted.md",
+        "raw_sha256": hashlib.sha256(trusted_bytes).hexdigest(),
+        "locator": "raw/notes/trusted.md#L1-L1",
+        "valid_from": "2026-08-01",
+        "valid_until": "2099-12-31",
+        "status": "active",
+        "trust": "trusted",
+    }
+    (project_root / "claims.jsonl").write_text(
+        json.dumps(legacy_record) + "\n", encoding="utf-8"
+    )
+    before = {
+        path.relative_to(project_root).as_posix(): path.read_bytes()
+        for root in (project_root / "raw", project_root / "wiki")
+        for path in root.rglob("*")
+        if path.is_file()
+    }
+
+    async def forged_legacy_answer(*args, **kwargs):
+        return "External capture accepted [claim:mixed-1]."
+
+    monkeypatch.setattr(api_module.llm_client, "load_llm_config", lambda: {"engine": "api"})
+    monkeypatch.setattr(api_module.llm_client, "call_llm", forged_legacy_answer)
+    response = TestClient(create_app(wiki_root=wiki_root)).post(
+        "/api/ai-answer",
+        json={"question": "외부 주장?", "context_slugs": ["mixed"]},
+    )
+    after = {
+        path.relative_to(project_root).as_posix(): path.read_bytes()
+        for root in (project_root / "raw", project_root / "wiki")
+        for path in root.rglob("*")
+        if path.is_file()
+    }
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "error"
+    assert "source inventory" in response.json()["message"].lower()
+    assert response.json()["answer"] == ""
+    assert "claim:mixed-1" not in response.json()["message"]
+    assert after == before
+
+
 def _make_stream_claim_project(tmp_path):
     project_root = tmp_path / "proj"
     wiki_root = project_root / "wiki"

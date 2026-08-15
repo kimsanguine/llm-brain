@@ -41,6 +41,7 @@ def main(argv: list[str] | None = None) -> int:
             return 0
 
         records = claim_ledger.read_claims_jsonl(args.ledger)
+        claim_ledger.validate_claim_source_inventory(records, wiki_root=args.wiki_root)
         selected = claim_ledger.claims_for_slugs(records, args.slug)
         print(
             claim_ledger.render_llm_context(

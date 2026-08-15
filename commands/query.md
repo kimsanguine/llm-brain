@@ -26,6 +26,9 @@ uv run python scripts/claims.py context \
 
 malformed/partial record가 하나라도 있으면 답변하지 않고 종료합니다. 원장이 없거나
 usable trusted claim이 0개면 정확한 표준 abstention `관련 정보 없음`만 허용합니다.
+legacy 원장도 현재 wiki source inventory와 다시 대조합니다. 어떤 record든 현재 페이지가
+정확히 하나의 유효한 `raw/**` source를 갖지 않거나 `raw_path`가 그 sole source와 다르면
+원장 전체를 거부하며 자동 migration/rewrite하지 않습니다.
 원장 생성·갱신은 query와 분리된 명시적 write action입니다:
 
 ```bash

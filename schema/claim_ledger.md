@@ -26,6 +26,8 @@ writer는 모든 record를 먼저 검증한 뒤 같은 디렉터리의 임시 �
 ## Query rules
 
 1. query는 persisted ledger를 읽기만 하며 `raw/**`, `wiki/**`, stats, Canvas를 쓰지 않는다.
+   로드한 모든 record의 slug를 현재 wiki 페이지와 대조하고, 페이지 `sources`가 정확히
+   하나의 유효한 `raw/**`가 아니거나 record `raw_path`와 다르면 원장 전체를 거부한다.
 2. `active + trusted + validity current + current raw SHA-256 match`인 claim만 trusted
    context와 cited answer에서 허용한다.
 3. `untrusted` claim(예: `raw/newsletters/**`, `raw/clippings/**`) statement는 newline과
