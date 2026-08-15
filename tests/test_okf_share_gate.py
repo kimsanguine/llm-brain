@@ -391,6 +391,7 @@ def test_staging_write_failure_leaves_no_public_output_or_temp_bundle(tmp_path, 
     repo = _make_repo(tmp_path)
     sys.path.insert(0, str(repo / "scripts"))
     try:
+        sys.modules.pop("okf_export", None)
         import okf_export
 
         share_export = getattr(okf_export, "export_share_bundle", None)
@@ -411,6 +412,213 @@ def test_staging_write_failure_leaves_no_public_output_or_temp_bundle(tmp_path, 
             )
         assert not out.exists()
         assert not list(repo.glob(".public.stage-*"))
+    finally:
+        sys.path.remove(str(repo / "scripts"))
+        sys.modules.pop("okf_export", None)
+
+
+def test_share_rejects_symlinked_wiki_candidate_before_external_read_or_export(tmp_path):
+    """Following a wiki symlink must not copy bytes from outside the wiki root."""
+    repo = _make_repo(
+        tmp_path,
+        pages={
+            "concepts/safe.md": _page(
+                "Safe", "concept", "shared", "Safe public content."
+            )
+        },
+    )
+    external_secret = "EXTERNAL-SYMLINK-SECRET"
+    external = tmp_path / "outside.md"
+    external.write_text(
+        _page("External", "concept", "shared", external_secret), encoding="utf-8"
+    )
+    (repo / "wiki" / "concepts" / "linked.md").symlink_to(external)
+
+    result = _share(repo)
+    combined = result.stdout + result.stderr
+
+    assert result.returncode != 0
+    assert "symlink" in combined.lower()
+    assert external_secret not in combined
+    assert not (repo / "okf-share").exists()
+
+
+def test_share_rejects_custom_config_and_custom_approval(tmp_path):
+    """--config must not replace the committed share policy or approval token."""
+    repo = _make_repo(tmp_path)
+    canonical = yaml.safe_load(
+        (repo / "schema" / "okf_export.yaml").read_text(encoding="utf-8")
+    )
+    custom_approval = "CUSTOM-BYPASS-APPROVAL"
+    canonical["share_policy"]["approval_value"] = custom_approval
+    (repo / "schema" / "custom.yaml").write_text(
+        yaml.safe_dump(canonical, sort_keys=False), encoding="utf-8"
+    )
+
+    result = _run(
+        repo,
+        "--share",
+        "--config",
+        "schema/custom.yaml",
+        "--approve-share",
+        custom_approval,
+    )
+    combined = result.stdout + result.stderr
+
+    assert result.returncode != 0
+    assert "canonical" in combined.lower()
+    assert custom_approval not in combined
+    assert not (repo / "okf-share").exists()
+
+
+@pytest.mark.parametrize(
+    "forbidden_overlay",
+    [
+        {"share_policy": {"approval_value": "LOCAL-BYPASS"}},
+        {"exclude_paths": []},
+    ],
+)
+def test_local_security_overlay_cannot_redefine_base_policy(tmp_path, forbidden_overlay):
+    """Local config may add only sensitive patterns and excluded slugs."""
+    repo = _make_repo(tmp_path)
+    local = {"exclude_slugs": [], "sensitive_patterns": [SENSITIVE]}
+    local.update(forbidden_overlay)
+    (repo / "schema" / "okf_export.local.yaml").write_text(
+        yaml.safe_dump(local, sort_keys=False), encoding="utf-8"
+    )
+
+    result = _share(repo)
+
+    assert result.returncode != 0
+    assert "local security" in (result.stdout + result.stderr).lower()
+    assert not (repo / "okf-share").exists()
+
+
+@pytest.mark.parametrize(
+    "transition",
+    [
+        "after_receipt",
+        "after_backup_rename",
+        "after_publish_rename",
+        "after_backup_cleanup",
+    ],
+)
+def test_publish_interruption_always_leaves_bundle_or_recovery_receipt(
+    tmp_path, transition
+):
+    """Every hard-exit transition must be recoverable without losing publication."""
+    repo = _make_repo(tmp_path)
+    sys.path.insert(0, str(repo / "scripts"))
+    try:
+        sys.modules.pop("okf_export", None)
+        import okf_export
+
+        publish = getattr(okf_export, "_publish_staged_share", None)
+        recover = getattr(okf_export, "_recover_share_publish", None)
+        assert callable(publish), "recoverable publish API is not implemented"
+        assert callable(recover), "share recovery API is not implemented"
+
+        out = repo / "public"
+        stage = repo / ".public.stage-test"
+        for root, value in ((out, "old"), (stage, "new")):
+            root.mkdir()
+            (root / ".okf-bundle").write_text("managed\n", encoding="utf-8")
+            (root / ".okf-share-bundle").write_text("managed\n", encoding="utf-8")
+            (root / "payload.txt").write_text(value, encoding="utf-8")
+
+        class SimulatedHardExit(BaseException):
+            pass
+
+        def interrupt(point):
+            if point == transition:
+                raise SimulatedHardExit(point)
+
+        with pytest.raises(SimulatedHardExit, match=transition):
+            publish(stage, out, failure_injector=interrupt)
+
+        receipt = repo / ".public.publish.json"
+        assert out.exists() or receipt.exists(), transition
+
+        recover(out)
+
+        assert out.is_dir()
+        assert (out / "payload.txt").read_text(encoding="utf-8") in {"old", "new"}
+        assert not receipt.exists()
+        assert not (repo / ".public.backup").exists()
+    finally:
+        sys.path.remove(str(repo / "scripts"))
+        sys.modules.pop("okf_export", None)
+
+
+@pytest.mark.parametrize(
+    "frontmatter",
+    [
+        (
+            "---\n"
+            "title: Safe\n"
+            "type: concept\n"
+            "scope: shared\n"
+            f"tags: [{SENSITIVE}\n"
+            "---\n\nSafe body.\n"
+        ),
+        (
+            "---\n"
+            "title: Recursive\n"
+            "type: concept\n"
+            "scope: shared\n"
+            "loop: &loop [*loop]\n"
+            "---\n\nSafe body.\n"
+        ),
+    ],
+)
+def test_share_rejects_pathological_frontmatter_without_traceback_or_output(
+    tmp_path, frontmatter
+):
+    """Malformed or recursive YAML must fail at the candidate parse boundary."""
+    repo = _make_repo(
+        tmp_path,
+        pages={"concepts/pathological.md": frontmatter},
+    )
+
+    result = _share(repo)
+    combined = result.stdout + result.stderr
+
+    assert result.returncode != 0
+    assert "candidate frontmatter is invalid" in combined.lower()
+    assert SENSITIVE not in combined
+    assert "traceback" not in combined.lower()
+    assert not (repo / "okf-share").exists()
+
+
+def test_share_sanitizes_candidate_open_error_before_any_output(tmp_path, monkeypatch):
+    """An OSError while opening a candidate must become a sanitized gate error."""
+    repo = _make_repo(tmp_path)
+    sys.path.insert(0, str(repo / "scripts"))
+    try:
+        sys.modules.pop("okf_export", None)
+        import okf_export
+
+        real_open = okf_export.os.open
+
+        def fail_candidate_open(path, flags):
+            if Path(path).name == "shared.md":
+                raise OSError("EXTERNAL-OPEN-DETAIL")
+            return real_open(path, flags)
+
+        monkeypatch.setattr(okf_export.os, "open", fail_candidate_open)
+        out = repo / "public"
+        with pytest.raises(
+            okf_export.ShareGateError, match="candidate frontmatter is invalid"
+        ) as caught:
+            okf_export.export_share_bundle(
+                repo / "wiki",
+                out,
+                config_path=repo / "schema" / "okf_export.yaml",
+                local_config_paths=[repo / "schema" / "okf_export.local.yaml"],
+                approval=APPROVAL,
+            )
+        assert "EXTERNAL-OPEN-DETAIL" not in str(caught.value)
+        assert not out.exists()
     finally:
         sys.path.remove(str(repo / "scripts"))
         sys.modules.pop("okf_export", None)

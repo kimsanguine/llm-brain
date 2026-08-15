@@ -268,7 +268,7 @@ uv run python -m wiki_app
                                 # 사람 승인 + manifest gate를 통과한 별도 okf-share/ 생성
 ```
 
-> 🔴 **보안 (한 줄):** 기본 `okf/`와 `--strip-internal`은 private export이며 공개 승인 증거가 아니다. 외부 공유는 gitignored `schema/okf_export.local.yaml`을 명시하고 `--share` + 정확한 사람 승인 값을 사용한다. 민감 hit·설정 부재·scope/policy 위반이면 파일을 쓰기 전에 중단하며, 통과한 `okf-share/`만 redacted manifest를 포함한다. 상세: `SPEC.md`.
+> 🔴 **보안 (한 줄):** 기본 `okf/`와 `--strip-internal`은 private export이며 공개 승인 증거가 아니다. 외부 공유는 canonical policy, 제한된 gitignored local security config, `--share` + 정확한 사람 승인 값을 사용한다. 민감 hit·설정 부재·scope/policy 위반·symlink·잘못된 YAML이면 파일을 쓰기 전에 중단하며, 통과한 `okf-share/`만 redacted manifest를 포함한다. 디렉토리 교체의 짧은 경로 부재 가능성과 recovery receipt 경계는 `SPEC.md`에 명시한다.
 > 🔒 **v0.3:** 페이지 frontmatter에 `scope: private`를 두면 (플래그 없이도) OKF 공개 번들에서 **항상 제외**된다. `owner` 필드로 소유자를 태깅할 수 있다(팀 확장 대비).
 
 ---

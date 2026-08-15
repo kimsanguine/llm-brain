@@ -23,9 +23,9 @@ import json
 import os
 import re
 import shutil
+import stat
 import sys
 import tempfile
-import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -50,6 +50,7 @@ META_FILES = _EG_META_FILES | {"curate_report.md", "memory_health_report.md"}
 
 SHARE_MANIFEST = "share-manifest.json"
 SHARE_SENTINEL = ".okf-share-bundle"
+CANONICAL_SHARE_APPROVAL = "I_ACKNOWLEDGE_SHARE_READY_EXPORT"
 KNOWN_SHARE_SCOPES = {"private", "shared"}
 KNOWN_SHARE_CLASSIFICATIONS = {
     "business",
@@ -257,7 +258,27 @@ def _extract_description(fm: dict, body: str) -> str:
     return _clean_description(sent) if sent else ""
 
 
-def _read_frontmatter(text: str) -> dict:
+def _assert_acyclic_yaml(value, active: set[int] | None = None) -> None:
+    """Reject recursive YAML aliases before later serialization can recurse."""
+    if not isinstance(value, (dict, list)):
+        return
+    if active is None:
+        active = set()
+    identity = id(value)
+    if identity in active:
+        raise ShareGateError("candidate frontmatter is invalid")
+    active.add(identity)
+    try:
+        children = value.values() if isinstance(value, dict) else value
+        for child in children:
+            _assert_acyclic_yaml(child, active)
+    except RecursionError as exc:
+        raise ShareGateError("candidate frontmatter is invalid") from exc
+    finally:
+        active.remove(identity)
+
+
+def _read_frontmatter(text: str, *, strict_share: bool = False) -> dict:
     """frontmatter를 PyYAML로 파싱 (타입·블록 리스트 정확).
 
     export_graph의 미니 파서는 들여쓰기 블록 리스트(`  - item`)를 처리 못 해
@@ -272,27 +293,93 @@ def _read_frontmatter(text: str) -> dict:
     try:
         data = yaml.safe_load(m.group(1))
         if isinstance(data, dict):
+            if strict_share:
+                _assert_acyclic_yaml(data)
             return data
-    except yaml.YAMLError:
-        pass
+        if strict_share:
+            raise ShareGateError("candidate frontmatter is invalid")
+    except ShareGateError:
+        raise
+    except (yaml.YAMLError, RecursionError) as exc:
+        if strict_share:
+            raise ShareGateError("candidate frontmatter is invalid") from exc
     return parse_frontmatter(text)  # 미니 파서 fallback
 
 
-def _load_pages(wiki_dir: Path, stats: ExportStats) -> list[_Page]:
+def _assert_safe_share_candidate(wiki_dir: Path, candidate: Path) -> None:
+    """Reject symlinks and paths resolving outside wiki before any candidate read."""
+    try:
+        if candidate.is_symlink():
+            raise ShareGateError("wiki candidate symlink is forbidden")
+        resolved = candidate.resolve(strict=True)
+    except ShareGateError:
+        raise
+    except (OSError, RuntimeError) as exc:
+        raise ShareGateError("wiki candidate path is invalid") from exc
+    if resolved != wiki_dir and wiki_dir not in resolved.parents:
+        raise ShareGateError("wiki candidate resolves outside wiki root")
+
+
+def _validated_share_markdown_paths(wiki_dir: Path) -> list[Path]:
+    """Validate the complete wiki tree before returning any readable candidate."""
+    try:
+        entries = sorted(wiki_dir.rglob("*"))
+    except (OSError, RuntimeError) as exc:
+        raise ShareGateError("wiki candidate path is invalid") from exc
+    for entry in entries:
+        _assert_safe_share_candidate(wiki_dir, entry)
+    return [entry for entry in entries if entry.is_file() and entry.suffix == ".md"]
+
+
+def _read_safe_share_candidate(wiki_dir: Path, candidate: Path) -> str:
+    """Read a prevalidated regular file with O_NOFOLLOW where the platform supports it."""
+    _assert_safe_share_candidate(wiki_dir, candidate)
+    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
+    try:
+        with os.fdopen(os.open(candidate, flags), "rb") as handle:
+            if not stat.S_ISREG(os.fstat(handle.fileno()).st_mode):
+                raise ShareGateError("wiki candidate path is invalid")
+            data = handle.read()
+        return data.decode("utf-8")
+    except ShareGateError:
+        raise
+    except (OSError, UnicodeDecodeError, ValueError) as exc:
+        raise ShareGateError("candidate frontmatter is invalid") from exc
+
+
+def _load_pages(
+    wiki_dir: Path,
+    stats: ExportStats,
+    *,
+    strict_share: bool = False,
+) -> list[_Page]:
     """wiki/**/*.md 로드. 메타 파일·title 없는 파일 제외 (계약 §3).
 
     읽기/파싱 실패·title 부재는 stats.skipped에 (경로, 사유)로 기록한다(silent 금지).
     한 파일 실패로 전체 export를 중단하지 않되, 누락은 dry-run/log에서 보이게 한다.
     """
     pages: list[_Page] = []
-    for md in sorted(wiki_dir.rglob("*.md")):
+    markdown_paths = (
+        _validated_share_markdown_paths(wiki_dir)
+        if strict_share
+        else sorted(wiki_dir.rglob("*.md"))
+    )
+    for md in markdown_paths:
         if md.parent == wiki_dir and md.name in META_FILES:
             continue
         rel = md.relative_to(wiki_dir)
         try:
-            text = md.read_text(encoding="utf-8")
-            fm = _read_frontmatter(text)
-        except (UnicodeDecodeError, OSError, ValueError) as e:
+            text = (
+                _read_safe_share_candidate(wiki_dir, md)
+                if strict_share
+                else md.read_text(encoding="utf-8")
+            )
+            fm = _read_frontmatter(text, strict_share=strict_share)
+        except ShareGateError:
+            raise
+        except (UnicodeDecodeError, OSError, ValueError, RecursionError, yaml.YAMLError) as e:
+            if strict_share:
+                raise ShareGateError("candidate frontmatter is invalid") from e
             stats.skipped.append((rel.as_posix(), f"읽기/파싱 실패: {type(e).__name__}"))
             continue
         if not fm or "title" not in fm:
@@ -518,6 +605,7 @@ def export_bundle(
     exclude_slugs: list[str] | None = None,
     sensitive_patterns: list[str] | None = None,
     dry_run: bool = False,
+    strict_share: bool = False,
 ) -> ExportStats:
     """wiki_dir를 OKF 번들로 out_dir에 export. dry_run=True면 파일 0개, ExportStats만.
 
@@ -549,7 +637,7 @@ def export_bundle(
     sensitive_patterns = sensitive_patterns or []
 
     stats = ExportStats()
-    all_pages = _load_pages(wiki_dir, stats)
+    all_pages = _load_pages(wiki_dir, stats, strict_share=strict_share)
 
     included: list[_Page] = []
     excluded: list[_Page] = []
@@ -769,7 +857,19 @@ def _load_share_policy(
     extra_exclude_slugs: list[str] | None = None,
 ) -> dict:
     """Load and validate both committed policy and user-local security layers."""
-    base = _read_required_share_config(config_path, "policy")
+    canonical_path = REPO_ROOT / "schema" / "okf_export.yaml"
+    supplied_path = Path(config_path)
+    try:
+        is_canonical = (
+            not supplied_path.is_symlink()
+            and supplied_path.resolve() == canonical_path.resolve()
+        )
+    except OSError as exc:
+        raise ShareGateError("canonical share policy path is invalid") from exc
+    if not is_canonical:
+        raise ShareGateError("share requires the canonical committed policy")
+
+    base = _read_required_share_config(canonical_path, "policy")
     for key in ("exclude_paths", "exclude_domains", "exclude_slugs", "sensitive_patterns"):
         _require_string_list(base, key, "policy")
 
@@ -781,6 +881,8 @@ def _load_share_policy(
     allowed_classifications = policy.get("allowed_classifications")
     if not isinstance(approval_value, str) or not approval_value.strip():
         raise ShareGateError("required config contract is invalid (approval)")
+    if approval_value != CANONICAL_SHARE_APPROVAL:
+        raise ShareGateError("canonical approval contract is invalid")
     if not isinstance(allowed_scopes, list) or {
         str(value).strip().lower() for value in allowed_scopes
     } != KNOWN_SHARE_SCOPES:
@@ -795,6 +897,9 @@ def _load_share_policy(
     local_configs: list[dict] = []
     for path in sorted({Path(p) for p in local_config_paths}, key=lambda p: p.as_posix()):
         local = _read_required_share_config(path, "local security")
+        unexpected = set(local) - {"exclude_slugs", "sensitive_patterns"}
+        if unexpected:
+            raise ShareGateError("local security config cannot redefine base policy")
         _require_string_list(local, "exclude_slugs", "local security")
         _require_string_list(local, "sensitive_patterns", "local security")
         local_configs.append(local)
@@ -828,7 +933,7 @@ def _load_share_policy(
         default=str,
     ).encode("utf-8")
     return {
-        "approval_value": approval_value,
+        "approval_value": CANONICAL_SHARE_APPROVAL,
         "allowed_classifications": KNOWN_SHARE_CLASSIFICATIONS,
         "exclude_paths": exclude_paths,
         "exclude_domains": exclude_domains,
@@ -838,17 +943,28 @@ def _load_share_policy(
     }
 
 
-def _wiki_fingerprint(wiki_dir: Path) -> str:
+def _wiki_fingerprint(wiki_dir: Path, *, strict_share: bool = False) -> str:
     """Hash input paths and bytes so a mid-export mutation cannot pass preflight."""
     digest = hashlib.sha256()
     try:
-        pages = sorted(Path(wiki_dir).rglob("*.md"))
+        pages = (
+            _validated_share_markdown_paths(wiki_dir)
+            if strict_share
+            else sorted(Path(wiki_dir).rglob("*.md"))
+        )
         for page in pages:
             digest.update(page.relative_to(wiki_dir).as_posix().encode("utf-8"))
             digest.update(b"\0")
-            digest.update(page.read_bytes())
+            content = (
+                _read_safe_share_candidate(wiki_dir, page).encode("utf-8")
+                if strict_share
+                else page.read_bytes()
+            )
+            digest.update(content)
             digest.update(b"\0")
-    except (OSError, ValueError) as exc:
+    except ShareGateError:
+        raise
+    except (OSError, ValueError, RecursionError) as exc:
         raise ShareGateError("wiki input could not be validated") from exc
     return digest.hexdigest()
 
@@ -988,6 +1104,151 @@ def _write_share_log(out_dir: Path, stats: ExportStats) -> None:
     (out_dir / "log.md").write_text("\n".join(lines), encoding="utf-8")
 
 
+def _share_publish_receipt(out_dir: Path) -> Path:
+    return out_dir.parent / f".{out_dir.name}.publish.json"
+
+
+def _share_publish_backup(out_dir: Path) -> Path:
+    return out_dir.parent / f".{out_dir.name}.backup"
+
+
+def _is_complete_share_bundle(path: Path) -> bool:
+    return (
+        path.is_dir()
+        and (path / ".okf-bundle").is_file()
+        and (path / SHARE_SENTINEL).is_file()
+    )
+
+
+def _fsync_directory(path: Path) -> None:
+    """Persist sibling rename/unlink metadata where directory fsync is supported."""
+    try:
+        fd = os.open(path, os.O_RDONLY)
+        try:
+            os.fsync(fd)
+        finally:
+            os.close(fd)
+    except OSError:
+        # Some filesystems/platforms reject directory fsync. The receipt still
+        # provides logical recovery, but power-loss durability is platform-bound.
+        pass
+
+
+def _write_publish_receipt(receipt: Path, stage: Path, backup: Path) -> None:
+    payload = {
+        "backup": backup.name,
+        "stage": stage.name,
+        "version": 1,
+    }
+    temp = receipt.parent / f"{receipt.name}.tmp"
+    try:
+        with temp.open("w", encoding="utf-8") as handle:
+            json.dump(payload, handle, sort_keys=True, separators=(",", ":"))
+            handle.write("\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temp, receipt)
+        _fsync_directory(receipt.parent)
+    finally:
+        if temp.exists():
+            temp.unlink()
+
+
+def _receipt_member(out_dir: Path, name, expected: str) -> Path:
+    if not isinstance(name, str) or name != expected or Path(name).name != name:
+        raise ShareGateError("share publication recovery receipt is invalid")
+    return out_dir.parent / name
+
+
+def _recover_share_publish(out_dir: Path) -> None:
+    """Recover or finalize an interrupted two-rename share publication."""
+    out_dir = Path(out_dir).resolve()
+    receipt = _share_publish_receipt(out_dir)
+    if not receipt.exists():
+        return
+    try:
+        data = json.loads(receipt.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise ShareGateError("share publication recovery receipt is invalid") from exc
+    if not isinstance(data, dict) or data.get("version") != 1:
+        raise ShareGateError("share publication recovery receipt is invalid")
+    backup = _receipt_member(out_dir, data.get("backup"), _share_publish_backup(out_dir).name)
+    stage_name = data.get("stage")
+    if (
+        not isinstance(stage_name, str)
+        or Path(stage_name).name != stage_name
+        or not stage_name.startswith(f".{out_dir.name}.stage-")
+    ):
+        raise ShareGateError("share publication recovery receipt is invalid")
+    stage = out_dir.parent / stage_name
+
+    if _is_complete_share_bundle(out_dir):
+        if backup.exists():
+            if not _is_complete_share_bundle(backup):
+                raise ShareGateError("share publication recovery backup is invalid")
+            shutil.rmtree(backup)
+        if stage.exists():
+            if not _is_complete_share_bundle(stage):
+                raise ShareGateError("share publication recovery stage is invalid")
+            shutil.rmtree(stage)
+    elif _is_complete_share_bundle(backup):
+        if out_dir.exists():
+            raise ShareGateError("share publication recovery target is invalid")
+        os.replace(backup, out_dir)
+        if stage.exists():
+            if not _is_complete_share_bundle(stage):
+                raise ShareGateError("share publication recovery stage is invalid")
+            shutil.rmtree(stage)
+    elif _is_complete_share_bundle(stage):
+        if out_dir.exists():
+            raise ShareGateError("share publication recovery target is invalid")
+        os.replace(stage, out_dir)
+    else:
+        raise ShareGateError("share publication recovery is incomplete")
+
+    receipt.unlink()
+    _fsync_directory(out_dir.parent)
+
+
+def _publish_staged_share(stage: Path, out_dir: Path, *, failure_injector=None) -> None:
+    """Publish via a durable receipt plus two recoverable sibling renames.
+
+    A directory replacement is not a single atomic operation on portable POSIX.
+    Readers may observe a brief missing destination between the two renames, but
+    after the first mutation either a complete bundle or a durable recovery
+    receipt always remains.
+    """
+    stage = Path(stage).resolve()
+    out_dir = Path(out_dir).resolve()
+    if not _is_complete_share_bundle(stage):
+        raise ShareGateError("staged share bundle is incomplete")
+    _recover_share_publish(out_dir)
+    backup = _share_publish_backup(out_dir)
+    receipt = _share_publish_receipt(out_dir)
+    if backup.exists() or receipt.exists():
+        raise ShareGateError("share publication recovery state is not clean")
+
+    def inject(point: str) -> None:
+        if failure_injector is not None:
+            failure_injector(point)
+
+    _write_publish_receipt(receipt, stage, backup)
+    inject("after_receipt")
+    if out_dir.exists():
+        os.replace(out_dir, backup)
+        _fsync_directory(out_dir.parent)
+    inject("after_backup_rename")
+    os.replace(stage, out_dir)
+    _fsync_directory(out_dir.parent)
+    inject("after_publish_rename")
+    if backup.exists():
+        shutil.rmtree(backup)
+        _fsync_directory(out_dir.parent)
+    inject("after_backup_cleanup")
+    receipt.unlink()
+    _fsync_directory(out_dir.parent)
+
+
 def export_share_bundle(
     wiki_dir: Path,
     out_dir: Path,
@@ -999,8 +1260,11 @@ def export_share_bundle(
     extra_exclude_domains: list[str] | None = None,
     extra_exclude_slugs: list[str] | None = None,
 ) -> tuple[ExportStats, dict]:
-    """Validate, stage, and atomically publish an explicitly approved share bundle."""
-    wiki_dir = Path(wiki_dir).resolve()
+    """Validate, stage, and recoverably publish an explicitly approved share bundle."""
+    wiki_arg = Path(wiki_dir)
+    if wiki_arg.is_symlink():
+        raise ShareGateError("wiki candidate symlink is forbidden")
+    wiki_dir = wiki_arg.resolve()
     if not wiki_dir.is_dir():
         raise ShareGateError("wiki input is absent")
     out_dir = _validate_share_target(wiki_dir, out_dir)
@@ -1014,9 +1278,9 @@ def export_share_bundle(
     if approval != policy["approval_value"]:
         raise ShareGateError("explicit human approval is required or invalid")
 
-    input_fingerprint = _wiki_fingerprint(wiki_dir)
+    input_fingerprint = _wiki_fingerprint(wiki_dir, strict_share=True)
     inventory_stats = ExportStats()
-    pages = _load_pages(wiki_dir, inventory_stats)
+    pages = _load_pages(wiki_dir, inventory_stats, strict_share=True)
     stats = export_bundle(
         wiki_dir,
         out_dir,
@@ -1026,6 +1290,7 @@ def export_share_bundle(
         exclude_slugs=policy["exclude_slugs"],
         sensitive_patterns=policy["sensitive_patterns"],
         dry_run=True,
+        strict_share=True,
     )
     if stats.skipped:
         raise ShareGateError("share policy rejected unreadable or incomplete pages")
@@ -1039,8 +1304,9 @@ def export_share_bundle(
 
     # No temporary or destination write occurs until every gate above passes.
     out_dir.parent.mkdir(parents=True, exist_ok=True)
+    _recover_share_publish(out_dir)
+    out_dir = _validate_share_target(wiki_dir, out_dir)
     stage = Path(tempfile.mkdtemp(prefix=f".{out_dir.name}.stage-", dir=out_dir.parent))
-    backup: Path | None = None
     try:
         staged_stats = export_bundle(
             wiki_dir,
@@ -1050,8 +1316,12 @@ def export_share_bundle(
             exclude_domains=policy["exclude_domains"],
             exclude_slugs=policy["exclude_slugs"],
             sensitive_patterns=policy["sensitive_patterns"],
+            strict_share=True,
         )
-        if staged_stats.sensitive_hits or _wiki_fingerprint(wiki_dir) != input_fingerprint:
+        if (
+            staged_stats.sensitive_hits
+            or _wiki_fingerprint(wiki_dir, strict_share=True) != input_fingerprint
+        ):
             raise ShareGateError("share inputs changed during staged export")
         refreshed_policy = _load_share_policy(
             config_path,
@@ -1079,24 +1349,17 @@ def export_share_bundle(
             "Complete Share-ready OKF bundle; replace only through --share.\n",
             encoding="utf-8",
         )
-
-        if out_dir.exists():
-            backup = out_dir.parent / f".{out_dir.name}.backup-{uuid.uuid4().hex}"
-            os.replace(out_dir, backup)
         try:
-            os.replace(stage, out_dir)
-        except BaseException:
-            if backup is not None and backup.exists() and not out_dir.exists():
-                os.replace(backup, out_dir)
-            raise
-        if backup is not None:
-            shutil.rmtree(backup)
-            backup = None
+            _publish_staged_share(stage, out_dir)
+        except OSError as exc:
+            raise ShareGateError(
+                "share publication interrupted; recovery receipt retained"
+            ) from exc
     finally:
-        if stage.exists():
+        # Once a receipt exists, its referenced stage/backup are recovery state
+        # and must survive process-level failures until the next valid share run.
+        if stage.exists() and not _share_publish_receipt(out_dir).exists():
             shutil.rmtree(stage)
-        if backup is not None and backup.exists() and not out_dir.exists():
-            os.replace(backup, out_dir)
 
     return stats, manifest
 

@@ -128,8 +128,12 @@ exclude는 *추론*이 아니라 *감사 가능한 설정*이라야 이 게이�
 사람이 직접 입력한 `--approve-share I_ACKNOWLEDGE_SHARE_READY_EXPORT`를 함께 사용한다.
 
 - base policy와 gitignored local security config가 모두 필요하다.
+- `--config`는 canonical `schema/okf_export.yaml`만 허용하고, local security config는
+  `exclude_slugs`·`sensitive_patterns` 추가만 허용한다. 승인/base policy 재정의는 거부한다.
 - 구조적으로 제외되지 않은 모든 후보는 명시적 `scope: shared|private`와 허용된 `type`이 필요하다.
+- wiki 후보 symlink와 wiki root 밖으로 해석되는 경로, malformed/recursive YAML은 읽기·출력 전에 거부한다.
 - 민감 hit, skipped page, broken link, 빈 공개 번들은 출력 전에 hard-stop한다.
-- 통과한 결과만 sibling stage에서 완성 후 `okf-share/`로 원자 교체한다.
+- 통과한 결과만 sibling stage에서 완성한다. 디렉토리 갱신은 두 rename이라 reader-visible 경로의
+  연속성을 보장하지 않지만, 첫 rename 전 durable receipt를 기록해 hard exit를 복구 가능하게 한다.
 - `share-manifest.json`은 included/excluded, source, classification, scope 집계와 설정 SHA-256만
   기록하며, 경로·본문·민감 패턴·승인 값을 기록하지 않는다.

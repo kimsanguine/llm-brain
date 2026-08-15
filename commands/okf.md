@@ -11,6 +11,8 @@ llm-brain의 okf 커맨드입니다. `wiki/`(내부 슈퍼셋)를 OKF v0.1 호�
 - `--dry-run` → 파일 미작성, export 대상·제외·통계만 출력 (보안 검토용)
 - `--strip-internal` → OKF 예약 6필드만 (x-llmbrain-* 제거, 단독으로는 공유 승인 아님)
 - `--exclude-slug <slug>` → 특정 페이지 추가 제외 (복수 가능)
+- `--config <경로>` → private export 전용 override. `--share`는 canonical
+  `schema/okf_export.yaml`만 허용
 - `--out <경로>` → 출력 번들 루트 (기본 private `okf/`, share `okf-share/`)
 - `--share` → Share-ready gate + redacted manifest를 거쳐 별도 공개 번들 생성
 - `--approve-share I_ACKNOWLEDGE_SHARE_READY_EXPORT` → 사람이 직접 입력하는 필수 승인 값
@@ -43,9 +45,15 @@ uv run python scripts/okf_export.py --share \
   --approve-share I_ACKNOWLEDGE_SHARE_READY_EXPORT
 ```
 
-게이트는 base policy 또는 local security config 부재, 민감 hit, scope/policy 위반이면 출력 전에
-중단한다. 통과 시 sibling 임시 디렉토리에 전체 bundle과 `share-manifest.json`을 만든 뒤에만
-`okf-share/`로 교체한다. 실패한 재실행은 기존 공개 번들을 그대로 보존한다.
+게이트는 base policy 또는 local security config 부재, 민감 hit, scope/policy 위반, wiki 내부
+symlink/외부 해석 경로면 출력 전에 중단한다. local config는 `exclude_slugs`와
+`sensitive_patterns`만 추가할 수 있고 base policy·승인 값을 바꿀 수 없다.
+
+통과 시 sibling stage에 전체 bundle과 `share-manifest.json`을 만든다. 기존 디렉토리 교체는
+portable POSIX에서 단일 atomic rename이 아니므로 두 rename 사이 아주 짧게 경로가 없을 수 있다.
+첫 rename 전에 durable recovery receipt를 만들며, hard exit 뒤에는 다음 정상 share 실행이 기존
+bundle 복구 또는 새 bundle 완료를 수행한다. 따라서 published bundle과 recovery receipt가 동시에
+없는 상태는 만들지 않는다.
 
 manifest에는 included/excluded, source, classification, scope 집계와 configuration SHA-256만
 들어간다. 페이지 경로·본문·민감 패턴·승인 값은 기록하지 않는다.

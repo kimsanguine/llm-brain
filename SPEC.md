@@ -359,7 +359,7 @@ score = Σ weight·norm(signal),  norm(x) = min(x / CAP, 1.0)
 |------|------|--------|------|
 | `--out PATH` | str | `okf/` | 출력 번들 루트. 상대경로는 레포 루트 기준 |
 | `--strip-internal` | flag | off | OKF 예약 6필드만 남기고 `x-llmbrain-*` 제거. 단독으로는 Share-ready 승인 아님 |
-| `--config PATH` | str | `schema/okf_export.yaml` | 제외 설정 파일. 부재 시 하드코딩 기본값 사용 |
+| `--config PATH` | str | `schema/okf_export.yaml` | private export override. Share-ready는 canonical 기본 경로 외 값을 거부 |
 | `--exclude-path GLOB` | str (복수) | `[]` | 추가 제외 경로 글롭. 설정 파일 값에 누적 |
 | `--exclude-domain D` | str (복수) | `[]` | frontmatter `domain` 라벨 기준 제외 (보조 필터) |
 | `--exclude-slug SLUG` | str (복수) | `[]` | 특정 slug 명시 제외 |
@@ -382,11 +382,16 @@ score = Σ weight·norm(signal),  norm(x) = min(x / CAP, 1.0)
 기본 export는 기존 private 동작을 유지한다. 공개용 `--share`는 더 엄격한 별도 경계다.
 `schema/okf_export.yaml`과 하나 이상의 gitignored local security config가 모두 있어야 하며,
 모든 비-구조제외 후보가 명시적 `scope: shared|private` 및 허용된 `type`을 가져야 한다.
-민감 hit, skipped page, broken link, 빈 공개 번들, 설정/인벤토리 drift는 hard-stop이다.
+local security는 `exclude_slugs`·`sensitive_patterns`만 추가하며 base policy/승인 재정의는 거부한다.
+wiki 후보 symlink·root 밖 해석 경로, malformed/recursive YAML, 민감 hit, skipped page, broken link,
+빈 공개 번들, 설정/인벤토리 drift는 hard-stop이다.
 
 통과 시 `strip_internal=True`로 sibling stage에 전체 번들을 만든다. 입력 wiki bytes와 설정
 fingerprint를 재검증하고 `share-manifest.json`·`.okf-share-bundle`까지 완성한 뒤 디렉토리
-rename으로만 게시한다. 실패 시 stage를 제거하며 기존 share bundle은 보존한다. manifest는
+rename으로만 게시한다. portable POSIX에서 기존 디렉토리 갱신은 단일 atomic replace가 아니므로
+두 rename 사이 reader가 경로 부재를 볼 수 있다. 첫 rename 전 sibling recovery receipt를 durable
+write하며, 각 전환 뒤 hard exit 시 기존/신규 완성본을 다음 share 실행에서 복구한다. published
+bundle과 receipt가 모두 없는 상태는 만들지 않는다. manifest는
 결정적 JSON이고 included/excluded 수, source reference 수, classification/scope 수,
 `sha256:` configuration fingerprint만 기록한다. 페이지 경로·본문·민감 패턴·승인 값은 금지한다.
 
