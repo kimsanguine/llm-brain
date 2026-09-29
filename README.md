@@ -82,10 +82,17 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 
 ## 설치 *Install*
 
-▶ **Claude Code 입력창**에 입력 — 플러그인으로 설치한다:
+▶ **Claude Code 입력창**에 아래 **두 줄을 한 줄씩, 순서대로** 입력합니다. 첫 줄이 끝난 뒤 두 번째 줄을 입력합니다.
+
+**1. 마켓플레이스 추가**
 
 ```
 /plugin marketplace add kimsanguine/llm-brain
+```
+
+**2. 플러그인 설치**
+
+```
 /plugin install llm-brain@llm-brain
 ```
 
