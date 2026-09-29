@@ -11,6 +11,7 @@
 ![Python](https://img.shields.io/badge/Python-3.11+-3776AB?logo=python&logoColor=white)
 ![License](https://img.shields.io/badge/License-MIT-green)
 ![Claude Code](https://img.shields.io/badge/Claude_Code-CLI-orange)
+![Codex](https://img.shields.io/badge/Codex-Repo_Skill-412991)
 ![Obsidian](https://img.shields.io/badge/Obsidian-Graph_View-7C3AED)
 ![Version](https://img.shields.io/badge/version-0.3.0-blue)
 
@@ -50,8 +51,9 @@
 
 비전공자도 따라 할 수 있게, 필요한 **세 가지**를 하나씩 풀어 둔다.
 
-**1. Claude Code** — 터미널에서 대화로 코드를 다뤄 주는 AI 도구. 이 위키의 'AI 컴파일러' 역할을 한다.
-설치·안내(공식): <https://docs.claude.com/claude-code>
+**1. AI 작업 도구 — Claude Code 또는 Codex** — 이 위키를 정리·질문·글쓰기 작업으로 이끄는 도구입니다. Claude Code는 플러그인 슬래시 명령을, Codex는 이 저장소 안의 프로젝트 스킬을 사용합니다.
+Claude Code 설치·안내(공식): <https://docs.claude.com/claude-code>
+Codex 스킬 안내(공식): <https://developers.openai.com/api/docs/guides/tools-skills>
 
 **2. uv** — 파이썬을 알아서 설치·실행해 주는 도구(복잡한 파이썬 환경 설정을 대행). 터미널에 아래 한 줄을 입력하면 설치된다:
 
@@ -70,6 +72,7 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 이 문서에는 두 종류의 명령이 섞여 나온다 — **입력하는 곳이 다르다.**
 
 - `/llm-brain:...` 처럼 **슬래시로 시작**하는 명령 → **Claude Code 입력창**(대화창)에 입력
+- `$llm-brain ...` 또는 자연어 요청 → **이 저장소를 연 Codex 입력창**에 입력. Codex는 `.codex/skills/llm-brain/SKILL.md`를 읽고 같은 안전 경로를 따른다.
 - `uv run ...` · `git clone ...` · `cp ...` 같은 명령 → **터미널**(명령줄, 곧 CLI)에 입력
   - 💡 터미널 여는 법: macOS는 `⌘+Space` → `Terminal` 검색 → 실행. (Windows는 `PowerShell`.)
 
@@ -89,6 +92,22 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 설치하면 컴파일러 커맨드가 추가된다 — `/llm-brain:ingest`·`/llm-brain:curate`·`/llm-brain:express`·`/llm-brain:query`·`/llm-brain:okf` · 설치 점검 `/llm-brain:doctor` · 웹 UI `/llm-brain:wikiweb`.
 
 > 자기 지식 데이터를 다루려면 레포를 클론해 `raw/` 소스를 등록한다(아래 [빠른 시작](#빠른-시작-quick-start)). 플러그인은 *컴파일러 커맨드*를, 클론은 *자기 데이터*를 제공한다.
+
+### Codex에서 사용하기
+
+▶ **터미널**에서 저장소를 클론한 뒤, 그 폴더를 Codex Desktop 또는 Codex CLI에서 엽니다. 별도 플러그인 설치는 필요 없습니다.
+
+```bash
+git clone https://github.com/kimsanguine/llm-brain.git && cd llm-brain
+```
+
+▶ **Codex 입력창**에 입력:
+
+```
+$llm-brain 설치 상태를 읽기 전용으로 점검해줘.
+```
+
+Codex에서는 Claude Code 전용 `/llm-brain:...` 대신 자연어 요청 또는 `$llm-brain`을 사용합니다.
 
 ---
 
@@ -139,14 +158,22 @@ uv run python -m wiki_app                        # 로컬 HTML UI → http://loc
 
 핵심 흐름은 **넣기 → 물어보기 → 꺼내쓰기** 3단계다.
 
-**먼저, 내 메모가 어디 있는지 알려준다.** `schema/sources.yaml`(소스 등록 설정 파일)을 열어 내 메모 폴더 경로를 적는다. 파일 편집이 막막하면 **Claude Code 입력창에 자연어로** "내 옵시디언 폴더를 `schema/sources.yaml`에 등록해줘"라고 부탁해도 된다. (`raw/` = 아직 정리 안 된 원본 메모가 모이는 폴더.)
+**먼저, 내 메모가 어디 있는지 알려준다.** `schema/sources.yaml`(소스 등록 설정 파일)을 열어 내 메모 폴더 경로를 적는다. 파일 편집이 막막하면 **Claude Code 또는 이 저장소를 연 Codex 입력창에 자연어로** "내 옵시디언 폴더를 `schema/sources.yaml`에 등록해줘"라고 부탁해도 된다. (`raw/` = 아직 정리 안 된 원본 메모가 모이는 폴더.)
 
-그다음 ▶ **Claude Code 입력창**에 입력:
+그다음 ▶ **Claude Code 입력창**에서는 다음 슬래시 명령을 사용합니다:
 
 ```
 /llm-brain:ingest               # ① 넣기: raw → wiki 자동 정리
 /llm-brain:query "..."          # ② 물어보기: wiki 기반 답변
 /llm-brain:express blog "..."   # ③ 꺼내쓰기: 글 초안 생성
+```
+
+▶ **Codex 입력창**에서는 같은 목적을 자연어로 요청합니다:
+
+```
+$llm-brain 내 raw 메모를 ingest할 준비를 점검하고, 바뀔 파일을 먼저 알려줘.
+$llm-brain wiki의 trusted claim만 근거로 "..."에 답해줘.
+$llm-brain "AI 에이전트 설계 패턴" 블로그 초안을 만들기 전에 사용할 wiki 근거를 보여줘.
 ```
 
 ---
@@ -401,6 +428,8 @@ llm:
 | `cli` (기본) | 토큰 비용 없음 | Claude Code 설치 필요 |
 | `api` | API 과금 | `ANTHROPIC_API_KEY` 필요 |
 
+> 이 표는 `wiki_app`의 AI 답변 백엔드 설정입니다. Codex 프로젝트 스킬은 별도 경로이며, Codex가 저장소 작업을 이끌 때 사용합니다.
+
 ---
 
 ## Obsidian 연동 *Obsidian Integration*
@@ -420,7 +449,9 @@ llm-brain/
 
 ```
 llm-brain/
-├── .claude-plugin/            # 플러그인 manifest (marketplace.json + plugin.json)
+├── .claude-plugin/            # Claude Code 플러그인 manifest
+├── .codex/skills/llm-brain/   # Codex 프로젝트 스킬
+├── AGENTS.md                   # Codex 작업 진입 안내
 ├── commands/                  # 슬래시 커맨드 (/llm-brain:ingest·curate·express·query·okf)
 ├── CLAUDE.md                  # Claude Code 운영 가이드
 ├── SPEC.md                    # 기술 명세서

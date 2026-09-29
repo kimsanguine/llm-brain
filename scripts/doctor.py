@@ -36,6 +36,7 @@ REQUIRED_SCRIPTS = [
     "procedures.py", "lib/frontmatter_utils.py",
 ]
 REQUIRED_COMMANDS = ["ingest.md", "curate.md", "express.md", "query.md", "okf.md", "doctor.md", "wikiweb.md"]
+REQUIRED_CODEX_SKILLS = ["llm-brain"]
 REQUIRED_DEPS = [
     ("yaml", "pyyaml"), ("fastapi", "fastapi"), ("uvicorn", "uvicorn"),
     ("httpx", "httpx"), ("frontmatter", "python-frontmatter"),
@@ -100,7 +101,14 @@ def run_checks(root: Path = ROOT, *, fix: bool = False) -> list[dict]:
         results.append(_r(f"cmd:{c}", "OK" if ok else "FAIL",
                           "" if ok else "커맨드 파일 없음"))
 
-    # 5. 설정 (gitignored — 없으면 WARN, --fix로 example 복사)
+    # 5. Codex 프로젝트 스킬 — 없으면 FAIL(클론에서 Codex 경로가 사라짐)
+    for skill in REQUIRED_CODEX_SKILLS:
+        path = root / ".codex" / "skills" / skill / "SKILL.md"
+        ok = path.is_file()
+        results.append(_r(f"codex-skill:{skill}", "OK" if ok else "FAIL",
+                          "Codex skill 없음 — 저장소를 최신 버전으로 업데이트 필요" if not ok else ""))
+
+    # 6. 설정 (gitignored — 없으면 WARN, --fix로 example 복사)
     cfg = root / "schema" / "config.yaml"
     results.append(_r("config.yaml", "OK" if cfg.is_file() else "WARN",
                       "" if cfg.is_file() else "schema/config.yaml 없음 (LLM 엔진 설정)"))
@@ -114,13 +122,13 @@ def run_checks(root: Path = ROOT, *, fix: bool = False) -> list[dict]:
     else:
         results.append(_r("sources.yaml", "WARN", "schema/sources.yaml 없음 (--fix로 example 복사)"))
 
-    # 6. 의존성 (import 가능 여부) — 없으면 FAIL
+    # 7. 의존성 (import 가능 여부) — 없으면 FAIL
     for mod, pkg in REQUIRED_DEPS:
         ok = importlib.util.find_spec(mod) is not None
         results.append(_r(f"dep:{pkg}", "OK" if ok else "FAIL",
                           "" if ok else f"{pkg} 미설치 — `uv sync` 실행"))
 
-    # 7. claude CLI (cli 엔진용) — 없으면 WARN
+    # 8. claude CLI (cli 엔진용) — 없으면 WARN
     has_claude = shutil.which("claude") is not None
     results.append(_r("claude-cli", "OK" if has_claude else "WARN",
                       "" if has_claude else "claude CLI 없음 — cli 엔진(기본) 사용 시 필요"))
