@@ -17,7 +17,10 @@ domains:
     wiki_dirs: [projects/, business/]
     keywords: [habix, universe, blog.habix, SEO, GEO, entity, RAG, Producer, Consumer,
                 wiki, 위키, 비즈니스, 제품, 경쟁사, 사용자]
-    sources: [raw/context/, raw/blog/, raw/til/]
+    sources: [raw/context/, raw/blog/, raw/til/,
+              raw/habix/education/, raw/habix/products/, raw/habix/decisions/,
+              raw/habix/meetings/, raw/habix/research/, raw/habix/raw/,
+              raw/habix/knowledge/, raw/habix/playbooks/]
 
   tools:
     wiki_dirs: [tools/]

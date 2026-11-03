@@ -115,3 +115,29 @@ log.md의 마지막 ingest 타임스탬프 이후 raw/ 에 추가된 파일을 �
 - `min_word_count` (int): 공백 분리 단어 수가 이 값 미만이면 복사하지 않는다.
 - 두 필드 모두 선택 — 미설정 소스는 기존과 완전 동일하게 동작한다.
 - `.md`·`.txt`만 본문 판정 대상이며, `pdf`·`docx`·`pptx`는 텍스트 판정 불가로 필터를 통과한다.
+
+## Habix 회사 지식 분류 (2026-11-03)
+
+회사 정본의 층과 llm-brain의 저장 경로는 다르다. `sources.yaml`의 ID·경로를
+아래처럼 해석하며, 원본을 옮기거나 AI 뉴스 수집 경로를 대체하지 않는다.
+
+| 소스 ID | 회사 정본 | llm-brain 미러 | 의미 |
+|---|---|---|---|
+| habix-raw | 05_raw/ | raw/habix/raw/ | 뉴스·자료·익명 전사 원자료 |
+| habix-research | 80_research/ | raw/habix/research/ | evidence/는 근거 노트, 나머지는 리서치 |
+| habix-knowledge | 85_knowledge/ | raw/habix/knowledge/ | steward가 관리하는 현재 입장 |
+
+- `raw/habix/`는 회사 출처라는 신호이며 모든 내용을 business로 확정하는 규칙은 아니다.
+  일반 AI 뉴스·기술 사실은 기존 AI/LLM 분류와 concepts/tools 기준을 유지한다.
+  회사의 입장·내부 결정·제품 맥락은 habix 도메인 및 business/projects 후보로 분류한다.
+- 원자료의 기사·AI 요약을 회사의 확정 입장으로 승격하지 않는다. 근거 노트의 주장,
+  source_tier, as_of, confidence, 반대 근거와 원출처를 함께 보존한다.
+- 지식 페이지와 그 페이지가 인용한 근거 노트는 독립 출처 2개로 세지 않는다.
+  결정·대외 주장에 쓰는 근거는 원출처의 독립성을 별도로 확인한다.
+- sources frontmatter에는 실제 raw 미러 경로를 남기고, 본문에는 회사 정본 경로와
+  원출처 URL을 보존한다. 회사 내부 맥락을 포함한 파생 wiki에는 `scope: private`을
+  적용한다. 이는 기존 sources.yaml의 private/customer 태그 제외를 대체하지 않는다.
+- present(제안서·교안·결정문·콘텐츠)는 wiki를 인용하는 산출물이다. 동일 주장을
+  present에서 다시 읽었다고 새 독립 근거로 세지 않는다. 회사 정본 갱신은 steward가 맡는다.
+- 기존 newsletters, ai_human/news/daily, ai_human/papers 흐름과 생성 기준은 유지한다.
+  위 규칙 추가만으로 이미 생성된 wiki가 재분류되거나 다음 자동 실행이 검증된 것은 아니다.
