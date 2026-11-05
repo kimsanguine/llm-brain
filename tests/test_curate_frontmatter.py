@@ -59,6 +59,12 @@ def _patch_module_paths(monkeypatch, tmp_path: Path, wiki: Path) -> None:
     monkeypatch.setattr(curate, "WIKI_STATS_FILE", tmp_path / "wiki_stats.json")
     monkeypatch.setattr(curate, "REPORT_FILE", wiki / "curate_report.md")
     monkeypatch.setattr(curate, "LOG_FILE", tmp_path / "log.md")
+    real_append = curate.episode.append
+
+    def append_isolated(record, episodes_dir=tmp_path / 'episodes'):
+        return real_append(record, episodes_dir=episodes_dir)
+
+    monkeypatch.setattr(curate.episode, 'append', append_isolated)
 
 
 def test_invalid_yaml_page_preserved_on_distill(monkeypatch, tmp_path, caplog):
@@ -294,6 +300,20 @@ def test_bare_curate_no_sources_yaml_does_not_crash(monkeypatch, tmp_path):
 
     _patch_module_paths(monkeypatch, tmp_path, wiki)
     monkeypatch.setattr(sys, "argv", ["curate.py"])  # bare = run_all
+    real_open = Path.open
+    episode_destinations = []
+
+    def guarded_open(path, mode='r', *args, **kwargs):
+        if path.suffix == '.jsonl' and 'a' in mode:
+            episode_destinations.append(path.parent)
+            if path.parent != tmp_path / 'episodes':
+                guarded = tmp_path / 'guarded-episodes' / path.name
+                guarded.parent.mkdir(exist_ok=True)
+                return real_open(guarded, mode, *args, **kwargs)
+        return real_open(path, mode, *args, **kwargs)
+
+    monkeypatch.setattr(Path, 'open', guarded_open)
 
     # main() 이 FileNotFoundError 로 죽지 않아야 한다.
     curate.main()
+    assert episode_destinations == [tmp_path / 'episodes']
