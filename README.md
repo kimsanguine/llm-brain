@@ -1,10 +1,10 @@
 ![llm-brain AI-native second brain OS banner](./assets/banner.svg)
 
-# llm-brain — 당신의 두 번째 뇌를 만드세요
+# llm-brain | Personal Knowledge Ontology
 
-> **메모·노트를 넣으면 AI가 정리된 지식 위키로 만들고, 필요할 때 글로 꺼내 쓰는 '두 번째 뇌' 도구.**
-> LLM을 컴파일러(메모를 자동으로 정리해 주는 AI)처럼 써서, 흩어진 raw 메모를 구조화된 위키로 바꾼다.
-> *Build your Second Brain with LLM as the compiler.*
+llm-brain은 메모를 검색하는 저장소를 넘어, 지식이 어디서 왔고 어떤 주장과 절차를 거쳐 결과물이 되었는지 설명하는 Personal Knowledge Ontology입니다.
+
+v0.4의 Ontology는 개인 지식의 의미와 근거를 설명하는 로컬 projection이며, 조직 권한이나 외부 시스템 실행을 담당하는 범용 Action Runtime은 아닙니다.
 
 **📌 매일 메모는 쌓이는데 한 달 뒤엔 어디 있는지 모르겠다면 — 그 메모를 AI가 정리·연결·검색·재활용해 주는 도구입니다. 코딩 지식이 없어도 됩니다.**
 
@@ -13,7 +13,9 @@
 ![Claude Code](https://img.shields.io/badge/Claude_Code-CLI-orange)
 ![Codex](https://img.shields.io/badge/Codex-Repo_Skill-412991)
 ![Obsidian](https://img.shields.io/badge/Obsidian-Graph_View-7C3AED)
-![Version](https://img.shields.io/badge/version-0.3.0-blue)
+![Version](https://img.shields.io/badge/version-0.4.0-blue)
+
+> v0.4: strict Object/Relation/Action 계약, 결정적 private bundle, validate/export/explain CLI, Wiki의 “왜 이 지식인가?” 설명. 기존 raw/wiki/claims/procedures/episodes를 유지합니다.
 
 > 🎉 **v0.3** — Quality-Driven Curation: 매일 품질 점검·자동 보강(`curate --reweave`) · 신규 페이지 승격 게이트(Promotion Gates) · 여러 메모를 교차 종합(synthesis)하고 모순을 명시적으로 화해 · 입구에서 중복 차단(hard dedup) · cli/api 엔진 선택(`llm_client`).
 > 🎉 **v0.2** — Agent Memory OS 5층 기억(작업·에피소드·의미·절차·메타) + 설치 점검 `/llm-brain:doctor` · 웹 UI `/llm-brain:wikiweb` 커맨드 추가.
@@ -177,6 +179,21 @@ $llm-brain "AI 에이전트 설계 패턴" 블로그 초안을 만들기 전에 
 ```
 
 ---
+
+### 지식의 근거 확인하기
+
+▶ 터미널에서 입력합니다. 첫 두 명령은 파일을 쓰지 않습니다.
+
+```bash
+uv run python scripts/ontology.py validate
+uv run python scripts/ontology.py explain --bundle examples/ontology-bundle-example.json --id page:alpha
+uv run python scripts/ontology.py export  # 개인 bundle을 ontology/private-ontology.json에 저장
+```
+
+개인 위키의 설명은 `explain --id page:<slug>`로 확인합니다. Wiki 화면에서 페이지를
+선택하고 “왜 이 지식인가?”를 열면 출처, 주장 상태와 신뢰도, 연결된 페이지와 활용 결과가
+표시됩니다. claim ledger가 없거나 잘못된 경우 복구 명령을 안내하며 자동으로 수정하지 않습니다.
+`export` 결과는 gitignored 개인 파일입니다. 외부 공유에는 기존 OKF 승인 경로를 사용합니다.
 
 ## 핵심 기능 *Core Features*
 
@@ -484,7 +501,7 @@ llm-brain/
 │       ├── reconcile.py          # ✨ 모순 후보 탐지 (정밀도 우선)
 │       └── llm_client.py         # ✨ 엔진 추상화 (cli | api 분기)
 ├── wiki_app/                  # 🌐 HTML 검색·페이지뷰 (FastAPI)
-│   ├── api.py                 # 6 endpoints
+│   ├── api.py                 # 7 endpoints
 │   ├── search.py              # 검색 인덱스 + B/C 알고리즘
 │   ├── pages.py               # 페이지 로더
 │   ├── render.py              # markdown + wikilink 변환
@@ -523,6 +540,26 @@ anthropic        # API 모드 (선택)
 ```
 
 ---
+
+## 확장 범위와 런타임 분리 조건
+
+v0.4에는 범용 Action 실행기, 외부 SaaS/API 쓰기, 조직 RBAC/ABAC, 승인 대기 큐,
+분산 트랜잭션, 재시도와 롤백, 그래프 DB, 실시간 이벤트, 다중 사용자 동시 편집,
+ontology 공개 공유 bundle이 포함되지 않습니다.
+
+다음 중 두 가지 이상이 실제 요구로 확인될 때만 별도 runtime 저장소를 검토합니다.
+
+1. llm-brain 외 두 번째 제품이 같은 Object/Action/Policy 계약을 소비합니다.
+2. ontology를 독립적으로 배포하거나 버전 관리해야 합니다.
+3. 여러 사용자나 조직의 권한을 실행 시점에 검사해야 합니다.
+4. CRM, 이메일, 결제, 게시 등 외부 시스템 상태를 변경합니다.
+5. 승인 대기, 재시도, 보상 트랜잭션, 롤백이 필요합니다.
+6. 실행을 막을 수 있는 필수 감사 원장이 필요합니다.
+
+분리 시 llm-brain은 Knowledge Provider Adapter를 맡고, 새 runtime이
+Object + Action + Policy + Evidence + Runtime을 소유합니다.
+근거 확인 시간의 개선, Explain 사용, 다른 에이전트의 bundle 소비와 기존 워크플로의
+실패율을 실제 사용에서 확인합니다. 현재 이 효과는 미검증입니다.
 
 ## 라이선스 *License*
 

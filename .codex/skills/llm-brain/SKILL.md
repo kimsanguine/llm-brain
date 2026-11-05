@@ -1,6 +1,6 @@
 ---
 name: llm-brain
-description: Work with this repository's provenance-preserving second-brain workflow. Use for llm-brain setup, source ingestion, curation, grounded query, expression, OKF export, or safe diagnostics.
+description: Work with this repository's provenance-preserving second-brain workflow. Use for llm-brain setup, source ingestion, curation, grounded query, expression, OKF export, ontology explanation/private export, or safe diagnostics.
 ---
 
 # llm-brain
@@ -21,6 +21,7 @@ Use this skill only from the cloned `llm-brain` repository. It gives Codex the s
 - **Query:** read `commands/query.md`; keep it read-only. Answer only from usable trusted claims and state abstention when evidence is absent.
 - **Express:** read `commands/express.md`; write output only to the requested output path and distinguish an AI draft from verified source facts.
 - **Export:** read `commands/okf.md` and run a dry run before any export. Never use `--share` without an explicit user approval phrase.
+- **Ontology:** read `commands/ontology.md`; use `scripts/ontology.py validate` or `explain` read-only. Before requested private `export`, inspect contracts/counts; write only under gitignored `ontology/`. Never publish it or run `okf --share` as a side effect. Observations are optional redacted history, not mandatory audit events.
 - **Wiki web:** `uv run python -m wiki_app` starts the local viewer. Its AI-answer backend is separately configured by `schema/config.yaml` and remains Claude CLI or Anthropic API based.
 
 ## Codex interaction

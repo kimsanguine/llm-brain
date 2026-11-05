@@ -89,3 +89,15 @@ def test_duplicate_page_ids_and_symlink_sources_fail_closed(ontology_project, tm
     with pytest.raises(OntologyProjectionError):
         build(ontology_project)
 
+
+def test_public_example_matches_synthetic_projection(ontology_project):
+    expected = canonical_bundle_json(build(ontology_project))
+    committed = (ROOT / 'examples/ontology-bundle-example.json').read_text(encoding='utf-8')
+    assert committed == expected
+    data = json.loads(committed)
+    assert '/Users/' not in committed and '/home/' not in committed
+    # inputs/outputs are legitimate action-schema keys; raw/notes is a required synthetic path.
+    # Privacy assertions apply to observations and prose, not substrings in those schema fields.
+    for observation in data['observations']:
+        assert not {'user_goal', 'inputs', 'outputs', 'notes'} & observation.keys()
+    assert 'PRIVATE PROCEDURE BODY' not in committed

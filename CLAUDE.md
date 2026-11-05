@@ -16,6 +16,15 @@ Claude는 이 시스템의 **컴파일러**다. `raw/` 소스를 읽어 `wiki/`�
 - `procedures/` — git-tracked이되 **OKF export 제외**(`schema/okf_export.yaml`의 `exclude_paths`).
 - `wiki/memory_health_report.md` — okf `META_FILES`에 등재돼 공개 OKF 번들에서 봉인(미포함).
 
+### Personal Knowledge Ontology privacy boundary
+
+- `claims.jsonl`은 개인 주장 원장으로 gitignored입니다.
+- `ontology/`는 gitignored 개인 projection입니다. 기존 raw/wiki/claims/procedures/episodes가 canonical source이며 bundle은 재생성 가능합니다.
+- `validate`와 `explain`은 읽기 전용입니다. `export`만 `ontology/` 아래에 atomic replace로 JSON을 씁니다. 절대경로, traversal, symlink 출력 대상은 거부합니다.
+- claim statement는 private bundle에 포함됩니다. raw/wiki 본문과 episode 목표, 입력/출력 본문, 메모는 포함하지 않습니다.
+- observations는 fail-soft 작업 이력의 축약이며 필수 감사 원장이나 권한/승인 근거가 아닙니다. 기존 episode 기록 실패가 본 작업을 막지 않는 계약을 유지합니다.
+- 새 공개 공유 경로는 없습니다. private export는 공유 승인이 아니며 기존 `okf --share` 게이트를 우회하지 않습니다.
+
 ## 명령어
 
 > 플러그인(`commands/`)으로 제공된다. 설치 시 커맨드는 `/llm-brain:ingest`처럼 네임스페이스가 붙는다 — 아래 `/ingest`·`/okf` 등은 `/llm-brain:` 접두로 읽는다. 자연어("ingest 해줘", "okf 해줘")로도 호출된다.
@@ -96,7 +105,7 @@ uv run python -m wiki_app
 
 - **검색 알고리즘**: 제목+desc+tags+page_title 점수 매칭 (B). 결과 < 3개 시 본문 grep 자동 확장 (C). 한국어/영문 모두 작동.
 - **AI 답변 토글**: `claude -p` CLI 연결. SSE endpoint는 citation 검증을 위해 bounded buffering 후 한 번에 내보내는 `verified-buffered`이며 UI도 이를 표시. usable trusted claim이 없으면 LLM/stream을 호출하지 않고 `status: abstained`, 출처 `[]`, 안전한 제외 사유 count와 다음 행동 하나를 반환. CLI 부재 시 usable claim이 있는 요청은 `status: unavailable` fallback.
-- **백엔드**: `wiki_app/` (FastAPI · uv) — 6 endpoints (`/api/index`, `/api/search`, `/api/page/{slug}`, `/api/page/{slug}/graph`, `/api/ai-answer`, `/api/ai-answer/stream`)
+- **백엔드**: `wiki_app/` (FastAPI · uv) — 7 endpoints (`/api/index`, `/api/search`, `/api/page/{slug}`, `/api/page/{slug}/graph`, `/api/ai-answer`, `/api/ai-answer/stream`, `/api/ontology/page/{slug}`)
 - **프론트엔드**: `wiki_app/static/` (vanilla JS + Pretendard)
 - **테스트**: `tests/test_wiki_app_*.py` (5 modules, 73 tests)
 - **운영 가드레일**: 검색·페이지뷰·AI query는 `raw/`·`wiki/`·`wiki_stats.json`·접근 lock을 변경하지 않음. 접근 기록은 명시적 `curate --record-access PAGE_SLUG`만 사용
@@ -118,6 +127,19 @@ uv run python scripts/memory_health.py --report
 `wiki/memory_health_report.md` 생성. wiki(의미)·`episodes/`·`procedures/`를 **읽기만** 해 집계 리포트를 쓴다 — 어떤 wiki 페이지도 이동·삭제·생성하지 않는 **side-effect-free** 진단(curate의 distill/lifecycle/purge와 구분, 유일한 부작용은 리포트 파일 1개 쓰기).
 리포트 섹션: memory_type별 페이지 수 · orphan semantic(inbound 0) · stale 절차(>180일 미검증) · 최근 에피소드(집계·메타만, verbatim 본문 비공개) · top 재사용 페이지 · 저신뢰 페이지 · archive 후보.
 🔴 episode verbatim 본문은 리포트에 넣지 않으며, 리포트 파일은 okf `META_FILES`에 등재돼 공개 OKF 번들에서 봉인된다.
+
+### ontology (개인 지식의 근거 설명)
+
+```bash
+uv run python scripts/ontology.py validate
+uv run python scripts/ontology.py export
+uv run python scripts/ontology.py explain --id page:alpha
+uv run python scripts/ontology.py explain --bundle examples/ontology-bundle-example.json --id page:alpha --json
+```
+
+`commands/ontology.md`가 자연어 점검, private bundle 생성, 객체 근거 설명을 구분합니다.
+Wiki의 “왜 이 지식인가?”는 로컬 `GET /api/ontology/page/{slug}`를 읽기만 합니다.
+Action catalog는 기존 명령의 입력, 출력, 승인과 evidence를 설명하며 명령을 실행하지 않습니다.
 
 ### doctor (설치 진단·수정)
 ```

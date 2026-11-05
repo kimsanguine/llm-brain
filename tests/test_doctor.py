@@ -192,3 +192,35 @@ def test_doctor_requires_repo_scoped_codex_skill():
     statuses = {entry["name"]: entry["status"] for entry in doctor.run_checks(doctor.ROOT)}
 
     assert statuses["codex-skill:llm-brain"] == "OK"
+
+
+def test_doctor_requires_and_validates_ontology_contracts_without_generated_output(tmp_path):
+    import shutil
+    for relative in ('schema/ontology.yaml', 'schema/actions.yaml', 'scripts/ontology.py', 'commands/ontology.md'):
+        assert relative in doctor.required_public_files()
+    root = tmp_path / 'installation'
+    (root / 'schema').mkdir(parents=True)
+    for name in ('ontology.yaml', 'actions.yaml'):
+        shutil.copyfile(_REPO_ROOT / 'schema' / name, root / 'schema' / name)
+    (root / '.gitignore').write_text('ontology/\n')
+    results = {r['name']: r for r in doctor.run_checks(root)}
+    assert results['ontology-contracts']['status'] == 'OK'
+    assert results['ontology-private-output']['status'] == 'OK'
+    assert not (root / 'ontology').exists()
+    (root / 'schema/actions.yaml').write_text('SECRET: [invalid')
+    results = {r['name']: r for r in doctor.run_checks(root)}
+    assert results['ontology-contracts']['status'] == 'FAIL'
+    assert 'SECRET' not in results['ontology-contracts']['detail']
+
+
+def test_doctor_never_reads_personal_data_when_checking_ontology(tmp_path, monkeypatch):
+    original = Path.read_text
+    def guarded(path, *args, **kwargs):
+        if any(part in {'raw', 'wiki', 'episodes'} for part in path.relative_to(tmp_path).parts) if path.is_relative_to(tmp_path) else False:
+            raise AssertionError('personal content read')
+        return original(path, *args, **kwargs)
+    monkeypatch.setattr(Path, 'read_text', guarded)
+    for directory in ('raw', 'wiki', 'episodes'):
+        (tmp_path / directory).mkdir()
+        (tmp_path / directory / 'private.md').write_text('SECRET')
+    doctor.run_checks(tmp_path)

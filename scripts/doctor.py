@@ -33,9 +33,10 @@ RAW_SUBDIRS = ["til", "meetings", "notes", "clippings", "docs", "blog", "newslet
 REQUIRED_SCRIPTS = [
     "ingest.py", "curate.py", "express.py", "okf_export.py", "export_graph.py",
     "sync_raw.py", "episode.py", "brain_context.py", "memory_health.py",
-    "procedures.py", "lib/frontmatter_utils.py",
+    "procedures.py", "lib/frontmatter_utils.py", "ontology.py",
+    "lib/ontology_contract.py", "lib/ontology_projection.py", "lib/ontology_observations.py",
 ]
-REQUIRED_COMMANDS = ["ingest.md", "curate.md", "express.md", "query.md", "okf.md", "doctor.md", "wikiweb.md"]
+REQUIRED_COMMANDS = ["ingest.md", "curate.md", "express.md", "query.md", "okf.md", "doctor.md", "wikiweb.md", "ontology.md"]
 REQUIRED_CODEX_SKILLS = ["llm-brain"]
 REQUIRED_DEPS = [
     ("yaml", "pyyaml"), ("fastapi", "fastapi"), ("uvicorn", "uvicorn"),
@@ -47,6 +48,22 @@ GUIDED_PROFILES = ("Demo", "Personal-private", "Share-ready")
 
 def _r(name: str, status: str, detail: str = "") -> dict:
     return {"name": name, "status": status, "detail": detail}
+
+
+def required_public_files() -> tuple[str, ...]:
+    return tuple(["schema/ontology.yaml", "schema/actions.yaml"]
+                 + ["scripts/" + item for item in REQUIRED_SCRIPTS]
+                 + ["commands/" + item for item in REQUIRED_COMMANDS])
+
+
+def _ontology_contract_check(root: Path) -> dict:
+    try:
+        from lib.ontology_contract import load_ontology_contract, load_action_catalog
+        ontology = load_ontology_contract(root / "schema/ontology.yaml")
+        load_action_catalog(root / "schema/actions.yaml", ontology)
+    except (ImportError, OSError, ValueError, TypeError, RecursionError):
+        return _r("ontology-contracts", "FAIL", "ontology contracts missing or invalid")
+    return _r("ontology-contracts", "OK", "strict ontology and action contracts valid")
 
 
 def run_checks(root: Path = ROOT, *, fix: bool = False) -> list[dict]:
@@ -133,6 +150,23 @@ def run_checks(root: Path = ROOT, *, fix: bool = False) -> list[dict]:
     results.append(_r("claude-cli", "OK" if has_claude else "WARN",
                       "" if has_claude else "claude CLI 없음 — cli 엔진(기본) 사용 시 필요"))
 
+    # Contract diagnostics inspect compiler assets, never personal content.
+    results.append(_ontology_contract_check(root))
+    try:
+        spec = importlib.util.spec_from_file_location("_ontology_doctor_check", root / "scripts/ontology.py")
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        results.append(_r("ontology-import", "OK"))
+    except (ImportError, OSError, ValueError, TypeError, AttributeError, RecursionError):
+        results.append(_r("ontology-import", "FAIL", "ontology script cannot be imported"))
+    try:
+        rules = [line.strip() for line in (root / ".gitignore").read_text(encoding="utf-8").splitlines()]
+        ignored = any(rule in {"ontology/", "/ontology/"} for rule in rules)
+        ignored = ignored and not any(rule.startswith(("!ontology", "!/ontology")) for rule in rules)
+    except (OSError, UnicodeError):
+        ignored = False
+    results.append(_r("ontology-private-output", "OK" if ignored else "FAIL",
+                      "generated output optional; ontology/ ignored" if ignored else "add ontology/ to .gitignore"))
     return results
 
 
@@ -182,7 +216,10 @@ def render_guided(root: Path, profile: str | None = None) -> str:
             f"candidate, run: {share_command}"
         )
         label = "Share-ready"
-    lines.extend([f"Profile: {label}", f"Next action: {action}"])
+    contract_check = _ontology_contract_check(root)
+    lines.extend([f"Profile: {label}",
+                  f"Ontology contracts: {contract_check['status']} ({contract_check['detail']})",
+                  f"Next action: {action}"])
     return "\n".join(lines)
 
 

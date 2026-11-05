@@ -102,7 +102,7 @@
 │
 ├── wiki_app/                    # HTML 검색·페이지뷰 (FastAPI + vanilla JS, port 8000)
 │   ├── __main__.py              # uv run python -m wiki_app
-│   ├── api.py                   # 6 endpoints (/api/index, /api/search, /api/page/{slug}, /api/page/{slug}/graph, /api/ai-answer, /api/ai-answer/stream). ai-answer 비스트림·스트림 양 핸들러가 finally에서 episode 기록(fail-soft)
+│   ├── api.py                   # 7 endpoints (/api/index, /api/search, /api/page/{slug}, /api/page/{slug}/graph, /api/ai-answer, /api/ai-answer/stream, /api/ontology/page/{slug}). ai-answer 비스트림·스트림 양 핸들러가 finally에서 episode 기록(fail-soft)
 │   ├── search.py                # Index + B 알고리즘 + C 확장 (본문 grep)
 │   ├── pages.py                 # 페이지 로더 (frontmatter + body + graph metadata)
 │   ├── render.py                # markdown-it + [[wikilink]] SPA 앵커 후처리
@@ -1073,3 +1073,111 @@ Step 6 curate --reweave --fix --weekly-summary (일요일)  [신규]
 - reweave idempotency: 정상 노드 2회 실행 무변경. dedup: 동일 슬러그 재투입 시 미생성(저장 전 차단).
 - **착수 전 안전망**: `is_duplicate` 현 동작 고정 테스트(현재 0건) 선작성 후 재배선(RED→GREEN).
 - 회귀: memory_score 추출 전후 점수 값 동일 단언 · 기존 ingest/express/query 무변경 · okf 누출 0.
+
+
+# v0.4 Personal Knowledge Ontology v0.1
+
+Canonical data remains in raw/, wiki/, claims.jsonl, procedures/, and episodes/.
+The ontology is a deterministic local projection, with no graph database or LLM call.
+Raw files and all canonical data remain unchanged by this layer.
+
+## Strict contracts and identifiers
+
+`schema/ontology.yaml` defines five object types: source, claim, knowledge_page,
+procedure, artifact. `schema/actions.yaml` describes ingest, curate, query,
+express, share with mode, typed inputs/outputs, approval and evidence.
+Unknown fields, duplicate YAML keys/IDs, unknown type references and invalid
+read outputs fail closed. Modes are read/write/publish; approvals are
+none/explicit_invocation/exact_share_phrase. These are descriptions of existing
+command gates, not a new action executor. Episode evidence remains optional;
+Promotion Gates, trusted-claim checks and the OKF share gate retain their existing owners.
+
+| Object | ID | Projected attributes |
+|---|---|---|
+| source | source:<sha256> | sha256, relative_path |
+| claim | existing claim:<slug>-<positive-integer> | validated ClaimRecord fields |
+| knowledge_page | page:<slug> | slug, title, scope; optional owner/updated |
+| procedure | procedure:<slug> | slug, title; optional version |
+| artifact | artifact:<relative-path-sha256-prefix> | relative_path, artifact_type |
+
+`supports` joins source→claim; `compiled_into` joins claim→knowledge_page;
+`links_to` joins existing knowledge pages. `derived_from` joins artifact→page
+and `guided_by` joins artifact→procedure only when optional observation references
+support that association. Missing historical targets are omitted. Hash prefixes
+for artifacts and observations are 16 lowercase hex characters; conflicting IDs fail closed.
+Duplicate page slugs across categories fail closed. Missing scope defaults to shared.
+Source and artifact paths are project-relative POSIX paths. Absolute paths,
+traversal and input paths escaping the project through symlinks are rejected.
+
+## Bundle and observation contract
+
+Root fields: schema_version (`llm-brain-ontology/0.1`), source_fingerprint,
+objects, relations, action_types, observations, counts. Object fields are
+id/type/attributes; relations are type/from_id/to_id/evidence_ids. Both freshly
+projected and saved bundles pass the same strict model validation.
+Objects sort by (type,id), relations by (type,from_id,to_id,evidence_ids),
+actions and observations by ID. JSON uses sorted keys, compact separators,
+UTF-8 and a terminal newline. There is no generated_at. The fingerprint is SHA-256
+of canonical objects/relations/action_types/observations, excluding itself and counts.
+It describes projected content, not unprojected body changes or elapsed time.
+The canonical private claims.jsonl and generated ontology/ output are gitignored.
+Persisted claim status/trust are not new authorization: query retains existing
+hash, source, trust, status and current-date checks in claim_ledger.py.
+
+Observations contain only id, action_type, timestamp, normalized status,
+page_ids, procedure_ids, artifact_ids. Their IDs hash the canonical full episode;
+user_goal, inputs, output prose and notes are never copied. A draft_path may
+contribute only a hash ID when it is safely under express/. Unknown status is
+normalized to unknown. Malformed lines use existing read_recent skip semantics;
+unavailable optional episode history does not block projection.
+Existing ai_answer→query, express_*→express, ingest and ingest_url/file/note→ingest,
+curate→curate are supported. Unknown types are excluded and counted.
+Observations are not mandatory audit events. No caller fail-soft contract changes.
+Counts: object_count, relation_count, action_type_count, observation_count,
+unknown_episode_type_count. Raw/wiki/artifact bodies and procedure bodies are omitted;
+private claim statements are included. The public example contains synthetic data only.
+
+## CLI and Wiki API
+
+```bash
+uv run python scripts/ontology.py validate
+uv run python scripts/ontology.py export --out ontology/private-ontology.json
+uv run python scripts/ontology.py explain --id claim:alpha-1
+uv run python scripts/ontology.py explain --bundle examples/ontology-bundle-example.json --id page:alpha --json
+```
+
+`--project-root PATH` before the subcommand selects canonical input data; compiler
+contracts ship alongside the script. `validate` prints aggregate counts and fingerprint;
+`explain` prints deterministic Markdown or JSON. Neither writes canonical data or episodes.
+A fresh clone without personal wiki/claims validates as empty. A nonempty wiki needs
+valid persisted claims; invalid inventory returns exit 2 and the recovery command
+`uv run python scripts/claims.py build`, without statements or personal paths.
+`export` accepts only relative JSON destinations below ontology/, rejects symlinks,
+and stages in the destination directory before os.replace. A failed replace preserves
+the previous bundle and removes staging files. Success exits 0; contract, inventory,
+path, saved-bundle and unknown-object errors exit 2. There is no public ontology export.
+
+`GET /api/ontology/page/{slug}` supports safe nested slugs. It returns the focus,
+incoming/outgoing steps, connected source/claim/page/artifact/procedure objects,
+relations, policy_notes and separate stored claim status/trust counts.
+Missing page: 404 with detail `ontology object not found`.
+Invalid inventory: 409 with detail `ontology inventory invalid` and safe recovery command.
+Opening “왜 이 지식인가?” never exports or appends an episode. Frontend data uses
+text nodes; empty, invalid and failed-request states are visible. New requests cannot
+replace the explanation for a subsequently selected page.
+
+Doctor validates compiler contracts/import and the ontology/ ignore boundary without
+scanning personal content. Generated output is optional, so its absence is OK.
+
+## Product and repository boundary
+
+Excluded: generic Action Runtime, external writes, organization RBAC/ABAC,
+long-running approvals, retry/rollback/transactions, live events, graph DB,
+concurrent multi-user editing, public ontology bundles, and a new runtime repository.
+Only two or more confirmed requirements among these trigger runtime extraction:
+a second product consumes the contracts; independent deployment/versioning;
+multi-user/organization authorization; external writes; durable approval/recovery;
+a mandatory audit ledger able to block execution. Then llm-brain supplies a
+Knowledge Provider Adapter and the runtime owns Object+Action+Policy+Evidence+Runtime.
+Real Explain adoption, evidence-check time improvement, another agent consuming a bundle,
+and unchanged workflow complexity/failure rates remain product validation gates.

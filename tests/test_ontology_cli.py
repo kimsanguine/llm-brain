@@ -86,3 +86,11 @@ def test_empty_clone_and_missing_object_have_explicit_exits(tmp_path):
     assert run(tmp_path, 'validate').returncode == 0
     result = run(tmp_path, 'explain', '--id', 'page:SECRET')
     assert result.returncode == 2 and 'SECRET' not in result.stderr
+
+
+def test_private_ledger_and_generated_output_stay_out_of_git(tmp_path):
+    subprocess.run(['git', 'init', '-q', str(tmp_path)], check=True)
+    (tmp_path / '.gitignore').write_text((ROOT / '.gitignore').read_text())
+    result = subprocess.run(['git', 'check-ignore', 'claims.jsonl', 'ontology/private-ontology.json',
+                             'examples/ontology-bundle-example.json'], cwd=tmp_path, capture_output=True, text=True)
+    assert set(result.stdout.splitlines()) == {'claims.jsonl', 'ontology/private-ontology.json'}

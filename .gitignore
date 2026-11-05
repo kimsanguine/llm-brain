@@ -51,3 +51,6 @@ index.md
 
 # Personal Knowledge Ontology — generated private projection
 ontology/
+
+# Persisted claim statements are private canonical data
+/claims.jsonl
