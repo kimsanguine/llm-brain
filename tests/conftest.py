@@ -68,3 +68,29 @@ GRAPH_STUB = {
 @pytest.fixture
 def graph_stub():
     return json.loads(json.dumps(GRAPH_STUB))
+
+
+@pytest.fixture
+def ontology_project(tmp_path):
+    """Synthetic local project with a single source and independently specified claim."""
+    import hashlib
+    import shutil
+    root = tmp_path / 'project'
+    for directory in ('raw/notes', 'wiki/concepts', 'procedures', 'schema'):
+        (root / directory).mkdir(parents=True)
+    raw = 'Alpha is a synthetic knowledge example.\n'
+    (root / 'raw/notes/alpha.md').write_text(raw, encoding='utf-8')
+    (root / 'wiki/concepts/alpha.md').write_text(
+        '---\ntitle: Alpha\nsources: [raw/notes/alpha.md]\nupdated: 2026-01-01\n---\n'
+        'Alpha is a synthetic knowledge example.\n', encoding='utf-8')
+    (root / 'procedures/review.md').write_text(
+        '---\ntitle: Review sources\nversion: "1.0"\n---\nPRIVATE PROCEDURE BODY\n', encoding='utf-8')
+    record = dict(claim_id='claim:alpha-1', statement=raw.strip(), kind='fact',
+                  raw_path='raw/notes/alpha.md', raw_sha256=hashlib.sha256(raw.encode()).hexdigest(),
+                  locator='raw/notes/alpha.md#L1', valid_from='2026-01-01', valid_until='2099-01-01',
+                  status='active', trust='trusted')
+    (root / 'claims.jsonl').write_text(json.dumps(record) + '\n', encoding='utf-8')
+    repo = Path(__file__).resolve().parents[1]
+    for name in ('ontology.yaml', 'actions.yaml'):
+        shutil.copyfile(repo / 'schema' / name, root / 'schema' / name)
+    return root
