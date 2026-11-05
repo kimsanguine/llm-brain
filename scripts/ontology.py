@@ -11,7 +11,7 @@ import tempfile
 sys.dont_write_bytecode = True
 from lib.ontology_contract import load_ontology_contract, load_action_catalog, OntologyContractError
 from lib.ontology_projection import (build_private_bundle, canonical_bundle_json, canonical_json,
-                                     explain_object, read_bundle, safe_relative_path, OntologyProjectionError)
+                                     explain_object, read_bundle, safe_relative_path, OntologyProjectionError, CLAIM_RECOVERY_HELP)
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -97,7 +97,7 @@ def main(argv=None):
         print(str(exc), file=sys.stderr)
         return 2
     except (OSError, UnicodeError, ValueError, TypeError, RecursionError):
-        print('ontology inventory invalid; recovery: uv run python scripts/claims.py build', file=sys.stderr)
+        print('ontology inventory invalid; recovery: ' + CLAIM_RECOVERY_HELP, file=sys.stderr)
         return 2
 
 

@@ -30,7 +30,7 @@ def test_safe_missing_and_invalid_inventory_responses(ontology_project):
     (ontology_project / 'claims.jsonl').write_text('{SECRET')
     response = client.get('/api/ontology/page/alpha')
     assert response.status_code == 409
-    assert response.json() == {'detail': 'ontology inventory invalid', 'recovery': 'uv run python scripts/claims.py build'}
+    assert response.json() == {'detail': 'ontology inventory invalid', 'recovery': 'uv run python scripts/claims.py build --help'}
     assert 'SECRET' not in response.text and str(ontology_project) not in response.text
 
 
@@ -59,3 +59,21 @@ def test_frontend_has_accessible_panel_and_text_node_rendering():
     assert '/api/ontology/page/${encodeURIComponent(slug)}' in js
     renderer = js.split('function renderOntologyExplanation(')[1].split('// ---')[0]
     assert '.textContent' in renderer and '.innerHTML' not in renderer
+
+
+def test_inventory_recovery_command_runs_read_only_help(ontology_project):
+    import shlex
+    import subprocess
+    import sys
+    root = Path(__file__).resolve().parents[1]
+    client = TestClient(create_app(wiki_root=ontology_project / 'wiki'))
+    (ontology_project / 'claims.jsonl').write_text('{broken')
+    data = client.get('/api/ontology/page/alpha').json()
+    parts = shlex.split(data['recovery'])
+    assert parts[:3] == ['uv', 'run', 'python']
+    before = snapshot(ontology_project)
+    result = subprocess.run([sys.executable, '-B', str(root / parts[3]), *parts[4:]],
+                            capture_output=True, text=True, cwd=ontology_project)
+    assert result.returncode == 0, result.stderr
+    assert '--slug' in result.stdout
+    assert snapshot(ontology_project) == before

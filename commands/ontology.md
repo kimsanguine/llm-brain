@@ -24,7 +24,8 @@ uv run python scripts/ontology.py explain --bundle examples/ontology-bundle-exam
 
 Inspect the strict contracts and validation counts before export. A nonempty wiki
 requires a valid persisted claim ledger. On invalid inventory, report the safe
-recovery command `uv run python scripts/claims.py build`; rebuilding claims is a
+read-only recovery command `uv run python scripts/claims.py build --help`. A build
+requires explicit `--slug` selections; rebuilding claims is a
 separate write and must stay within the user's request.
 
 Report the exact written path and `source_fingerprint`. Generated bundles contain

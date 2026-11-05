@@ -506,7 +506,7 @@ async function loadOntologyExplanation(slug, panel) {
       panel.textContent = response.status === 409
         ? "검증 주장 목록을 점검해 주세요."
         : "근거 설명을 불러올 수 없습니다.";
-      if (response.status === 409 && data.recovery === "uv run python scripts/claims.py build") {
+      if (response.status === 409 && data.recovery === "uv run python scripts/claims.py build --help") {
         const recovery = document.createElement("code");
         recovery.textContent = data.recovery;
         panel.append(document.createElement("br"), recovery);

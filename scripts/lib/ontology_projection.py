@@ -18,6 +18,9 @@ from lib import claim_ledger
 from lib.ontology_contract import OntologyContract, ActionCatalog, ActionTypeSpec
 
 
+CLAIM_RECOVERY_HELP = claim_ledger.CLAIM_REBUILD_COMMAND + ' --help'
+
+
 class OntologyProjectionError(ValueError):
     """Safe aggregate diagnostic, without personal statements or paths."""
 
@@ -179,7 +182,7 @@ def build_private_bundle(project_root: Path, ontology: OntologyContract, actions
             _contained(root / record.raw_path, root)
         claim_ledger.validate_claim_source_inventory(records, wiki_root=wiki)
     except claim_ledger.ClaimLedgerError as exc:
-        raise OntologyProjectionError('ontology inventory invalid; recovery: ' + claim_ledger.CLAIM_REBUILD_COMMAND) from exc
+        raise OntologyProjectionError('ontology inventory invalid; recovery: ' + CLAIM_RECOVERY_HELP) from exc
 
     for record in records:
         source_id = 'source:' + record.raw_sha256

@@ -1151,7 +1151,8 @@ contracts ship alongside the script. `validate` prints aggregate counts and fing
 `explain` prints deterministic Markdown or JSON. Neither writes canonical data or episodes.
 A fresh clone without personal wiki/claims validates as empty. A nonempty wiki needs
 valid persisted claims; invalid inventory returns exit 2 and the recovery command
-`uv run python scripts/claims.py build`, without statements or personal paths.
+`uv run python scripts/claims.py build --help`, without statements or personal paths.
+The help command is read-only; an actual rebuild separately requires explicit --slug selections.
 `export` accepts only relative JSON destinations below ontology/, rejects symlinks,
 and stages in the destination directory before os.replace. A failed replace preserves
 the previous bundle and removes staging files. Success exits 0; contract, inventory,

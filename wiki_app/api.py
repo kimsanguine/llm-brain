@@ -34,7 +34,7 @@ except Exception:  # pragma: no cover — 방어적: episode 부재 시 기록�
 from lib import llm_client  # noqa: E402
 from lib import claim_ledger  # noqa: E402
 from lib.ontology_contract import load_ontology_contract, load_action_catalog, OntologyContractError
-from lib.ontology_projection import build_private_bundle, explain_object, OntologyProjectionError
+from lib.ontology_projection import build_private_bundle, explain_object, OntologyProjectionError, CLAIM_RECOVERY_HELP
 from lib.llm_client import (  # noqa: E402,F401  process 수명 훅 re-export
     LLMError,             # stream 핸들러가 cli 비정상 종료를 event: error 로 표면화
     _kill_process_group,  # 기존 테스트 훅 유지 (api_module._kill_process_group)
@@ -306,7 +306,7 @@ def create_app(wiki_root: Path | None = None) -> FastAPI:
         except (OntologyContractError, OntologyProjectionError, OSError, UnicodeError, ValueError, TypeError, RecursionError):
             return JSONResponse(status_code=409, content={
                 "detail": "ontology inventory invalid",
-                "recovery": claim_ledger.CLAIM_REBUILD_COMMAND,
+                "recovery": CLAIM_RECOVERY_HELP,
             })
 
     @app.get("/api/page/{slug:path}")

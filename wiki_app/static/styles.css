@@ -259,6 +259,19 @@ html, body {
 .ontology-chain code, .ontology-source { color: #52647b; font-size: 12px; }
 .ontology-links { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
 @media (max-width: 640px) {
+  body { display: flex; flex-direction: column; height: 100dvh; }
+  .topbar { flex: none; padding: 12px 16px; gap: 8px; flex-wrap: wrap; }
+  .brand { gap: 8px; flex-wrap: wrap; }
+  .meta { margin-left: auto; }
+  #app { flex: 1; min-height: 0; min-width: 0; }
+  .view-results { height: 100%; min-height: 0; }
+  .results-bar { padding: 10px 16px; gap: 8px; }
+  .results-grid { flex-direction: column; overflow: hidden; }
+  .results-list {
+    width: 100%; flex: none; max-height: 150px;
+    border-right: 0; border-bottom: 1px solid #eee;
+  }
+  .page-view { min-width: 0; min-height: 0; padding: 20px 16px; }
   #ontology-explain-panel { padding: 14px; }
   #ontology-explain-panel h2 { font-size: 14px; }
 }
