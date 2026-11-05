@@ -202,4 +202,40 @@ def build_private_bundle(project_root: Path, ontology: OntologyContract, actions
         if 'version' in post.metadata:
             attrs['version'] = str(post.metadata['version'])
         add('procedure:' + slug, 'procedure', attrs)
-    return _bundle(ontology, actions, objects.values(), relations)
+    # Optional episode history is projected without changing its fail-soft callers.
+    import episode
+    from lib.ontology_observations import observation_from_episode, action_for_task, artifact_id
+    express = _contained(root / 'express', root)
+    for path in sorted(express.rglob('*.md')):
+        _contained(path, root)
+        relative = safe_relative_path(path.relative_to(root).as_posix(), prefix='express')
+        add(artifact_id(relative), 'artifact', dict(relative_path=relative, artifact_type=path.parent.name))
+    episodes = _contained(root / 'episodes', root)
+    for path in episodes.glob('*.jsonl'):
+        _contained(path, root)
+    try:
+        records = episode.read_recent(episodes_dir=episodes, limit=sys.maxsize)
+    except (OSError, UnicodeError):
+        records = []  # Optional history must not block the canonical knowledge projection.
+    observations = {}
+    unknown = 0
+    for record in records:
+        if action_for_task(record.get('task_type')) is None:
+            unknown += 1
+            continue
+        observation = observation_from_episode(record)
+        if observation is None:
+            continue
+        if observation.action_type not in {a.id for a in actions.actions}:
+            continue
+        data = observation.to_mapping()
+        for key in ('page_ids', 'procedure_ids', 'artifact_ids'):
+            data[key] = tuple(ref for ref in data[key] if ref in objects)
+        if data['id'] in observations and observations[data['id']] != data:
+            raise OntologyProjectionError('conflicting observation identifier')
+        observations[data['id']] = MappingProxyType(data)
+        for artifact in data['artifact_ids']:
+            for key, relation in (('page_ids', 'derived_from'), ('procedure_ids', 'guided_by')):
+                for target in data[key]:
+                    relations.append(OntologyRelation(relation, artifact, target, (data['id'],)))
+    return _bundle(ontology, actions, objects.values(), relations, observations.values(), unknown)
