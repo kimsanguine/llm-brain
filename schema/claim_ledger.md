@@ -52,7 +52,7 @@ claim ID의 순번에 해당하는 현재 위키 문장과 statement도 같아�
 
 source-map root는 strict `schema_version: llm-brain-claim-source-map/0.1`,
 `mappings`, `unresolved`이다. mapping은 claim_id/raw_path/raw_sha256/locator/source_binding,
-unresolved는 claim_id/reason(no_safe_sources/no_exact_match/ambiguous_sources)이다.
+unresolved는 claim_id/reason(no_safe_sources/no_exact_match/ambiguous_sources/non_statement)이다.
 중복 JSON 필드, 중복 claim과 두 목록의 겹침을 거부한다. map에 없는 후보는 생략하고
 build가 개수를 보고한다. 선택된 mapping 하나라도 변경되거나 손상되면 쓰기 전 전체 거부한다.
 지정한 위키 페이지가 사라진 경우에도 원장을 부분 교체하지 않고 거부한다.
@@ -62,6 +62,20 @@ atomic replace하므로 기존 내용을 유지하려면 유지할 slug도 명�
 제안은 기존 문장 분할기의 텍스트 후보를 대상으로 하며 의미적 사실성, 요약이나 추론의
 타당성, 사람의 검토를 증명하지 않는다. 여러 근거를 결합하는 B2는 지원하지 않는다.
 map과 ledger는 개인 statement를 포함한다. map은 gitignored `ontology/` 아래에 보관한다.
+
+## v0.4.1 papers와 구조적 후보
+
+기존 7개 페이지 범주에 `papers`를 추가한다. 페이지 조회, claim source inventory,
+source-map과 ontology가 같은 범주를 읽는다. 외부 원문의 trust와 기존 B1 검증은 유지한다.
+papers의 따옴표 없는 콜론 제목은 기존 YAML 파싱 실패 시 단일 title 값만 메모리에서
+문자열로 감싸 다시 읽는다. 원본 bytes와 source 필드는 바꾸지 않으며 다른 YAML 오류는 거부한다.
+
+`propose`는 기존 splitter의 순번과 statement를 그대로 유지한 뒤 명백한 제목, 표,
+fenced code, 구분선, 링크/이미지와 메타데이터만 `non_statement`로 분리한다.
+일반 bullet/prose와 본문의 수식은 보존한다. 제외된 후보도 unresolved에 남으므로
+구조적 제외와 원문 불일치/출처 없음/모호한 연결을 구분할 수 있다.
+이 분류는 제안 단계의 보수적 필터이며, 기록의 의미나 사실성을 승인하지 않는다.
+명시적 source-map build는 계속 원문/페이지/문장 hash와 quote/locator를 검증한다.
 
 ## Query rules
 

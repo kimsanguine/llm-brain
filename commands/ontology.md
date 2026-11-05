@@ -38,7 +38,8 @@ uv run python scripts/claims.py propose --slug alpha > ontology/claim-source-map
 uv run python scripts/claims.py build --slug alpha --source-map ontology/claim-source-map.json
 ```
 
-The read-only proposal chooses only a unique exact raw-file match. It does not
+The read-only proposal first separates structural fragments as `non_statement`
+without renumbering claim IDs, then chooses a unique exact raw-file match. It does not
 prove semantic truth. Ambiguous/unmatched candidates remain unresolved. Build
 rechecks page, statement and raw hashes and the exact line before writing;
 zero mapped records preserve the previous ledger. Old multi-source records

@@ -14,8 +14,10 @@ from typing import Iterable, Mapping
 import frontmatter
 import yaml
 
+from lib.wiki_frontmatter import load_wiki_post, loads_wiki_post
 
-_CATEGORIES = ("concepts", "tools", "people", "projects", "business", "lecture", "insights")
+
+_CATEGORIES = ("concepts", "tools", "people", "projects", "business", "lecture", "insights", "papers")
 _CLAIM_SPLIT_RE = re.compile(r"(?<=[.!?])\s+|\n+")
 _CLAIM_ID_RE = re.compile(r"^claim:([\w가-힣/-]+)-([1-9]\d*)$")
 _CITATION_RE = re.compile(r"\[(claim:[\w가-힣/-]+-[1-9]\d*)\]")
@@ -427,7 +429,7 @@ def build_claim_ledger(
             if source_map is not None:
                 raise ClaimLedgerError("source-map page not found")
             continue
-        post = frontmatter.load(page_path)
+        post = load_wiki_post(page_path, allow_legacy_title=page_path.relative_to(wiki_root).parts[0] == 'papers')
         sources = _normalize_sources(post.metadata.get("sources"))
         if source_map is None and (len(sources) != 1 or not sources[0].startswith("raw/")):
             raise ClaimLedgerError(
@@ -524,7 +526,7 @@ def validate_claim_source_inventory(
             continue
         try:
             page_bytes = page_path.read_bytes()
-            post = frontmatter.loads(page_bytes.decode("utf-8"))
+            post = loads_wiki_post(page_bytes.decode("utf-8"), allow_legacy_title=page_path.relative_to(wiki_root).parts[0] == 'papers')
         except (OSError, UnicodeError, ValueError, yaml.YAMLError, RecursionError):
             invalid_slugs.add(slug)
             continue

@@ -4,8 +4,14 @@ from __future__ import annotations
 import json
 import logging
 from pathlib import Path
+import sys
 
 import frontmatter
+
+_SCRIPTS_DIR = Path(__file__).resolve().parents[1] / 'scripts'
+if str(_SCRIPTS_DIR) not in sys.path:
+    sys.path.insert(0, str(_SCRIPTS_DIR))
+from lib.wiki_frontmatter import load_wiki_post
 
 
 logger = logging.getLogger(__name__)
@@ -15,7 +21,7 @@ class PageNotFound(Exception):
     pass
 
 
-_CATEGORIES = ("concepts", "tools", "people", "projects", "business", "lecture", "insights")
+_CATEGORIES = ("concepts", "tools", "people", "projects", "business", "lecture", "insights", "papers")
 
 
 def find_page_path(slug: str, wiki_root: Path) -> Path:
@@ -44,6 +50,10 @@ def _load_graph(wiki_root: Path) -> dict:
     return {n["id"]: n for n in graph["nodes"] if n.get("kind") == "page"}
 
 
+def read_frontmatter(path: Path, wiki_root: Path):
+    return load_wiki_post(path, allow_legacy_title=path.relative_to(wiki_root).parts[0] == 'papers')
+
+
 def load_page(slug: str, wiki_root: Path) -> dict:
     """페이지 데이터를 dict로 반환한다.
 
@@ -52,7 +62,7 @@ def load_page(slug: str, wiki_root: Path) -> dict:
     """
     path = find_page_path(slug, wiki_root)
     try:
-        post = frontmatter.load(path)
+        post = read_frontmatter(path, wiki_root)
     except Exception as e:
         logger.warning("frontmatter parse failed for %s (%s): %s", slug, path, e)
         raise PageNotFound(f"invalid page (frontmatter parse error): {slug}") from e

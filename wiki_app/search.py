@@ -101,7 +101,7 @@ class Index:
                 # 크래시시키지 않도록 격리: 깨진 페이지는 tags/title 없이 skip,
                 # index.md 기반 slug/category/description 은 유지된다.
                 try:
-                    post = frontmatter.load(md_path)
+                    post = pages.read_frontmatter(md_path, wiki_root)
                 except Exception as e:
                     logger.warning(
                         "skip page in index build — frontmatter parse failed for %s (%s): %s",

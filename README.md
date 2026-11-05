@@ -13,9 +13,11 @@ v0.4의 Ontology는 개인 지식의 의미와 근거를 설명하는 로컬 pro
 ![Claude Code](https://img.shields.io/badge/Claude_Code-CLI-orange)
 ![Codex](https://img.shields.io/badge/Codex-Repo_Skill-412991)
 ![Obsidian](https://img.shields.io/badge/Obsidian-Graph_View-7C3AED)
-![Version](https://img.shields.io/badge/version-0.4.0-blue)
+![Version](https://img.shields.io/badge/version-0.4.1-blue)
 
 > v0.4: strict Object/Relation/Action 계약, 결정적 private bundle, validate/export/explain CLI, Wiki의 “왜 이 지식인가?” 설명. 기존 raw/wiki/claims/procedures/episodes를 유지합니다.
+
+> v0.4.1: papers 페이지의 조회와 근거 설명, 원본을 바꾸지 않는 기존 논문 제목 읽기 호환, 구조적 claim 후보 정제를 지원합니다.
 
 > 🎉 **v0.3** — Quality-Driven Curation: 매일 품질 점검·자동 보강(`curate --reweave`) · 신규 페이지 승격 게이트(Promotion Gates) · 여러 메모를 교차 종합(synthesis)하고 모순을 명시적으로 화해 · 입구에서 중복 차단(hard dedup) · cli/api 엔진 선택(`llm_client`).
 > 🎉 **v0.2** — Agent Memory OS 5층 기억(작업·에피소드·의미·절차·메타) + 설치 점검 `/llm-brain:doctor` · 웹 UI `/llm-brain:wikiweb` 커맨드 추가.
@@ -215,6 +217,11 @@ uv run python scripts/claims.py build --slug alpha --source-map ontology/claim-s
 않으며 모호한 후보는 생략합니다. build는 지정한 slug들의 원장으로 교체하므로 유지할
 slug를 모두 명시하세요. 페이지나 원문이 바뀌면 재검증이 필요하며 외부 캡처는 계속
 untrusted입니다. 상세 계약: [Claim Ledger](schema/claim_ledger.md).
+
+`propose`는 제목, 표, 코드 블록, 구분선과 순수 링크를 `non_statement`로 분리합니다.
+일반 목록 문장과 본문은 유지하며 기존 claim 번호를 다시 매기지 않습니다.
+구조적 분류는 의미적 사실성 판정이 아닙니다. 제안에서 제외된 원문과 페이지는 보존됩니다.
+지원 범주는 concepts, tools, people, projects, business, lecture, insights, papers입니다.
 
 ## 핵심 기능 *Core Features*
 

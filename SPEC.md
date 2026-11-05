@@ -629,7 +629,7 @@ procedural 기억 로더. `procedures/`의 `.md`(각 `memory_type: procedural`)�
 ```yaml
 ---
 title: 페이지 제목
-type: concept | tool | person | project | business | lecture | insight
+type: concept | tool | person | project | business | lecture | insight | paper
 domain: AI/LLM | teaching | habix | tools | personal-projects
 tags: [태그1, 태그2]
 created: YYYY-MM-DD
@@ -1088,6 +1088,17 @@ The ontology is a deterministic local projection, with no graph database or LLM 
 Raw files and all canonical data remain unchanged by this layer.
 
 ## Strict contracts and identifiers
+
+v0.4.1 readers support concepts, tools, people, projects, business, lecture,
+insights and papers consistently. The legacy paper-title adapter delegates to
+the existing python-frontmatter parser. Only a single unquoted title containing
+a colon is normalized in memory after a YAML failure; source metadata and file
+bytes are unchanged, and other malformed metadata remains invalid.
+
+Source-map proposals classify obvious Markdown structure as `non_statement`
+before evidence matching, retaining original split indexes and statement bytes.
+This is a deterministic proposal filter, not a semantic truth validator. Explicit
+B1 mappings retain their page/statement/raw hashes and quote/locator checks.
 
 `schema/ontology.yaml` defines five object types: source, claim, knowledge_page,
 procedure, artifact. `schema/actions.yaml` describes ingest, curate, query,

@@ -23,6 +23,7 @@ Use this skill only from the cloned `llm-brain` repository. It gives Codex the s
 - **Export:** read `commands/okf.md` and run a dry run before any export. Never use `--share` without an explicit user approval phrase.
 - **Ontology:** read `commands/ontology.md`; use `scripts/ontology.py validate` or `explain` read-only. Before requested private `export`, inspect contracts/counts; write only under gitignored `ontology/`. Never publish it or run `okf --share` as a side effect. Observations are optional redacted history, not mandatory audit events.
 - **Multi-source claims:** for explicitly requested ledger creation, read `schema/claim_ledger.md`. Use read-only `claims.py propose`, keep the JSON private under `ontology/`, review unresolved coverage, then explicit `build --source-map` for all slugs to retain. Never infer the first source or promote ambiguous matches; query never rebuilds. Exact text matching is not semantic verification.
+- **Candidate refinement:** proposals preserve original claim indexes and separate structural fragments as `non_statement`. Review this separately from missing/ambiguous evidence. Papers use the same source/trust contracts; legacy title compatibility never rewrites wiki files.
 - **Wiki web:** `uv run python -m wiki_app` starts the local viewer. Its AI-answer backend is separately configured by `schema/config.yaml` and remains Claude CLI or Anthropic API based.
 
 ## Codex interaction

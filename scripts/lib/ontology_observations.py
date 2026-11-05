@@ -44,7 +44,7 @@ def _reference(value, kind):
             if kind == 'page':
                 if parts[0] == 'wiki':
                     parts.pop(0)
-                if len(parts) > 1 and parts[0] in {'concepts', 'tools', 'people', 'projects', 'business', 'lecture', 'insights'}:
+                if len(parts) > 1 and parts[0] in {'concepts', 'tools', 'people', 'projects', 'business', 'lecture', 'insights', 'papers'}:
                     parts.pop(0)
             elif parts[0] == 'procedures':
                 parts.pop(0)

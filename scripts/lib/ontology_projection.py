@@ -15,6 +15,7 @@ import frontmatter
 import yaml
 
 from lib import claim_ledger
+from lib.wiki_frontmatter import load_wiki_post
 from lib.ontology_contract import OntologyContract, ActionCatalog, ActionTypeSpec
 
 
@@ -108,9 +109,9 @@ def _contained(path, root):
     return path
 
 
-def _post(path):
+def _post(path, *, allow_legacy_title=False):
     try:
-        return frontmatter.load(path)
+        return load_wiki_post(path, allow_legacy_title=allow_legacy_title)
     except (OSError, UnicodeError, ValueError, yaml.YAMLError, RecursionError) as exc:
         raise OntologyProjectionError('knowledge metadata invalid') from exc
 
@@ -163,7 +164,7 @@ def build_private_bundle(project_root: Path, ontology: OntologyContract, actions
             slug = safe_slug(path.relative_to(directory).with_suffix('').as_posix())
             if slug in posts:
                 raise OntologyProjectionError('ambiguous knowledge page identifier')
-            post = _post(path)
+            post = _post(path, allow_legacy_title=category == 'papers')
             scope = post.metadata.get('scope', 'shared')
             if scope not in {'private', 'shared'}:
                 raise OntologyProjectionError('invalid page scope')

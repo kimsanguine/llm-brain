@@ -1,6 +1,7 @@
 """Source-map proposals expose uncertainty and never silently rewrite a ledger."""
 from datetime import date
 import copy
+import hashlib
 import json
 from pathlib import Path
 import subprocess
@@ -133,3 +134,107 @@ def test_removed_selected_page_cannot_silently_truncate_existing_ledger(tmp_path
     result = cli(root, *args)
     assert result.returncode == 2
     assert (root / 'claims.jsonl').read_bytes() == before
+
+
+def structural_project(tmp_path):
+    root = mixed_project(tmp_path)
+    body = ('# Overview\n'
+            '---\n'
+            '- Alpha fact without punctuation\n'
+            '```text\n'
+            'Alpha fact.\n'
+            '```\n'
+            'Beta claim.\n'
+            'Unmapped synthesis.\n')
+    (root / 'wiki/concepts/mixed.md').write_text(
+        '---\ntitle: Mixed\nupdated: 2026-11-01\nsources:\n'
+        '  - raw/notes/alpha.md\n  - raw/captures/beta.md\n---\n' + body)
+    (root / 'raw/notes/alpha.md').write_text(
+        '# Overview\n---\n- Alpha fact without punctuation\n```text\nAlpha fact.\n```\n')
+    return root
+
+
+def test_structural_fragments_stay_unresolved_and_original_claim_ids_survive(tmp_path):
+    from lib import claim_source_map
+    root = structural_project(tmp_path)
+    before = snapshot(root)
+    data = proposal(root)
+    assert [m['claim_id'] for m in data['mappings']] == ['claim:mixed-3', 'claim:mixed-7']
+    assert data['mappings'][0]['source_binding']['quote'] == '- Alpha fact without punctuation'
+    assert data['mappings'][0]['locator'] == 'raw/notes/alpha.md#L3-L3'
+    assert data['unresolved'] == [
+        {'claim_id': 'claim:mixed-1', 'reason': 'non_statement'},
+        {'claim_id': 'claim:mixed-2', 'reason': 'non_statement'},
+        {'claim_id': 'claim:mixed-4', 'reason': 'non_statement'},
+        {'claim_id': 'claim:mixed-5', 'reason': 'non_statement'},
+        {'claim_id': 'claim:mixed-6', 'reason': 'non_statement'},
+        {'claim_id': 'claim:mixed-8', 'reason': 'no_exact_match'},
+    ]
+    assert data == proposal(root)
+    assert snapshot(root) == before
+    path = root / 'source-map.json'
+    path.write_text(json.dumps(data))
+    mapping = claim_source_map.read_source_map(path)
+    records = claim_ledger.build_claim_ledger(
+        ['mixed'], wiki_root=root / 'wiki', source_map=mapping, now=date(2026, 11, 5))
+    assert [r.claim_id for r in records] == ['claim:mixed-3', 'claim:mixed-7']
+    assert [r.trust for r in records] == ['trusted', 'untrusted']
+    assert claim_ledger.claim_exclusion_reason(records[1], project_root=root,
+                                              now=date(2026, 11, 5)) == 'untrusted'
+
+
+def test_structure_never_changes_ambiguous_source_or_untrusted_decisions(tmp_path):
+    root = structural_project(tmp_path)
+    (root / 'raw/captures/beta.md').write_text('- Alpha fact without punctuation\nBeta claim.\n')
+    data = proposal(root)
+    assert [m['claim_id'] for m in data['mappings']] == ['claim:mixed-7']
+    assert {'claim_id': 'claim:mixed-3', 'reason': 'ambiguous_sources'} in data['unresolved']
+    assert {'claim_id': 'claim:mixed-5', 'reason': 'non_statement'} in data['unresolved']
+
+
+@pytest.mark.parametrize('reason', ['non_statement', 'no_safe_sources', 'no_exact_match', 'ambiguous_sources'])
+def test_declared_unresolved_reasons_load_without_changing_legacy_maps(tmp_path, reason):
+    from lib import claim_source_map
+    data = {'schema_version': 'llm-brain-claim-source-map/0.1', 'mappings': [],
+            'unresolved': [{'claim_id': 'claim:alpha-1', 'reason': reason}]}
+    path = tmp_path / 'source-map.json'
+    path.write_text(json.dumps(data))
+    assert claim_source_map.read_source_map(path) == {}
+
+
+@pytest.mark.parametrize('reason', ['semantic_false', '', None, {'non_statement': True}])
+def test_unknown_unresolved_reason_is_still_rejected(tmp_path, reason):
+    from lib import claim_source_map
+    data = {'schema_version': 'llm-brain-claim-source-map/0.1', 'mappings': [],
+            'unresolved': [{'claim_id': 'claim:alpha-1', 'reason': reason}]}
+    path = tmp_path / 'source-map.json'
+    path.write_text(json.dumps(data))
+    with pytest.raises(claim_ledger.ClaimLedgerError, match='reason'):
+        claim_source_map.read_source_map(path)
+
+
+def test_legacy_papers_title_uses_original_page_bytes_for_proposal_hash(tmp_path):
+    from lib import claim_source_map
+    root = mixed_project(tmp_path)
+    original = root / 'wiki/concepts/mixed.md'
+    papers = root / 'wiki/papers'
+    papers.mkdir()
+    page = papers / 'mixed.md'
+    page.write_text(original.read_text().replace('title: Mixed', 'title: Paper: Synthetic result'))
+    original.unlink()
+    before = snapshot(root)
+    data = proposal(root)
+    assert [m['claim_id'] for m in data['mappings']] == ['claim:mixed-1', 'claim:mixed-2']
+    assert data['mappings'][0]['source_binding']['page_sha256'] == hashlib.sha256(page.read_bytes()).hexdigest()
+    assert claim_source_map.unmapped_count(['mixed'], wiki_root=root / 'wiki', mapped_count=2) == 1
+    assert snapshot(root) == before
+
+
+def test_malformed_non_papers_title_still_fails_closed(tmp_path):
+    root = mixed_project(tmp_path)
+    page = root / 'wiki/concepts/mixed.md'
+    page.write_text(page.read_text().replace('title: Mixed', 'title: Concept: Invalid YAML'))
+    before = snapshot(root)
+    with pytest.raises(claim_ledger.ClaimLedgerError, match='cannot read'):
+        proposal(root)
+    assert snapshot(root) == before

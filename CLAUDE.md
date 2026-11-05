@@ -170,7 +170,7 @@ wiki-web HTML 검색·페이지뷰 UI를 로컬에서 띄운다(위 `wiki-web` �
 
 ```yaml
 title: ...
-type: concept|tool|person|project|business|lecture|insight
+type: concept|tool|person|project|business|lecture|insight|paper
 tags: [...]
 created: YYYY-MM-DD
 updated: YYYY-MM-DD

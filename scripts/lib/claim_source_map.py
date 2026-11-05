@@ -5,14 +5,15 @@ import hashlib
 import json
 from pathlib import Path
 
-import frontmatter
 import yaml
 
 from lib import claim_ledger as ledger
+from lib.claim_candidates import classify_candidates
+from lib.wiki_frontmatter import load_wiki_post, loads_wiki_post
 
 
 SCHEMA_VERSION = "llm-brain-claim-source-map/0.1"
-_REASONS = frozenset({"no_safe_sources", "no_exact_match", "ambiguous_sources"})
+_REASONS = frozenset({"no_safe_sources", "no_exact_match", "ambiguous_sources", "non_statement"})
 
 
 def propose_source_map(slugs: list[str], *, wiki_root: Path) -> dict:
@@ -28,7 +29,9 @@ def propose_source_map(slugs: list[str], *, wiki_root: Path) -> dict:
             raise ledger.ClaimLedgerError("source-map page not found")
         try:
             page_bytes = page.read_bytes()
-            post = frontmatter.loads(page_bytes.decode("utf-8"))
+            post = loads_wiki_post(
+                page_bytes.decode("utf-8"),
+                allow_legacy_title=page.relative_to(wiki_root).parts[0] == "papers")
         except (OSError, UnicodeError, ValueError, yaml.YAMLError) as exc:
             raise ledger.ClaimLedgerError("cannot read source-map page") from exc
         page_sha = hashlib.sha256(page_bytes).hexdigest()
@@ -42,8 +45,12 @@ def propose_source_map(slugs: list[str], *, wiki_root: Path) -> dict:
                     raw_cache[raw_path] = None
             if raw_cache[raw_path] is not None:
                 sources[raw_path] = raw_cache[raw_path]
-        for index, statement in enumerate(ledger._split_claims(post.content), 1):
-            claim_id = f"claim:{slug}-{index}"
+        for candidate in classify_candidates(post.content):
+            claim_id = f"claim:{slug}-{candidate['index']}"
+            if candidate["exclusion_reason"] is not None:
+                unresolved.append({"claim_id": claim_id, "reason": candidate["exclusion_reason"]})
+                continue
+            statement = candidate["statement"]
             matches = []
             for raw_path, (sha, lines) in sources.items():
                 for line_no, line in enumerate(lines, 1):
@@ -102,9 +109,12 @@ def read_source_map(path: Path) -> dict[str, dict]:
 
 
 def unmapped_count(slugs: list[str], *, wiki_root: Path, mapped_count: int) -> int:
+    wiki_root = Path(wiki_root)
     count = 0
     for slug in set(slugs):
-        path = ledger._find_page_path(slug, Path(wiki_root))
+        path = ledger._find_page_path(slug, wiki_root)
         if path is not None:
-            count += len(ledger._split_claims(frontmatter.load(path).content))
+            post = load_wiki_post(
+                path, allow_legacy_title=path.relative_to(wiki_root).parts[0] == "papers")
+            count += len(ledger._split_claims(post.content))
     return count - mapped_count
