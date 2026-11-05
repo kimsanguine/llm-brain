@@ -28,6 +28,22 @@ read-only recovery command `uv run python scripts/claims.py build --help`. A bui
 requires explicit `--slug` selections; rebuilding claims is a
 separate write and must stay within the user's request.
 
+For a multi-source page, use the explicit B1 workflow after the user requests
+ledger creation. Keep the proposal private, review unresolved entries, and
+include every slug whose records should remain in the replaced ledger:
+
+```bash
+mkdir -p ontology
+uv run python scripts/claims.py propose --slug alpha > ontology/claim-source-map.json
+uv run python scripts/claims.py build --slug alpha --source-map ontology/claim-source-map.json
+```
+
+The read-only proposal chooses only a unique exact raw-file match. It does not
+prove semantic truth. Ambiguous/unmatched candidates remain unresolved. Build
+rechecks page, statement and raw hashes and the exact line before writing;
+zero mapped records preserve the previous ledger. Old multi-source records
+without a binding are still invalid. See `schema/claim_ledger.md`.
+
 Report the exact written path and `source_fingerprint`. Generated bundles contain
 private claim statements. Export is private and does not authorize sharing.
 Never run `okf --share`, publish a bundle, or change any external system as a

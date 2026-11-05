@@ -32,7 +32,10 @@ class OntologyObject:
     attributes: Mapping
 
     def to_mapping(self):
-        return {'id': self.id, 'type': self.type, 'attributes': dict(self.attributes)}
+        attributes = dict(self.attributes)
+        if 'source_binding' in attributes:
+            attributes['source_binding'] = dict(attributes['source_binding'])
+        return {'id': self.id, 'type': self.type, 'attributes': attributes}
 
 
 @dataclass(frozen=True)
@@ -280,7 +283,7 @@ def validate_bundle_mapping(data, ontology: OntologyContract) -> OntologyBundle:
     specs = {spec.id: spec for spec in ontology.object_types}
     allowed = {
         'source': {'sha256', 'relative_path'},
-        'claim': {'statement', 'kind', 'status', 'trust', 'valid_from', 'valid_until', 'raw_path', 'raw_sha256', 'locator'},
+        'claim': {'statement', 'kind', 'status', 'trust', 'valid_from', 'valid_until', 'raw_path', 'raw_sha256', 'locator', 'source_binding'},
         'knowledge_page': {'slug', 'title', 'scope', 'owner', 'updated'},
         'procedure': {'slug', 'title', 'version'},
         'artifact': {'relative_path', 'artifact_type'},
@@ -293,15 +296,18 @@ def validate_bundle_mapping(data, ontology: OntologyContract) -> OntologyBundle:
         if not isinstance(kind, str) or kind not in specs or kind not in allowed:
             raise OntologyProjectionError('unknown object type')
         _strict_keys(attrs, specs[kind].required_attributes, allowed[kind] - set(specs[kind].required_attributes))
-        for value in attrs.values():
-            _string(value)
+        for key, value in attrs.items():
+            if kind != 'claim' or key != 'source_binding':
+                _string(value)
         if kind == 'source':
             if re.fullmatch('[0-9a-f]{64}', attrs['sha256']) is None or object_id != 'source:' + attrs['sha256']:
                 raise OntologyProjectionError('invalid source identity')
             safe_relative_path(attrs['relative_path'], prefix='raw')
         elif kind == 'claim':
             try:
-                claim_ledger.ClaimRecord(claim_id=object_id, locator=attrs.get('locator'), **{k: v for k, v in attrs.items() if k != 'locator'})
+                record = claim_ledger.ClaimRecord(claim_id=object_id, locator=attrs.get('locator'), **{k: v for k, v in attrs.items() if k != 'locator'})
+                if record.source_binding is not None:
+                    attrs = dict(attrs, source_binding=MappingProxyType(asdict(record.source_binding)))
             except (claim_ledger.ClaimLedgerError, TypeError) as exc:
                 raise OntologyProjectionError('invalid claim object') from exc
         elif kind in {'knowledge_page', 'procedure'}:

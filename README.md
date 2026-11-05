@@ -195,6 +195,20 @@ uv run python scripts/ontology.py export  # 개인 bundle을 ontology/private-on
 표시됩니다. claim ledger가 없거나 잘못된 경우 복구 명령을 안내하며 자동으로 수정하지 않습니다.
 `export` 결과는 gitignored 개인 파일입니다. 외부 공유에는 기존 OKF 승인 경로를 사용합니다.
 
+여러 출처가 있는 위키도 각 claim에 명시적인 raw 출처 하나를 연결할 수 있습니다.
+원장 생성을 요청한 경우, 아래 제안을 검토하고 미해결 항목을 확인한 뒤 적용합니다.
+
+```bash
+mkdir -p ontology
+uv run python scripts/claims.py propose --slug alpha > ontology/claim-source-map.json
+uv run python scripts/claims.py build --slug alpha --source-map ontology/claim-source-map.json
+```
+
+제안은 유일한 파일의 정확한 원문 일치만 연결합니다. 요약과 추론의 의미는 검증하지
+않으며 모호한 후보는 생략합니다. build는 지정한 slug들의 원장으로 교체하므로 유지할
+slug를 모두 명시하세요. 페이지나 원문이 바뀌면 재검증이 필요하며 외부 캡처는 계속
+untrusted입니다. 상세 계약: [Claim Ledger](schema/claim_ledger.md).
+
 ## 핵심 기능 *Core Features*
 
 쉬운 말로 6가지: **넣기(ingest) · 정리(curate) · 꺼내쓰기(express) · 물어보기(query) · 웹으로 보기(wiki-web) · 내보내기(okf)**.

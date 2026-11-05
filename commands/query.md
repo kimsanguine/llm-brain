@@ -26,7 +26,7 @@ uv run python scripts/claims.py context \
 
 malformed/partial record가 하나라도 있으면 답변하지 않고 종료합니다. 원장이 없거나
 usable trusted claim이 0개면 정확한 표준 abstention `관련 정보 없음`만 허용합니다.
-legacy 원장도 현재 wiki source inventory와 다시 대조합니다. 어떤 record든 현재 페이지가
+binding 없는 legacy 원장도 현재 wiki source inventory와 다시 대조합니다. 해당 record의 현재 페이지가
 정확히 하나의 유효한 `raw/**` source를 갖지 않거나 `raw_path`가 그 sole source와 다르면
 원장 전체를 거부하며 자동 migration/rewrite하지 않습니다.
 이 inventory 오류는 민감한 statement/raw 경로를 출력하지 않고 영향받은 page slug/count와
@@ -41,6 +41,10 @@ uv run python scripts/claims.py build \
 
 자동 build는 여러 source의 statement 귀속을 추측하지 않습니다. 페이지 `sources`가
 정확히 하나의 `raw/**` 경로가 아니면 해당 build 전체를 거부합니다.
+여러 출처 페이지는 별도 명시적 B1 source map을 검토한 뒤 `build --source-map`으로
+적용합니다(`schema/claim_ledger.md`). query 중에는 제안이나 build를 자동 실행하지 않습니다.
+B1은 페이지 hash, 선택된 출처 membership, raw hash와 정확한 원문 줄을 검증합니다.
+명시적 binding이 없는 여러 출처 legacy 기록은 계속 거부합니다.
 
 관련 페이지가 없으면:
 > "이 주제에 대한 wiki 데이터가 없습니다. `/ingest` 로 관련 소스를 먼저 추가해주세요."

@@ -44,7 +44,7 @@ _REQUIRED_FIELDS = frozenset(
         "trust",
     }
 )
-_OPTIONAL_FIELDS = frozenset({"locator"})
+_OPTIONAL_FIELDS = frozenset({"locator", "source_binding"})
 
 
 class ClaimLedgerError(ValueError):
@@ -99,6 +99,58 @@ def _validate_raw_path(value: object) -> str:
     return value
 
 
+@dataclass(frozen=True)
+class ClaimSourceBinding:
+    schema_version: str
+    page_sha256: str
+    statement_sha256: str
+    quote: str
+
+    def __post_init__(self) -> None:
+        if self.schema_version != "llm-brain-claim-binding/0.1":
+            raise ClaimLedgerError("unsupported source binding version")
+        for value in (self.page_sha256, self.statement_sha256):
+            if not isinstance(value, str) or not _SHA256_RE.fullmatch(value):
+                raise ClaimLedgerError("source binding hashes must be SHA-256")
+        if not isinstance(self.quote, str) or not self.quote.strip():
+            raise ClaimLedgerError("source binding quote must be non-empty")
+        if hashlib.sha256(self.quote.encode("utf-8")).hexdigest() != self.statement_sha256:
+            raise ClaimLedgerError("source binding statement hash mismatch")
+
+
+def _binding_from_mapping(value: object) -> ClaimSourceBinding:
+    if not isinstance(value, Mapping) or set(value) != {
+        "schema_version", "page_sha256", "statement_sha256", "quote"
+    }:
+        raise ClaimLedgerError("invalid source binding fields")
+    return ClaimSourceBinding(**value)
+
+
+def _binding_line(raw_path: str, locator: object) -> int:
+    match = re.fullmatch(re.escape(raw_path) + r"#L([1-9]\d*)-L([1-9]\d*)", locator or "")
+    if match is None or match.group(1) != match.group(2):
+        raise ClaimLedgerError("bound locator must identify one positive raw line")
+    return int(match.group(1))
+
+
+def validate_source_selection(value: object) -> dict[str, object]:
+    """Validate one explicit source-map entry without reading project data."""
+    if not isinstance(value, Mapping) or set(value) != {
+        "claim_id", "raw_path", "raw_sha256", "locator", "source_binding"
+    }:
+        raise ClaimLedgerError("invalid source selection fields")
+    _validate_claim_id(value["claim_id"])
+    raw_path = _validate_raw_path(value["raw_path"])
+    sha = value["raw_sha256"]
+    if not isinstance(sha, str) or not _SHA256_RE.fullmatch(sha):
+        raise ClaimLedgerError("invalid source selection hash")
+    if not isinstance(value["locator"], str):
+        raise ClaimLedgerError("bound locator must be a string")
+    _binding_line(raw_path, value["locator"])
+    _binding_from_mapping(value["source_binding"])
+    return dict(value)
+
+
 def _validate_mapping(raw: Mapping[str, object]) -> "ClaimRecord":
     keys = frozenset(raw)
     missing = sorted(_REQUIRED_FIELDS - keys)
@@ -136,6 +188,13 @@ def _validate_mapping(raw: Mapping[str, object]) -> "ClaimRecord":
     if not isinstance(trust, str) or trust not in _TRUST_LEVELS:
         raise ClaimLedgerError(f"trust must be one of {sorted(_TRUST_LEVELS)}")
 
+    binding = None
+    if "source_binding" in raw:
+        binding = _binding_from_mapping(raw["source_binding"])
+        if binding.quote != statement:
+            raise ClaimLedgerError("source binding quote must equal statement")
+        _binding_line(raw_path, locator)
+
     return ClaimRecord(
         claim_id=claim_id,
         statement=statement,
@@ -147,6 +206,7 @@ def _validate_mapping(raw: Mapping[str, object]) -> "ClaimRecord":
         valid_until=valid_until.isoformat(),
         status=status,
         trust=trust,
+        source_binding=binding,
         _validated=True,
     )
 
@@ -163,19 +223,32 @@ class ClaimRecord:
     valid_until: str
     status: str
     trust: str
+    source_binding: ClaimSourceBinding | None = None
     _validated: bool = field(default=False, compare=False, repr=False)
 
     def __post_init__(self) -> None:
         if self._validated:
             return
-        _validate_mapping(self.to_mapping())
+        validated = _validate_mapping(self.to_mapping())
+        object.__setattr__(self, "source_binding", validated.source_binding)
 
     def to_mapping(self) -> dict[str, object]:
         result = asdict(self)
         result.pop("_validated", None)
         if self.locator is None:
             result.pop("locator")
+        if self.source_binding is None:
+            result.pop("source_binding")
         return result
+
+
+def _unique_json_fields(pairs):
+    value = {}
+    for key, item in pairs:
+        if key in value:
+            raise ClaimLedgerError("duplicate JSON field")
+        value[key] = item
+    return value
 
 
 def read_claims_jsonl(path: Path) -> list[ClaimRecord]:
@@ -192,7 +265,7 @@ def read_claims_jsonl(path: Path) -> list[ClaimRecord]:
         if not line.strip():
             raise ClaimLedgerError(f"line {line_number}: blank records are not allowed")
         try:
-            value = json.loads(line)
+            value = json.loads(line, object_pairs_hook=_unique_json_fields)
         except json.JSONDecodeError as exc:
             raise ClaimLedgerError(f"line {line_number}: invalid JSON") from exc
         if not isinstance(value, dict):
@@ -340,6 +413,7 @@ def build_claim_ledger(
     *,
     wiki_root: Path,
     now: date | datetime | None = None,
+    source_map: Mapping[str, Mapping[str, object]] | None = None,
 ) -> list[ClaimRecord]:
     """Compile wiki statements into records while hashing immutable raw bytes once."""
     today = now.date() if isinstance(now, datetime) else (now or date.today())
@@ -349,18 +423,21 @@ def build_claim_ledger(
     for slug in slugs:
         page_path = _find_page_path(slug, Path(wiki_root))
         if page_path is None:
+            if source_map is not None:
+                raise ClaimLedgerError("source-map page not found")
             continue
         post = frontmatter.load(page_path)
         sources = _normalize_sources(post.metadata.get("sources"))
-        if len(sources) != 1 or not sources[0].startswith("raw/"):
+        if source_map is None and (len(sources) != 1 or not sources[0].startswith("raw/")):
             raise ClaimLedgerError(
                 f"wiki/{slug} must have exactly one raw/ source before claims are built"
             )
-        raw_path = sources[0]
-        source_file = _raw_file(raw_path, project_root)
-        if not source_file.is_file():
-            raise ClaimLedgerError(f"raw source not found: {raw_path}")
-        original_sha256 = hashlib.sha256(source_file.read_bytes()).hexdigest()
+        if source_map is None:
+            raw_path = sources[0]
+            source_file = _raw_file(raw_path, project_root)
+            if not source_file.is_file():
+                raise ClaimLedgerError(f"raw source not found: {raw_path}")
+            original_sha256 = hashlib.sha256(source_file.read_bytes()).hexdigest()
         valid_from = _frontmatter_date(
             post.metadata.get("updated") or post.metadata.get("created"), fallback=today
         )
@@ -371,7 +448,27 @@ def build_claim_ledger(
         superseded_claims = [str(value) for value in (post.metadata.get("superseded_claims") or [])]
         gate_status = str(post.metadata.get("gate_status") or "")
 
-        for index, statement in enumerate(_split_claims(post.content), start=1):
+        statements = _split_claims(post.content)
+        page_ids = {f"claim:{slug}-{i}" for i in range(1, len(statements) + 1)}
+        if source_map is not None:
+            for key in source_map:
+                if _CLAIM_ID_RE.fullmatch(_validate_claim_id(key)).group(1) == slug and key not in page_ids:
+                    raise ClaimLedgerError("source map contains a removed claim")
+        for index, statement in enumerate(statements, start=1):
+            claim_id = f"claim:{slug}-{index}"
+            binding = None
+            if source_map is not None:
+                if claim_id not in source_map:
+                    continue
+                selection = validate_source_selection(source_map[claim_id])
+                if selection["claim_id"] != claim_id:
+                    raise ClaimLedgerError("source map key does not match claim_id")
+                raw_path = selection["raw_path"]
+                original_sha256 = selection["raw_sha256"]
+                locator = selection["locator"]
+                binding = _binding_from_mapping(selection["source_binding"])
+            else:
+                locator = _source_locator(raw_path, statement, project_root)
             status = "active"
             if _is_superseded(statement, superseded_claims) or gate_status == "rejected":
                 status = "superseded"
@@ -379,18 +476,24 @@ def build_claim_ledger(
                 status = "stale"
             records.append(
                 ClaimRecord(
-                    claim_id=f"claim:{slug}-{index}",
+                    claim_id=claim_id,
                     statement=statement,
                     kind=_kind(statement),
                     raw_path=raw_path,
                     raw_sha256=original_sha256,
-                    locator=_source_locator(raw_path, statement, project_root),
+                    locator=locator,
                     valid_from=valid_from.isoformat(),
                     valid_until=valid_until.isoformat(),
                     status=status,
                     trust="untrusted" if _is_untrusted_source(raw_path) else "trusted",
+                    source_binding=binding,
                 )
             )
+            if binding is not None:
+                record = records[-1]
+                validate_claim_source_inventory([record], wiki_root=wiki_root)
+                if not _bound_source_matches(record, project_root):
+                    raise ClaimLedgerError("source binding does not match current raw evidence")
     return records
 
 
@@ -409,7 +512,7 @@ def claims_for_slugs(records: Iterable[ClaimRecord], slugs: Iterable[str]) -> li
 def validate_claim_source_inventory(
     records: Iterable[ClaimRecord], *, wiki_root: Path
 ) -> None:
-    """Reject legacy records whose current page no longer has one matching raw source."""
+    """Accept explicit current bindings; keep the legacy single-source boundary."""
     wiki_root = Path(wiki_root)
     invalid_slugs: set[str] = set()
     for record in records:
@@ -419,11 +522,20 @@ def validate_claim_source_inventory(
             invalid_slugs.add(slug)
             continue
         try:
-            post = frontmatter.load(page_path)
+            page_bytes = page_path.read_bytes()
+            post = frontmatter.loads(page_bytes.decode("utf-8"))
         except (OSError, UnicodeError, ValueError, yaml.YAMLError, RecursionError):
             invalid_slugs.add(slug)
             continue
         sources = _normalize_sources(post.metadata.get("sources"))
+        if record.source_binding is not None:
+            statements = _split_claims(post.content)
+            index = int(record.claim_id.rsplit("-", 1)[1]) - 1
+            if (record.raw_path not in sources or
+                    hashlib.sha256(page_bytes).hexdigest() != record.source_binding.page_sha256 or
+                    index >= len(statements) or statements[index] != record.statement):
+                invalid_slugs.add(slug)
+            continue
         if len(sources) != 1:
             invalid_slugs.add(slug)
             continue
@@ -436,6 +548,19 @@ def validate_claim_source_inventory(
             invalid_slugs.add(slug)
     if invalid_slugs:
         raise ClaimSourceInventoryError(invalid_slugs)
+
+
+def _bound_source_matches(record: ClaimRecord, project_root: Path) -> bool:
+    try:
+        source_file = _raw_file(record.raw_path, project_root)
+        data = source_file.read_bytes()
+        if hashlib.sha256(data).hexdigest() != record.raw_sha256:
+            return False
+        line = _binding_line(record.raw_path, record.locator)
+        lines = data.decode("utf-8").splitlines()
+        return line <= len(lines) and record.source_binding.quote in lines[line - 1]
+    except (OSError, UnicodeError, ClaimLedgerError):
+        return False
 
 
 def claim_exclusion_reason(
@@ -463,6 +588,13 @@ def claim_exclusion_reason(
     current_sha256 = hashlib.sha256(source_file.read_bytes()).hexdigest()
     if current_sha256 != record.raw_sha256:
         return "source_hash_mismatch"
+    if record.source_binding is not None:
+        try:
+            validate_claim_source_inventory([record], wiki_root=Path(project_root) / "wiki")
+        except ClaimSourceInventoryError:
+            return "source_binding_mismatch"
+        if not _bound_source_matches(record, project_root):
+            return "source_binding_mismatch"
     if _is_untrusted_source(record.raw_path) or record.trust != "trusted":
         return "untrusted"
     return None

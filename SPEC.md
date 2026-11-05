@@ -954,7 +954,13 @@ markdown 기본, `--json`은 동일 구조. <1s 목표(file-first, 임베딩 없
 `context`와 API query는 읽기 전용이다.
 
 - required provenance: `claim_id`, `statement`, `kind`, `raw_path`, 정확한 64-hex
-  `raw_sha256`, `valid_from`, `valid_until`, `status`, `trust`; `locator`만 optional
+  `raw_sha256`, `valid_from`, `valid_until`, `status`, `trust`; `locator`와 `source_binding`은 optional
+- explicit B1 binding: multi-source page allowed, exactly one selected raw per claim;
+  strict version/page hash/statement hash/exact quote, with raw hash and single-line locator
+- `claims.py propose` is read-only and outputs a private unique-exact-match manifest;
+  explicit `build --source-map` omits unresolved candidates and validates before atomic write.
+  No mapped records preserves the old ledger. Legacy unbound multi-source records stay invalid.
+  Text matching does not establish semantic truth; B2 combined evidence is excluded.
 - allowed status: `active | stale | superseded`; trust: `trusted | untrusted`
 - malformed/partial/unknown-field/duplicate record 하나라도 있으면 API/CLI 전체 fail closed
 - source inventory 오류는 전체 ledger 검증을 유지하면서 affected slug/count와 정확한

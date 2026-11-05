@@ -101,3 +101,28 @@ def test_public_example_matches_synthetic_projection(ontology_project):
     for observation in data['observations']:
         assert not {'user_goal', 'inputs', 'outputs', 'notes'} & observation.keys()
     assert 'PRIVATE PROCEDURE BODY' not in committed
+
+
+def test_bound_multi_source_claims_round_trip_without_losing_evidence(tmp_path):
+    from tests.test_claim_source_binding import mixed_project
+    from lib import claim_ledger, claim_source_map
+    from lib.ontology_projection import validate_bundle_mapping
+    root = mixed_project(tmp_path)
+    proposal = claim_source_map.propose_source_map(['mixed'], wiki_root=root / 'wiki')
+    records = claim_ledger.build_claim_ledger(['mixed'], wiki_root=root / 'wiki',
+        source_map={m['claim_id']: m for m in proposal['mappings']})
+    claim_ledger.write_claims_jsonl(root / 'claims.jsonl', records, project_root=root)
+    bundle = build(root)
+    text = canonical_bundle_json(bundle)
+    ontology = load_ontology_contract(ROOT / 'schema/ontology.yaml')
+    assert canonical_bundle_json(validate_bundle_mapping(json.loads(text), ontology)) == text
+    assert len([r for r in bundle.relations if r.type == 'supports']) == 2
+    bound = next(o for o in bundle.objects if o.id == 'claim:mixed-1')
+    assert bound.attributes['source_binding']['quote'] == 'Alpha fact.'
+    with pytest.raises(TypeError):
+        bound.attributes['source_binding']['quote'] = 'Changed.'
+    damaged = json.loads(text)
+    claim = next(o for o in damaged['objects'] if o['id'] == 'claim:mixed-1')
+    claim['attributes']['source_binding']['unknown'] = 'bad'
+    with pytest.raises(OntologyProjectionError):
+        validate_bundle_mapping(damaged, ontology)

@@ -77,3 +77,23 @@ def test_inventory_recovery_command_runs_read_only_help(ontology_project):
     assert result.returncode == 0, result.stderr
     assert '--slug' in result.stdout
     assert snapshot(ontology_project) == before
+
+
+def test_multi_source_endpoint_explains_each_explicit_source_without_writes(tmp_path):
+    from tests.test_claim_source_binding import mixed_project
+    from lib import claim_ledger, claim_source_map
+    root = mixed_project(tmp_path)
+    proposed = claim_source_map.propose_source_map(['mixed'], wiki_root=root / 'wiki')
+    records = claim_ledger.build_claim_ledger(['mixed'], wiki_root=root / 'wiki',
+        source_map={m['claim_id']: m for m in proposed['mappings']})
+    claim_ledger.write_claims_jsonl(root / 'claims.jsonl', records, project_root=root)
+    before = snapshot(root)
+    client = TestClient(create_app(wiki_root=root / 'wiki'))
+    response = client.get('/api/ontology/page/mixed')
+    assert response.status_code == 200
+    data = response.json()
+    claims = [o for o in data['objects'] if o['type'] == 'claim']
+    assert {o['attributes']['raw_path'] for o in claims} == {'raw/notes/alpha.md', 'raw/captures/beta.md'}
+    assert {o['attributes']['trust'] for o in claims} == {'trusted', 'untrusted'}
+    assert all('source_binding' in o['attributes'] for o in claims)
+    assert snapshot(root) == before
