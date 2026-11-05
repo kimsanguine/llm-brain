@@ -30,13 +30,18 @@ binding 없는 legacy 원장도 현재 wiki source inventory와 다시 대조합
 정확히 하나의 유효한 `raw/**` source를 갖지 않거나 `raw_path`가 그 sole source와 다르면
 원장 전체를 거부하며 자동 migration/rewrite하지 않습니다.
 이 inventory 오류는 민감한 statement/raw 경로를 출력하지 않고 영향받은 page slug/count와
-정확한 복구 명령 `uv run python scripts/claims.py build`만 표시합니다.
-원장 생성·갱신은 query와 분리된 명시적 write action입니다:
+읽기 전용 도움말 명령 `uv run python scripts/claims.py build --help`를 표시합니다.
+원장 생성과 갱신은 query와 분리해 사용자가 요청한 범위에서만 실행합니다.
+`build`는 지정한 slug에서 만든 record로 `claims.jsonl` 전체를 교체합니다.
+현재 질문에서 고른 최대 5개 페이지만 입력하면 다른 페이지의 기존 record는 남지 않습니다.
+먼저 원장에 유지할 전체 slug를 확정하세요. B1을 사용하면 유지할 claim이 source-map의
+`mappings`에도 있어야 합니다. 미해결 후보와 map에 없는 claim은 새 원장에 포함되지 않습니다.
+다음 예시의 slug에는 질문의 검색 결과가 아니라 원장에 유지할 전체 페이지를 지정합니다:
 
 ```bash
 uv run python scripts/claims.py build \
   --wiki-root wiki --ledger claims.jsonl \
-  --slug <첫_slug> --slug <다음_slug>
+  --slug <유지할_첫_slug> --slug <유지할_다음_slug>
 ```
 
 자동 build는 여러 source의 statement 귀속을 추측하지 않습니다. 페이지 `sources`가

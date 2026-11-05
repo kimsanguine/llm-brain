@@ -149,7 +149,7 @@ def _build_claim_prompt(question: str, context: str) -> str:
 
 
 def _rebuild_action() -> dict[str, str]:
-    return {"command": claim_ledger.CLAIM_REBUILD_COMMAND}
+    return {"command": claim_ledger.CLAIM_RECOVERY_HELP}
 
 
 def _claim_ledger_error_payload(exc: claim_ledger.ClaimLedgerError) -> dict[str, object]:
@@ -159,7 +159,7 @@ def _claim_ledger_error_payload(exc: claim_ledger.ClaimLedgerError) -> dict[str,
             {
                 "message": (
                     f"claim ledger invalid: {exc}. Rebuild with: "
-                    f"{claim_ledger.CLAIM_REBUILD_COMMAND}"
+                    f"{claim_ledger.CLAIM_RECOVERY_HELP}"
                 ),
                 "affected_slugs": list(exc.affected_slugs),
                 "affected_count": len(exc.affected_slugs),

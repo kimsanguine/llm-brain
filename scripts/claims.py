@@ -69,7 +69,7 @@ def main(argv: list[str] | None = None) -> int:
     except claim_ledger.ClaimSourceInventoryError as exc:
         print(
             f"claim ledger invalid: {exc}. Rebuild with: "
-            f"{claim_ledger.CLAIM_REBUILD_COMMAND}",
+            f"{claim_ledger.CLAIM_RECOVERY_HELP}",
             file=sys.stderr,
         )
         return 2

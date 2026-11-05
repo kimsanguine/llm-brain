@@ -549,7 +549,7 @@ function renderOntologyExplanation(panel, data) {
     addText(item, "code", `${claim.id} · ${claim.attributes.status} / ${claim.attributes.trust}`);
     for (const relation of data.relations.filter(r => r.type === "supports" && r.to_id === claim.id)) {
       const source = objects.get(relation.from_id);
-      if (source) addText(item, "p", `${source.attributes.relative_path} · ${source.attributes.sha256.slice(0, 12)}`, "ontology-source");
+      if (source) addText(item, "p", `${claim.attributes.raw_path} · ${source.attributes.sha256.slice(0, 12)}`, "ontology-source");
     }
   }
   const linkedIds = new Set([...data.incoming, ...data.outgoing]

@@ -18,7 +18,7 @@ from lib import claim_ledger
 from lib.ontology_contract import OntologyContract, ActionCatalog, ActionTypeSpec
 
 
-CLAIM_RECOVERY_HELP = claim_ledger.CLAIM_REBUILD_COMMAND + ' --help'
+CLAIM_RECOVERY_HELP = claim_ledger.CLAIM_RECOVERY_HELP
 
 
 class OntologyProjectionError(ValueError):
@@ -35,6 +35,8 @@ class OntologyObject:
         attributes = dict(self.attributes)
         if 'source_binding' in attributes:
             attributes['source_binding'] = dict(attributes['source_binding'])
+        if 'relative_paths' in attributes:
+            attributes['relative_paths'] = list(attributes['relative_paths'])
         return {'id': self.id, 'type': self.type, 'attributes': attributes}
 
 
@@ -187,9 +189,17 @@ def build_private_bundle(project_root: Path, ontology: OntologyContract, actions
     except claim_ledger.ClaimLedgerError as exc:
         raise OntologyProjectionError('ontology inventory invalid; recovery: ' + CLAIM_RECOVERY_HELP) from exc
 
+    source_paths = {}
+    for record in records:
+        source_paths.setdefault(record.raw_sha256, set()).add(record.raw_path)
+    for sha, paths in sorted(source_paths.items()):
+        paths = tuple(sorted(paths))
+        attrs = dict(sha256=sha, relative_path=paths[0])
+        if len(paths) > 1:
+            attrs['relative_paths'] = paths
+        add('source:' + sha, 'source', attrs)
     for record in records:
         source_id = 'source:' + record.raw_sha256
-        add(source_id, 'source', dict(sha256=record.raw_sha256, relative_path=record.raw_path))
         attrs = record.to_mapping()
         attrs.pop('claim_id')
         add(record.claim_id, 'claim', attrs)
@@ -282,7 +292,7 @@ def validate_bundle_mapping(data, ontology: OntologyContract) -> OntologyBundle:
         raise OntologyProjectionError('unsupported bundle schema version')
     specs = {spec.id: spec for spec in ontology.object_types}
     allowed = {
-        'source': {'sha256', 'relative_path'},
+        'source': {'sha256', 'relative_path', 'relative_paths'},
         'claim': {'statement', 'kind', 'status', 'trust', 'valid_from', 'valid_until', 'raw_path', 'raw_sha256', 'locator', 'source_binding'},
         'knowledge_page': {'slug', 'title', 'scope', 'owner', 'updated'},
         'procedure': {'slug', 'title', 'version'},
@@ -297,12 +307,17 @@ def validate_bundle_mapping(data, ontology: OntologyContract) -> OntologyBundle:
             raise OntologyProjectionError('unknown object type')
         _strict_keys(attrs, specs[kind].required_attributes, allowed[kind] - set(specs[kind].required_attributes))
         for key, value in attrs.items():
-            if kind != 'claim' or key != 'source_binding':
+            if (kind, key) not in {('claim', 'source_binding'), ('source', 'relative_paths')}:
                 _string(value)
         if kind == 'source':
             if re.fullmatch('[0-9a-f]{64}', attrs['sha256']) is None or object_id != 'source:' + attrs['sha256']:
                 raise OntologyProjectionError('invalid source identity')
             safe_relative_path(attrs['relative_path'], prefix='raw')
+            if 'relative_paths' in attrs:
+                paths = tuple(safe_relative_path(path, prefix='raw') for path in _sequence(attrs['relative_paths']))
+                if len(paths) < 2 or paths != tuple(sorted(set(paths))) or attrs['relative_path'] != paths[0]:
+                    raise OntologyProjectionError('invalid source path aliases')
+                attrs = dict(attrs, relative_paths=paths)
         elif kind == 'claim':
             try:
                 record = claim_ledger.ClaimRecord(claim_id=object_id, locator=attrs.get('locator'), **{k: v for k, v in attrs.items() if k != 'locator'})
@@ -371,7 +386,7 @@ def validate_bundle_mapping(data, ontology: OntologyContract) -> OntologyBundle:
             raise OntologyProjectionError('invalid relation endpoints')
         if spec.id == 'supports' and (
             left.attributes['sha256'] != right.attributes['raw_sha256']
-            or left.attributes['relative_path'] != right.attributes['raw_path']
+            or right.attributes['raw_path'] not in left.attributes.get('relative_paths', (left.attributes['relative_path'],))
         ):
             raise OntologyProjectionError('source relation disagrees with claim provenance')
         if spec.id == 'compiled_into' and right.id != left.id.rsplit('-', 1)[0].replace('claim:', 'page:', 1):

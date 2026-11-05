@@ -964,7 +964,7 @@ markdown 기본, `--json`은 동일 구조. <1s 목표(file-first, 임베딩 없
 - allowed status: `active | stale | superseded`; trust: `trusted | untrusted`
 - malformed/partial/unknown-field/duplicate record 하나라도 있으면 API/CLI 전체 fail closed
 - source inventory 오류는 전체 ledger 검증을 유지하면서 affected slug/count와 정확한
-  `uv run python scripts/claims.py build` 복구 명령만 노출하고 statement/raw path는 숨김
+  읽기 전용 `uv run python scripts/claims.py build --help`만 노출하고 statement/raw path는 숨김
 - trusted query/citation: `active + trusted + current validity + current raw hash match`만 허용
 - stale와 raw mutation은 각각 `stale`, `source_hash_mismatch`로 구분해 제외
 - 외부 capture statement는 single-line canonical JSON data로 격리하고 명령/인용 불허
@@ -1100,11 +1100,17 @@ Promotion Gates, trusted-claim checks and the OKF share gate retain their existi
 
 | Object | ID | Projected attributes |
 |---|---|---|
-| source | source:<sha256> | sha256, relative_path |
+| source | source:<sha256> | sha256, relative_path; optional relative_paths for identical bytes at multiple paths |
 | claim | existing claim:<slug>-<positive-integer> | validated ClaimRecord fields |
 | knowledge_page | page:<slug> | slug, title, scope; optional owner/updated |
 | procedure | procedure:<slug> | slug, title; optional version |
 | artifact | artifact:<relative-path-sha256-prefix> | relative_path, artifact_type |
+
+Identical raw bytes at multiple declared paths share one source identity. Only
+in that case, `relative_paths` contains all paths in sorted unique order and
+`relative_path` is its first entry. Each claim retains its selected raw_path and
+trust; `supports` validates membership. The Wiki shows that selected claim path.
+Single-path source objects and the public example retain their serialized form.
 
 `supports` joins source→claim; `compiled_into` joins claim→knowledge_page;
 `links_to` joins existing knowledge pages. `derived_from` joins artifact→page

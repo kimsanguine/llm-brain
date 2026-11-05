@@ -27,6 +27,7 @@ _INFERENCE_MARKERS = ("아마", "추정", "가능성", "보인다", "might", "ma
 _UNTRUSTED_DIR_MARKERS = ("/newsletters/", "/clippings/", "/captures/")
 ABSTENTION_RESPONSE = "관련 정보 없음"
 CLAIM_REBUILD_COMMAND = "uv run python scripts/claims.py build"
+CLAIM_RECOVERY_HELP = CLAIM_REBUILD_COMMAND + " --help"
 _VALIDITY_WINDOW_DAYS = 180
 _KINDS = frozenset({"fact", "inference", "opinion"})
 _STATUSES = frozenset({"active", "stale", "superseded"})

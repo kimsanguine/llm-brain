@@ -306,7 +306,7 @@ v0.4 P0부터는 persisted `claims.jsonl`의 `active + trusted` claim 중 원래
 `raw/newsletters/**`·`raw/clippings/**` 같은 외부 capture는 명령으로 해석할 수 없는
 data-only JSON payload로 격리되며 인용할 수 없다.
 source inventory가 persisted ledger와 다르면 전체 query를 막고, 민감한 statement/raw
-경로 대신 영향받은 page slug 수와 `uv run python scripts/claims.py build` 복구 명령만
+경로 대신 영향받은 page slug 수와 읽기 전용 `uv run python scripts/claims.py build --help`만
 표시한다. usable trusted claim이 없으면 성공(`done`)이 아닌 `abstained`와 정확히
 `관련 정보 없음`을 LLM 호출 없이 결정적으로 반환하며, 안전한 제외 사유별 건수와
 다음 행동 하나를 제공한다. SSE도 LLM stream을 시작하지 않고 meta → abstention chunk

@@ -1165,10 +1165,29 @@ def test_ai_answer_returns_abstained_with_safe_exclusion_summary(tmp_path, monke
     assert data["sources"] == []
     assert data["exclusion_reason_counts"] == {"untrusted": 1}
     assert data["recommended_next_action"] == {
-        "command": "uv run python scripts/claims.py build"
+        "command": "uv run python scripts/claims.py build --help"
     }
     assert "Beta external capture" not in json.dumps(data, ensure_ascii=False)
     assert "raw/newsletters" not in json.dumps(data, ensure_ascii=False)
+
+
+def test_recommended_claim_recovery_is_runnable_read_only_help(tmp_path):
+    import shlex
+    import subprocess
+    import sys
+    project_root, wiki_root = _make_stream_claim_project(tmp_path)
+    local_client = TestClient(create_app(wiki_root=wiki_root))
+    response = local_client.post('/api/ai-answer', json={
+        'question': '외부 캡처 내용?', 'context_slugs': ['beta']})
+    assert response.json()['status'] == 'abstained'
+    command = shlex.split(response.json()['recommended_next_action']['command'])
+    before = {p.relative_to(project_root): p.read_bytes() for p in project_root.rglob('*') if p.is_file()}
+    repo_root = Path(__file__).resolve().parents[1]
+    result = subprocess.run([sys.executable, '-B', str(repo_root / command[3]), *command[4:]],
+                            cwd=project_root, capture_output=True, text=True)
+    assert result.returncode == 0, result.stderr
+    assert '--slug' in result.stdout and '--source-map' in result.stdout
+    assert before == {p.relative_to(project_root): p.read_bytes() for p in project_root.rglob('*') if p.is_file()}
 
 
 def test_ai_answer_zero_usable_claims_skips_llm_and_records_abstention(
@@ -1199,7 +1218,7 @@ def test_ai_answer_zero_usable_claims_skips_llm_and_records_abstention(
     assert data["sources"] == []
     assert data["exclusion_reason_counts"] == {"untrusted": 1}
     assert data["recommended_next_action"] == {
-        "command": "uv run python scripts/claims.py build"
+        "command": "uv run python scripts/claims.py build --help"
     }
     assert len(captured_episodes) == 1
     assert captured_episodes[0]["outputs"] == {"answer_status": "abstained"}
@@ -1225,7 +1244,7 @@ def test_ai_answer_stream_abstention_matches_nonstream_contract(tmp_path, monkey
     assert '"delivery_mode": "verified-buffered"' in body
     assert '"source_slugs": []' in body
     assert '"exclusion_reason_counts": {"untrusted": 1}' in body
-    assert '"recommended_next_action": {"command": "uv run python scripts/claims.py build"}' in body
+    assert '"recommended_next_action": {"command": "uv run python scripts/claims.py build --help"}' in body
     assert 'event: chunk\ndata: {"text": "관련 정보 없음"}' in body
     assert 'event: done\ndata: {"status": "abstained"}' in body
     assert "raw/newsletters" not in body

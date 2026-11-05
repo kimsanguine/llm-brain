@@ -126,3 +126,50 @@ def test_bound_multi_source_claims_round_trip_without_losing_evidence(tmp_path):
     claim['attributes']['source_binding']['unknown'] = 'bad'
     with pytest.raises(OntologyProjectionError):
         validate_bundle_mapping(damaged, ontology)
+
+
+def alias_project(root):
+    from lib import claim_ledger
+    alias = root / 'raw/captures/copy.md'
+    alias.parent.mkdir(parents=True)
+    alias.write_bytes((root / 'raw/notes/alpha.md').read_bytes())
+    (root / 'wiki/concepts/beta.md').write_text(
+        '---\ntitle: Beta\nsources: [raw/captures/copy.md]\nupdated: 2026-01-01\n---\n'
+        'Alpha is a synthetic knowledge example.\n')
+    records = claim_ledger.build_claim_ledger(['alpha', 'beta'], wiki_root=root / 'wiki')
+    claim_ledger.write_claims_jsonl(root / 'claims.jsonl', records, project_root=root)
+    return root
+
+
+def test_identical_raw_bytes_at_two_paths_share_identity_and_keep_each_claim_path(ontology_project):
+    from lib.ontology_projection import validate_bundle_mapping
+    root = alias_project(ontology_project)
+    bundle = build(root)
+    sources = [o for o in bundle.objects if o.type == 'source']
+    assert len(sources) == 1
+    assert sources[0].attributes['relative_path'] == 'raw/captures/copy.md'
+    assert sources[0].attributes['relative_paths'] == ('raw/captures/copy.md', 'raw/notes/alpha.md')
+    claims = {o.id: o for o in bundle.objects if o.type == 'claim'}
+    assert claims['claim:alpha-1'].attributes['raw_path'] == 'raw/notes/alpha.md'
+    assert claims['claim:alpha-1'].attributes['trust'] == 'trusted'
+    assert claims['claim:beta-1'].attributes['trust'] == 'untrusted'
+    text = canonical_bundle_json(bundle)
+    ontology = load_ontology_contract(ROOT / 'schema/ontology.yaml')
+    assert canonical_bundle_json(validate_bundle_mapping(json.loads(text), ontology)) == text
+    assert len([r for r in bundle.relations if r.type == 'supports']) == 2
+
+
+@pytest.mark.parametrize('paths', [[], ['raw/notes/alpha.md'],
+    ['raw/notes/alpha.md', 'raw/captures/copy.md'],
+    ['raw/captures/copy.md', 'raw/captures/copy.md'],
+    ['raw/../secret', 'raw/notes/alpha.md'], 'raw/notes/alpha.md'])
+def test_saved_source_aliases_are_strict_even_with_recomputed_fingerprint(ontology_project, paths):
+    from lib.ontology_projection import validate_bundle_mapping
+    data = json.loads(canonical_bundle_json(build(alias_project(ontology_project))))
+    source = next(o for o in data['objects'] if o['type'] == 'source')
+    source['attributes']['relative_paths'] = paths
+    payload = {key: data[key] for key in ('objects', 'relations', 'action_types', 'observations')}
+    data['source_fingerprint'] = hashlib.sha256(json.dumps(payload, ensure_ascii=False,
+        sort_keys=True, separators=(',', ':')).encode()).hexdigest()
+    with pytest.raises(OntologyProjectionError):
+        validate_bundle_mapping(data, load_ontology_contract(ROOT / 'schema/ontology.yaml'))
