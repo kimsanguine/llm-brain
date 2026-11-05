@@ -1,0 +1,32 @@
+schema_version: llm-brain-actions/0.1
+actions:
+  - id: ingest
+    mode: write
+    inputs: [source]
+    outputs: [claim, knowledge_page]
+    approval: explicit_invocation
+    evidence: [episode]
+  - id: curate
+    mode: write
+    inputs: [claim, knowledge_page]
+    outputs: [knowledge_page]
+    approval: explicit_invocation
+    evidence: [gate_decision, episode]
+  - id: query
+    mode: read
+    inputs: [claim, knowledge_page]
+    outputs: []
+    approval: none
+    evidence: [claim_citation]
+  - id: express
+    mode: write
+    inputs: [claim, knowledge_page, procedure]
+    outputs: [artifact]
+    approval: explicit_invocation
+    evidence: [claim_citation, episode]
+  - id: share
+    mode: publish
+    inputs: [knowledge_page]
+    outputs: [artifact]
+    approval: exact_share_phrase
+    evidence: [share_manifest]

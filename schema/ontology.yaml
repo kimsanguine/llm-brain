@@ -1,0 +1,28 @@
+schema_version: llm-brain-ontology/0.1
+object_types:
+  - id: source
+    required_attributes: [sha256, relative_path]
+  - id: claim
+    required_attributes: [statement, kind, status, trust, valid_from, valid_until]
+  - id: knowledge_page
+    required_attributes: [slug, title, scope]
+  - id: procedure
+    required_attributes: [slug, title]
+  - id: artifact
+    required_attributes: [relative_path, artifact_type]
+relation_types:
+  - id: supports
+    from_type: source
+    to_type: claim
+  - id: compiled_into
+    from_type: claim
+    to_type: knowledge_page
+  - id: links_to
+    from_type: knowledge_page
+    to_type: knowledge_page
+  - id: guided_by
+    from_type: artifact
+    to_type: procedure
+  - id: derived_from
+    from_type: artifact
+    to_type: knowledge_page
