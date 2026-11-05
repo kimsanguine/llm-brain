@@ -1,4 +1,4 @@
-"""FastAPI app — 6 endpoints + static mount."""
+"""FastAPI app — 7 endpoints + static mount."""
 from __future__ import annotations
 
 import asyncio
@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Annotated
 
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import StreamingResponse
+from fastapi.responses import StreamingResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import AfterValidator, BaseModel, Field
 
@@ -33,6 +33,8 @@ except Exception:  # pragma: no cover — 방어적: episode 부재 시 기록�
 # LLM 엔진 추상화 (cli|api 분기). subprocess 수명 관리도 여기로 이관됐다.
 from lib import llm_client  # noqa: E402
 from lib import claim_ledger  # noqa: E402
+from lib.ontology_contract import load_ontology_contract, load_action_catalog, OntologyContractError
+from lib.ontology_projection import build_private_bundle, explain_object, OntologyProjectionError
 from lib.llm_client import (  # noqa: E402,F401  process 수명 훅 re-export
     LLMError,             # stream 핸들러가 cli 비정상 종료를 event: error 로 표면화
     _kill_process_group,  # 기존 테스트 훅 유지 (api_module._kill_process_group)
@@ -283,6 +285,29 @@ def create_app(wiki_root: Path | None = None) -> FastAPI:
             "neighbors": neighbors,
             "edges": edges,
         }
+
+    @app.get("/api/ontology/page/{slug:path}")
+    def api_page_ontology(slug: str):
+        try:
+            _validate_slug(slug)
+            if len(slug) > 128:
+                raise ValueError('slug too long')
+        except ValueError:
+            raise HTTPException(status_code=422, detail="invalid page slug")
+        try:
+            pages.find_page_path(slug, wiki_root=wiki_root)
+        except pages.PageNotFound:
+            raise HTTPException(status_code=404, detail="ontology object not found")
+        try:
+            contract = load_ontology_contract(_REPO_ROOT / "schema/ontology.yaml")
+            actions = load_action_catalog(_REPO_ROOT / "schema/actions.yaml", contract)
+            bundle = build_private_bundle(wiki_root.parent, contract, actions)
+            return explain_object(bundle, "page:" + slug).to_mapping()
+        except (OntologyContractError, OntologyProjectionError, OSError, UnicodeError, ValueError, TypeError, RecursionError):
+            return JSONResponse(status_code=409, content={
+                "detail": "ontology inventory invalid",
+                "recovery": claim_ledger.CLAIM_REBUILD_COMMAND,
+            })
 
     @app.get("/api/page/{slug:path}")
     def api_page(slug: str):

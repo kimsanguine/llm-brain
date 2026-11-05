@@ -239,3 +239,26 @@ html, body {
   display: inline-block; width: 8px; height: 8px; border-radius: 50%;
   margin-right: 4px; vertical-align: middle;
 }
+
+/* Local provenance explanation */
+.ontology-tools { margin: 18px 0 24px; }
+#ontology-explain-toggle, .ontology-links button {
+  font: inherit; font-size: 13px; color: #2455a4; background: #f3f7fc;
+  border: 1px solid #d8e3f2; padding: 8px 12px; border-radius: 8px; cursor: pointer;
+}
+#ontology-explain-toggle:focus-visible, .ontology-links button:focus-visible { outline: 2px solid #2563eb; outline-offset: 3px; }
+#ontology-explain-panel { margin-top: 12px; padding: 20px; border: 1px solid #e0e7ef; border-radius: 12px; background: #fafcfe; font-size: 13px; line-height: 1.65; overflow-wrap: anywhere; }
+#ontology-explain-panel[hidden] { display: none; }
+#ontology-explain-panel h2 { font-size: 15px; margin-bottom: 8px; }
+#ontology-explain-panel h3 { font-size: 13px; margin-top: 16px; }
+.ontology-counts { display: flex; flex-wrap: wrap; gap: 6px; margin: 12px 0 8px; }
+.ontology-counts span { border: 1px solid #e1e8f0; padding: 2px 7px; border-radius: 5px; background: white; }
+.ontology-caption, .ontology-empty { color: #697587; font-size: 12px; }
+.ontology-chain { padding-left: 20px; margin-top: 14px; }
+.ontology-chain li { padding: 8px 0; }
+.ontology-chain code, .ontology-source { color: #52647b; font-size: 12px; }
+.ontology-links { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
+@media (max-width: 640px) {
+  #ontology-explain-panel { padding: 14px; }
+  #ontology-explain-panel h2 { font-size: 14px; }
+}

@@ -246,6 +246,16 @@ function renderPage() {
     });
   }
 
+  const ontologyTools = $("#ontology-explain-template").content.cloneNode(true);
+  els.pageView.querySelector(".page-content").before(ontologyTools);
+  const explainToggle = $("#ontology-explain-toggle");
+  const explainPanel = $("#ontology-explain-panel");
+  explainToggle.addEventListener("click", () => {
+    explainPanel.hidden = !explainPanel.hidden;
+    explainToggle.setAttribute("aria-expanded", String(!explainPanel.hidden));
+    if (!explainPanel.hidden) loadOntologyExplanation(p.slug, explainPanel);
+  });
+
   // mini-graph fetch + render
   fetchAndRenderMiniGraph(p.slug);
 }
@@ -484,3 +494,86 @@ function ensureAiModal() {
 }
 
 init();
+
+// --- 지식의 근거 설명 ---
+async function loadOntologyExplanation(slug, panel) {
+  panel.textContent = "근거를 확인하는 중…";
+  try {
+    const response = await fetch(`/api/ontology/page/${encodeURIComponent(slug)}`);
+    const data = await response.json();
+    if (!panel.isConnected || state.selectedSlug !== slug) return;
+    if (!response.ok) {
+      panel.textContent = response.status === 409
+        ? "검증 주장 목록을 점검해 주세요."
+        : "근거 설명을 불러올 수 없습니다.";
+      if (response.status === 409 && data.recovery === "uv run python scripts/claims.py build") {
+        const recovery = document.createElement("code");
+        recovery.textContent = data.recovery;
+        panel.append(document.createElement("br"), recovery);
+      }
+      return;
+    }
+    renderOntologyExplanation(panel, data);
+  } catch (error) {
+    if (panel.isConnected && state.selectedSlug === slug) panel.textContent = "근거 설명을 불러올 수 없습니다. 다시 열어 주세요.";
+  }
+}
+
+function renderOntologyExplanation(panel, data) {
+  panel.replaceChildren();
+  const addText = (parent, tag, text, className = "") => {
+    const node = document.createElement(tag);
+    node.textContent = text;
+    if (className) node.className = className;
+    parent.append(node);
+    return node;
+  };
+  addText(panel, "h2", "출처 → 주장 → 지식 페이지 → 활용 결과");
+  const page = data.focus.attributes;
+  addText(panel, "p", `${page.title} · ${page.scope === "private" ? "비공개" : "공유 가능 범위"}`);
+  const counts = data.claim_counts;
+  const summary = addText(panel, "div", "", "ontology-counts");
+  for (const [key, label] of [["active", "active"], ["trusted", "trusted"], ["stale", "stale"], ["superseded", "superseded"], ["untrusted", "untrusted"]]) {
+    addText(summary, "span", `${label} ${counts[key] || 0}`);
+  }
+  addText(panel, "p", "저장된 주장의 상태와 신뢰도입니다. 답변에 사용할 때는 출처 변경과 유효기간을 다시 검증합니다.", "ontology-caption");
+  const objects = new Map(data.objects.map(object => [object.id, object]));
+  const claims = data.incoming.filter(step => step.relation === "compiled_into");
+  if (!claims.length) addText(panel, "p", "연결된 검증 주장이 없습니다.", "ontology-empty");
+  const list = addText(panel, "ol", "", "ontology-chain");
+  for (const step of claims) {
+    const claim = objects.get(step.object_id);
+    if (!claim) continue;
+    const item = addText(list, "li", "");
+    addText(item, "p", claim.attributes.statement);
+    addText(item, "code", `${claim.id} · ${claim.attributes.status} / ${claim.attributes.trust}`);
+    for (const relation of data.relations.filter(r => r.type === "supports" && r.to_id === claim.id)) {
+      const source = objects.get(relation.from_id);
+      if (source) addText(item, "p", `${source.attributes.relative_path} · ${source.attributes.sha256.slice(0, 12)}`, "ontology-source");
+    }
+  }
+  const linkedIds = new Set([...data.incoming, ...data.outgoing]
+    .filter(step => step.relation === "links_to").map(step => step.object_id));
+  if (linkedIds.size) {
+    addText(panel, "h3", "연결된 지식");
+    const links = addText(panel, "div", "", "ontology-links");
+    for (const id of linkedIds) {
+      const linked = objects.get(id);
+      if (!linked) continue;
+      const button = addText(links, "button", linked.attributes.title);
+      button.type = "button";
+      button.addEventListener("click", () => selectPage(linked.attributes.slug));
+    }
+  }
+  const artifacts = data.incoming.filter(step => step.relation === "derived_from");
+  addText(panel, "h3", "활용 결과");
+  if (!artifacts.length) addText(panel, "p", "연결된 결과물이 없습니다.", "ontology-empty");
+  for (const step of artifacts) {
+    const artifact = objects.get(step.object_id);
+    if (artifact) addText(panel, "p", artifact.attributes.relative_path, "ontology-source");
+    for (const relation of data.relations.filter(r => r.type === "guided_by" && r.from_id === step.object_id)) {
+      const procedure = objects.get(relation.to_id);
+      if (procedure) addText(panel, "p", `사용한 절차: ${procedure.attributes.title}`);
+    }
+  }
+}
