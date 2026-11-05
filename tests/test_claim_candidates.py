@@ -21,6 +21,10 @@ def classify(body):
     'Accuracy: 90%',
     'The source is [Alpha](https://example.invalid/alpha).',
     '#not-a-markdown-heading',
+    '|x|',
+    '|x| = |y|',
+    '| x | = | y |',
+    '| Name | Value |',
 ])
 def test_normal_text_is_retained_unchanged_without_semantic_certification(statement):
     result = classify(statement)
@@ -30,7 +34,6 @@ def test_normal_text_is_retained_unchanged_without_semantic_certification(statem
 
 @pytest.mark.parametrize(('statement', 'kind'), [
     ('## Heading', 'heading'),
-    ('| Name | Value |', 'table'),
     ('| --- | :---: |', 'table'),
     ('---', 'separator'),
     ('* * *', 'separator'),

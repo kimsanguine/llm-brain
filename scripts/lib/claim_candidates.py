@@ -29,8 +29,6 @@ def _fragment_kind(text: str) -> str:
         return "heading"
     if _SEPARATOR_RE.fullmatch(text):
         return "separator"
-    if text.startswith("|") and text.endswith("|") and len(text) > 1:
-        return "table"
     fragment = _BULLET_RE.sub("", text, count=1)
     if (_METADATA_RE.fullmatch(fragment) or _LINK_DEFINITION_RE.fullmatch(fragment)
             or (fragment.startswith("<!--") and fragment.endswith("-->"))):
