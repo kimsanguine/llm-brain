@@ -25,6 +25,8 @@ _LINK_DEFINITION_RE = re.compile(r"\[[^\]\n]+\]:\s*\S+.*")
 
 def _fragment_kind(text: str) -> str:
     text = text.strip()
+    if re.fullmatch(r'\d+[.)]', text):
+        return 'list_marker'
     if _HEADING_RE.match(text):
         return "heading"
     if _SEPARATOR_RE.fullmatch(text):

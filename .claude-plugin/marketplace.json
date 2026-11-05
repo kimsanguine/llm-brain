@@ -10,7 +10,7 @@
       "name": "llm-brain",
       "source": "./",
       "description": "Personal Knowledge Ontology: raw/wiki/claims 기반 지식과 근거를 설명하는 로컬 projection. ingest, curate, express, query, okf, ontology, doctor, wikiweb 명령.",
-      "version": "0.4.1"
+      "version": "0.4.2"
     }
   ]
 }

@@ -16,14 +16,23 @@ WIKI_ROOT = Path(__file__).parent.parent / "wiki"
 
 
 @pytest.fixture(scope="module")
-def client():
+def client(tmp_path_factory):
+    project_root = tmp_path_factory.mktemp("api-unit-project")
+    wiki_root = project_root / "wiki"
+    wiki_root.mkdir()
+    return TestClient(create_app(wiki_root=wiki_root))
+
+
+@pytest.fixture(scope="module")
+def user_client():
+    """Read-only GET tests for an explicitly available personal wiki."""
     app = create_app(wiki_root=WIKI_ROOT)
     return TestClient(app)
 
 
 @pytest.mark.requires_user_wiki
-def test_api_index_returns_metadata(client):
-    r = client.get("/api/index")
+def test_api_index_returns_metadata(user_client):
+    r = user_client.get("/api/index")
     assert r.status_code == 200
     data = r.json()
     assert data["total_pages"] >= 40
@@ -31,8 +40,8 @@ def test_api_index_returns_metadata(client):
 
 
 @pytest.mark.requires_user_wiki
-def test_api_search_returns_results(client):
-    r = client.get("/api/search", params={"q": "habix"})
+def test_api_search_returns_results(user_client):
+    r = user_client.get("/api/search", params={"q": "habix"})
     assert r.status_code == 200
     data = r.json()
     assert data["query"] == "habix"
@@ -48,8 +57,8 @@ def test_api_search_empty_query(client):
 
 
 @pytest.mark.requires_user_wiki
-def test_api_page_returns_html_and_metadata(client):
-    r = client.get("/api/page/habix-profile")
+def test_api_page_returns_html_and_metadata(user_client):
+    r = user_client.get("/api/page/habix-profile")
     assert r.status_code == 200
     data = r.json()
     assert data["slug"] == "habix-profile"
@@ -64,22 +73,59 @@ def test_api_page_unknown_slug_404(client):
     assert r.status_code == 404
 
 
-def test_api_ai_answer_contract(client):
-    """AI endpoint의 응답 contract만 검증 (실제 LLM 응답은 환경별).
+def test_api_ai_answer_contract(client, monkeypatch):
+    """An empty unit project abstains without calling a provider in every environment."""
+    provider_calls = []
 
-    Local (claude CLI 있음) → status=done + answer 비어있지 않음 (10-30s)
-    CI    (claude CLI 없음) → status=unavailable (즉시)
-    """
+    async def forbidden_provider(*args, **kwargs):
+        provider_calls.append(True)
+        pytest.fail("empty unit project must not invoke a provider")
+
+    monkeypatch.setattr(api_module.llm_client, "call_llm", forbidden_provider)
     r = client.post("/api/ai-answer", json={
         "question": "ping",
         "context_slugs": [],
     })
     assert r.status_code == 200
     data = r.json()
-    assert data["status"] in ("done", "abstained", "unavailable", "timeout", "error")
-    assert "answer" in data
-    assert "sources" in data
+    assert data["status"] == "abstained"
+    assert data["answer"] == "관련 정보 없음"
+    assert data["sources"] == []
     assert data["question"] == "ping"
+    assert provider_calls == []
+
+
+def test_unit_client_ignores_user_claim_ledger(client, monkeypatch, tmp_path_factory):
+    user_ledger = WIKI_ROOT.parent / "claims.jsonl"
+    real_exists = Path.exists
+    real_read = api_module.claim_ledger.read_claims_jsonl
+    episode_paths = []
+
+    def ledger_exists(path):
+        return path == user_ledger or real_exists(path)
+
+    def read_ledger(path):
+        if path == user_ledger:
+            raise api_module.claim_ledger.ClaimLedgerError("synthetic user ledger")
+        return real_read(path)
+
+    async def forbidden_provider(*args, **kwargs):
+        pytest.fail("unit client without evidence must not invoke a provider")
+
+    monkeypatch.setattr(Path, "exists", ledger_exists)
+    monkeypatch.setattr(api_module.claim_ledger, "read_claims_jsonl", read_ledger)
+    monkeypatch.setattr(api_module.llm_client, "call_llm", forbidden_provider)
+    monkeypatch.setattr(
+        api_module.episode, "append",
+        lambda record, *, episodes_dir: episode_paths.append(episodes_dir),
+    )
+    response = client.post("/api/ai-answer", json={"question": "ping", "context_slugs": []})
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "abstained"
+    assert response.json()["sources"] == []
+    assert len(episode_paths) == 1
+    assert episode_paths[0].is_relative_to(tmp_path_factory.getbasetemp())
 
 
 # ---------------------------------------------------------------------------
@@ -676,16 +722,24 @@ def test_ai_answer_rejects_oversized_slug(client):
     assert r.status_code == 422
 
 
-def test_ai_answer_accepts_valid_slug_pattern(client, patched_subprocess):
+def test_ai_answer_accepts_valid_slug_pattern(client, monkeypatch):
     """정상 slug(소문자-하이픈-숫자, 한글 포함)은 통과해야 한다 (회귀 방지).
 
-    claude CLI 를 fake 로 대체해 검증 통과 후 정상 done 응답까지 확인.
+    빈 합성 프로젝트에서는 근거가 없으므로 provider 호출 없이 abstained로 응답한다.
     """
-    patched_subprocess(FakeProc(communicate_hang=False))
+    provider_calls = []
+
+    async def forbidden_provider(*args, **kwargs):
+        provider_calls.append(True)
+        pytest.fail("valid slugs without evidence must not invoke a provider")
+
+    monkeypatch.setattr(api_module.llm_client, "call_llm", forbidden_provider)
     r = client.post("/api/ai-answer",
                     json={"question": "ping", "context_slugs": ["habix-profile", "개념-노트"]})
     assert r.status_code == 200
     assert r.json()["status"] == "abstained"
+    assert r.json()["sources"] == []
+    assert provider_calls == []
 
 
 # ---------------------------------------------------------------------------

@@ -77,6 +77,10 @@ fenced code, 구분선, 링크/이미지와 메타데이터만 `non_statement`�
 이 분류는 제안 단계의 보수적 필터이며, 기록의 의미나 사실성을 승인하지 않는다.
 명시적 source-map build는 계속 원문/페이지/문장 hash와 quote/locator를 검증한다.
 
+v0.4.2는 분할 뒤 남은 `1.` 또는 `2)` 같은 독립된 목록 번호도 `non_statement`로
+구분한다. 뒤따르는 문장과 원래 순번은 유지하며, 단위가 있는 수치나 연도처럼
+불확실한 숫자 텍스트는 이 규칙으로 제외하지 않는다.
+
 ## Query rules
 
 1. query는 persisted ledger를 읽기만 하며 `raw/**`, `wiki/**`, stats, Canvas를 쓰지 않는다.

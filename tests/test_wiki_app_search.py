@@ -47,10 +47,14 @@ def _build_wiki(tmp_path, pages, index_body):
     return wiki_root
 
 
-@pytest.mark.requires_user_wiki
 def test_index_loads_all_pages(index):
-    assert index.total_pages >= 40
-    assert "habix-profile" in index.by_slug
+    assert set(index.by_slug) == {
+        "habix-profile",
+        "ai-pm-role",
+        "agent-harness-pattern",
+        "resnet-note",
+    }
+    assert index.total_pages == 4
 
 
 def test_search_title_match(index):

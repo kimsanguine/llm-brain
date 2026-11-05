@@ -25,6 +25,8 @@ def classify(body):
     '|x| = |y|',
     '| x | = | y |',
     '| Name | Value |',
+    '2026',
+    '50 ms',
 ])
 def test_normal_text_is_retained_unchanged_without_semantic_certification(statement):
     result = classify(statement)
@@ -34,6 +36,9 @@ def test_normal_text_is_retained_unchanged_without_semantic_certification(statem
 
 @pytest.mark.parametrize(('statement', 'kind'), [
     ('## Heading', 'heading'),
+    ('1.', 'list_marker'),
+    ('2)', 'list_marker'),
+    ('12.', 'list_marker'),
     ('| --- | :---: |', 'table'),
     ('---', 'separator'),
     ('* * *', 'separator'),
@@ -100,7 +105,7 @@ def test_separator_after_a_factual_bullet_does_not_turn_the_bullet_into_a_headin
     result = classify('- Alpha is factual\n---\n1. Beta is factual\n---\n')
     assert [(row['index'], row['kind'], row['exclusion_reason']) for row in result] == [
         (1, 'text', None), (2, 'separator', 'non_statement'),
-        (3, 'text', None), (4, 'text', None), (5, 'separator', 'non_statement')]
+        (3, 'list_marker', 'non_statement'), (4, 'text', None), (5, 'separator', 'non_statement')]
 
 
 def test_split_link_labels_remain_structural_without_dropping_adjacent_prose():
