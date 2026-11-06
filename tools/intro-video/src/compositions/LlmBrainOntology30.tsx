@@ -188,8 +188,9 @@ const Close: React.FC = () => {
   const f = useCurrentFrame();
   return (
     <Paper>
-      <ImageField name="ontology-atlas" frame={f} left={970} width={950} opacity={0.9} />
-      <AbsoluteFill style={{ background: 'linear-gradient(90deg, #fbfaf7 0%, #fbfaf7 42%, rgba(251,250,247,.35) 66%, transparent 85%)' }} />
+      <div style={{ position: 'absolute', left: 970, top: 280, width: 900, height: 506.25, border: `1px solid ${c.rule}`, ...reveal(f, 8, 20) }}>
+        <Img src={staticFile('ontology/ontology-atlas.webp')} style={{ display: 'block', width: '100%', height: '100%', objectFit: 'contain' }} />
+      </div>
       <RunningFrame step="05" title="FOLLOW THE EVIDENCE. REUSE THE KNOWLEDGE." />
       <div style={{ position: 'absolute', top: 262, left: 100 }}>
         <Eyebrow style={reveal(f, 0)}>PERSONAL KNOWLEDGE ONTOLOGY</Eyebrow>

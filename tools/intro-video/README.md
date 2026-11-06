@@ -8,7 +8,7 @@ npx tsc --noEmit
 npm run build:ontology
 ```
 
-`LlmBrainOntology30` is a caption-led silent film: 1920×1080, 30 fps, exactly 900 frames / 30 seconds. The output is `out/ontology-30.mp4`. There is no audio track. For Remotion Studio use `npm run dev` and select `LlmBrainOntology30`.
+`LlmBrainOntology30` is a caption-led silent film: 1920×1080, 30 fps, exactly 900 frames / 30 seconds. The output is `out/ontology-30.mp4`. The build uses Remotion's supported `--muted` flag to omit the audio track entirely. For Remotion Studio use `npm run dev` and select `LlmBrainOntology30`.
 
 The build requires these supplied 16:9 images; it stops with explicit missing paths if any are absent. No substitute artwork is generated:
 
