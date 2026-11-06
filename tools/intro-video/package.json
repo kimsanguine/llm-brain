@@ -5,6 +5,7 @@
   "description": "60-second llm-brain intro video built with Remotion",
   "scripts": {
     "dev": "remotion preview",
+    "build:ontology": "node scripts/check-ontology-assets.mjs && remotion render src/index.ts LlmBrainOntology30 out/ontology-30.mp4 --concurrency=4 --muted",
     "build:16x9": "remotion render src/index.ts LlmBrainIntro16x9 out/intro-16x9.mp4 --concurrency=4",
     "build:9x16": "remotion render src/index.ts LlmBrainIntro9x16 out/intro-9x16.mp4 --concurrency=4",
     "build:all": "npm run build:16x9 && npm run build:9x16",
