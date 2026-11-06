@@ -1,38 +1,72 @@
-![llm-brain AI-native second brain OS banner](./assets/banner.svg)
-
 # llm-brain | Personal Knowledge Ontology
 
-llm-brain은 메모를 검색하는 저장소를 넘어, 지식이 어디서 왔고 어떤 주장과 절차를 거쳐 결과물이 되었는지 설명하는 Personal Knowledge Ontology입니다.
+**쌓아 둔 개인 지식을, 근거를 확인하며 다음 작업에 다시 쓰기 위한 도구입니다.**
 
-v0.4의 Ontology는 개인 지식의 의미와 근거를 설명하는 로컬 projection이며, 조직 권한이나 외부 시스템 실행을 담당하는 범용 Action Runtime은 아닙니다.
+메모·문서·클리핑을 위키로 정리하고, 원문과 주장 상태, 지식 사이의 관계, 사용한 절차와 결과물을 함께 읽습니다. 사람은 “이 내용을 써도 될까?”를 확인하고, 에이전트는 같은 Object·Relation·Action 계약으로 다음 작업의 맥락을 가져갑니다.
 
-**📌 매일 메모는 쌓이는데 한 달 뒤엔 어디 있는지 모르겠다면 — 그 메모를 AI가 정리·연결·검색·재활용해 주는 도구입니다. 코딩 지식이 없어도 됩니다.**
+![원문에서 주장과 위키를 거쳐 다음 결과물로 이어지는 개인 지식 관계](./assets/ontology-overview.svg)
 
 ![Python](https://img.shields.io/badge/Python-3.11+-3776AB?logo=python&logoColor=white)
 ![License](https://img.shields.io/badge/License-MIT-green)
 ![Claude Code](https://img.shields.io/badge/Claude_Code-CLI-orange)
 ![Codex](https://img.shields.io/badge/Codex-Repo_Skill-412991)
-![Obsidian](https://img.shields.io/badge/Obsidian-Graph_View-7C3AED)
 ![Version](https://img.shields.io/badge/version-0.4.2-blue)
 
-> v0.4: strict Object/Relation/Action 계약, 결정적 private bundle, validate/export/explain CLI, Wiki의 “왜 이 지식인가?” 설명. 기존 raw/wiki/claims/procedures/episodes를 유지합니다.
+## 왜 필요한가 *Why this exists*
 
-> v0.4.1: papers 페이지의 조회와 근거 설명, 원본을 바꾸지 않는 기존 논문 제목 읽기 호환, 구조적 claim 후보 정제를 지원합니다.
-> v0.4.2: 개인 데이터가 있는 환경의 테스트 격리, Git index 기반 공개 경로 검사와 단독 목록 번호 제외를 보완합니다.
+지난달 읽은 자료로 오늘 강의안이나 의사결정 메모를 만들려 할 때, 검색 결과만으로는 부족합니다. 원문이 어디 있는지, 어떤 문장이 현재 사용할 수 있는 주장인지, 이전 결과물은 무엇을 근거로 만들었는지 다시 확인해야 합니다.
 
-> 🎉 **v0.3** — Quality-Driven Curation: 매일 품질 점검·자동 보강(`curate --reweave`) · 신규 페이지 승격 게이트(Promotion Gates) · 여러 메모를 교차 종합(synthesis)하고 모순을 명시적으로 화해 · 입구에서 중복 차단(hard dedup) · cli/api 엔진 선택(`llm_client`).
-> 🎉 **v0.2** — Agent Memory OS 5층 기억(작업·에피소드·의미·절차·메타) + 설치 점검 `/llm-brain:doctor` · 웹 UI `/llm-brain:wikiweb` 커맨드 추가.
+llm-brain은 이 확인과 재사용을 하나의 흐름으로 연결합니다. 기존 **ingest·curate·query·express·wiki-web·OKF**는 그대로 사용하고, 그 아래의 개인 지식을 공통 ID와 타입으로 설명합니다. Ontology는 파일에 흩어진 관계를 읽는 방식이며, 그 관계 자체가 사실성 인증은 아닙니다.
 
----
+### 다음 작업에서 쓰는 모습 *Synthetic work example*
 
-## 왜 만들었나 *Why this exists*
+아래는 실제 개인 자료나 성과를 사용하지 않은 **합성 업무 예시**입니다.
 
-매일 TIL(Today I Learned, 오늘 배운 것 메모)을 쓰고, 회의록을 남기고, 논문을 클리핑한다.
-그런데 한 달 뒤, 그 지식은 어디 있는가?
+다음 주 “검색 근거를 확인하는 법” 강의안을 준비한다고 가정합니다.
 
-*You write notes every day — but where does that knowledge go after a month?*
+1. 합성 원문 메모의 “검색 결과의 출처를 확인해야 한다”라는 문장을 `raw/`에 보관하고 관련 위키 페이지를 만듭니다.
+2. 강의에 쓸 claim의 원문 위치와 `kind`, `status`, `trust`, 유효기간을 확인합니다. `active + trusted`여도 의미적 사실성은 별도로 검토합니다.
+3. 페이지의 “왜 이 지식인가?” 또는 `ontology.py explain`으로 출처와 연결을 살핍니다. 근거가 없거나 무효한 항목은 검토 대상으로 남깁니다.
+4. 관련 페이지와 강의 작성 절차를 참고해 `express`로 초안을 만듭니다. 사용 관계가 기록된 경우 결과물에서 사용한 페이지와 절차를 다시 따라갈 수 있습니다.
 
-흩어진 메모는 쌓이기만 할 뿐 다시 꺼내 쓰기 어렵다. llm-brain은 이 메모들을 **AI가 자동으로 정리·연결**해 검색 가능한 위키로 만들고, 필요할 때 **글로 다시 꺼내 쓰게** 한다.
+이 예시는 가능한 작업 흐름을 설명합니다. 자동으로 모든 관계가 생기거나, 검토 시간·정확도가 개선됐다는 측정 결과를 뜻하지 않습니다.
+
+## 사람과 에이전트가 함께 읽는 지식
+
+| 확인할 것 | 사람이 읽는 곳 | 에이전트·프로그램이 읽는 것 |
+|---|---|---|
+| 무엇을 근거로 삼았나 | Wiki의 “왜 이 지식인가?”와 원문 위치 | source·claim·knowledge_page의 ID와 관계 |
+| 어떤 상태로 기록되어 있나 | 저장된 claim 상태·신뢰·유효기간 | 동일하게 저장된 claim 속성 |
+| 어떻게 활용했나 | 기록된 결과물·페이지·절차 연결 | artifact의 `derived_from`, `guided_by` 관계 |
+| 어떤 작업이 가능한가 | 명령별 입력·출력·승인 안내 | `schema/actions.yaml`의 Action catalog |
+
+Projection과 Explain은 저장된 claim 상태를 보여줍니다. 현재 raw의 hash 일치, 유효기간, trust 등 답변 근거로 사용할 수 있는지의 검사는 query 경로에서 수행합니다.
+
+Action catalog는 ingest·curate·query·express·share의 입력, 출력, 승인과 evidence를 설명합니다. catalog를 읽는 것만으로 명령이나 외부 작업이 실행되지는 않습니다. 에피소드는 기록에 성공한 작업의 맥락이며, 필수 감사 원장이나 승인 근거가 아닙니다.
+
+## 지식의 관계 *Typed knowledge graph*
+
+다섯 객체와 방향이 정해진 관계로 지식의 근거와 활용을 구분합니다.
+
+```text
+source ──supports──▶ claim ──compiled_into──▶ knowledge_page
+                                               │
+                                  links_to ───▶ knowledge_page
+
+artifact ──derived_from──▶ knowledge_page
+artifact ──guided_by─────▶ procedure
+```
+
+`source`는 원문 경로와 SHA-256, `claim`은 문장과 상태, `knowledge_page`는 정리된 지식, `procedure`는 재사용 절차, `artifact`는 만들어진 결과물입니다. 활용 관계는 기록된 근거가 있을 때만 나타납니다. 단순 wikilink 그래프와 달리 링크의 의미와 방향을 계약으로 읽습니다. 상세: [Ontology schema](schema/ontology.yaml), [Action catalog](schema/actions.yaml).
+
+## 작동 원리 *How it works*
+
+1. **원본을 보존합니다.** `raw/`를 근거로 `wiki/`를 정리하고 `claims.jsonl`에서 주장과 원문 연결을 관리합니다. 절차는 `procedures/`, 작업 이력은 `episodes/`, 결과물은 `express/`에 남습니다.
+2. **파일에서 관계를 읽습니다.** `validate`와 `explain`은 읽기 전용입니다. `export`는 기존 파일을 결정적으로 투영해 gitignored `ontology/private-ontology.json`을 만듭니다. 이 private bundle은 원본을 대체하지 않으며 다시 생성할 수 있습니다.
+3. **같은 근거를 다시 사용합니다.** 사람은 Wiki·CLI에서 설명을 읽고, 프로그램은 bundle의 객체·관계·Action 계약을 읽습니다. `brain_context`는 다음 작업에 관련된 페이지·이력·절차를 묶습니다.
+4. **공유는 별도로 결정합니다.** private projection은 공유 승인이 아닙니다. 공개 공유에는 기존 OKF의 사람 승인과 manifest gate를 사용합니다.
+
+Projection과 Explain 자체는 모델을 호출하지 않습니다. AI 정리·생성·답변은 설정된 도구나 제공자에 선택된 내용을 전달할 수 있습니다. private bundle에는 claim 문장이 포함되므로 개인 파일로 관리해야 합니다. 범용 실행기와 조직 권한 관리는 [확장 범위](#확장-범위와-런타임-분리-조건)를 따릅니다.
 
 ---
 
@@ -172,6 +206,8 @@ uv run python -m wiki_app                        # 로컬 HTML UI → http://loc
 
 **먼저, 내 메모가 어디 있는지 알려준다.** `schema/sources.yaml`(소스 등록 설정 파일)을 열어 내 메모 폴더 경로를 적는다. 파일 편집이 막막하면 **Claude Code 또는 이 저장소를 연 Codex 입력창에 자연어로** "내 옵시디언 폴더를 `schema/sources.yaml`에 등록해줘"라고 부탁해도 된다. (`raw/` = 아직 정리 안 된 원본 메모가 모이는 폴더.)
 
+**query 전에 근거 원장을 준비합니다.** ingest만으로 답변에 쓸 수 있는 claim이 생기는 것은 아닙니다. 아래 [지식의 근거 확인하기](#지식의-근거-확인하기)의 `propose` → 제안 검토 → `build` 순서로 원장을 준비하고, query에서 현재 유효한 trusted claim을 사용할 수 있는지 확인합니다. 자동 신뢰 승격은 없습니다. 사용할 근거가 없으면 query는 답변을 보류하며, 위키 탐색과 다른 작업은 각 명령의 조건에 따라 사용할 수 있습니다.
+
 그다음 ▶ **Claude Code 입력창**에서는 다음 슬래시 명령을 사용합니다:
 
 ```
@@ -258,18 +294,20 @@ cp paper.pdf raw/docs/
 ▶ **Claude Code 입력창**에 입력:
 
 ```
-/llm-brain:curate --reweave     # (v0.3·매일 권장) 약한 페이지 점검 → 자동 보강 가능분은 즉시 수리
-/llm-brain:curate --reweave --fix   # 자동 보강까지 실제 적용 (요약·근거수 등 기계적 결손)
+/llm-brain:curate --reweave     # 약한 페이지 점검·큐 생성·observing 만료 처리
+/llm-brain:curate --reweave --fix   # summary·source_count·updated의 기계적 보강도 적용
 /llm-brain:curate --distill     # 자주 본 페이지를 한 단계 더 압축 + 여러 소스 교차 종합
 /llm-brain:curate --lifecycle   # 보관 기한(TTL) 지난 페이지를 archive 후보로
 /llm-brain:curate --all         # 전체 실행 (점검 + 압축 + 수명 관리)
 ```
 
+`--reweave`는 `--fix` 없이도 큐·리포트를 쓰고 만료된 observing 페이지를 이동할 수 있습니다. 파일 변경 없이 계획만 보려면 `--reweave --dry-run`을 사용합니다. 본문·근거 부족은 자동으로 채우지 않고 검토 큐에 남깁니다.
+
 각 페이지는 frontmatter(페이지 머리말 정보)에 `distill_level`(압축 단계: 0=원문 → 3=한 줄)과 `access_count`(명시적으로 기록한 접근 횟수)를 둘 수 있다. 검색·페이지 보기·AI query는 이 값을 자동 변경하지 않는다. 접근을 집계하려면 별도의 `curate --record-access PAGE_SLUG`를 실행하고, 기록된 값은 distill 우선순위에 사용할 수 있다.
 
-**v0.3 품질 정책** — 새 페이지는 **Promotion Gates**(반복 ≥2회·본문 ≥800자·근거 ≥2건 등)를 통과해야 정식 승격되고, 미달은 `wiki/observing/`(7일 유예)·`wiki/rejected/`로 라우팅된다. `--reweave`는 약한 노드(본문<800자·근거<2건)를 매일 잡아 기계적 결손만 자동 수리하고 판단이 필요한 건 큐로 남긴다(가짜 보강 금지). 여러 메모가 같은 주제를 건드리면 `## 인사이트 (종합)`으로 교차 종합하고, 모순이 감지되면 옛 주장을 지우지 않고 `## 반론/갱신` + `superseded` 표시로 화해한다.
+**v0.3 품질 정책** — 새 페이지는 **Promotion Gates**(반복 ≥2회·본문 ≥800자·근거 ≥2건 등)를 통과해야 정식 승격되고, 미달은 `wiki/observing/`(7일 유예)·`wiki/rejected/`로 라우팅된다. `--reweave`는 실행할 때 약한 노드(본문<800자·근거<2건)를 점검하며, `--fix` 지정 시 기계적 결손만 보강하고 판단이 필요한 건 큐로 남긴다(가짜 보강 금지). 여러 메모가 같은 주제를 건드리면 `## 인사이트 (종합)`으로 교차 종합하고, 모순이 감지되면 옛 주장을 지우지 않고 `## 반론/갱신` + `superseded` 표시로 화해한다.
 
-> 압축 단계·접근 집계의 동작 방식, Promotion Gates·reweave·종합·모순 화해 규칙, wikilink 그래프(`wiki/graph.json`) 분석, Agent Memory OS의 선택 필드(`memory_type` 등)는 모두 자동 처리된다. 상세: `SPEC.md`.
+> 압축 단계·접근 집계의 동작 방식, Promotion Gates·reweave·종합·모순 화해 규칙, wikilink 그래프(`wiki/graph.json`) 분석, Agent Memory OS의 선택 필드(`memory_type` 등)의 상세 계약은 `SPEC.md`를 따릅니다. 접근 집계는 명시적 `curate --record-access PAGE_SLUG` 실행이 필요하며, 각 정리 동작은 해당 명령과 옵션에 따라 실행됩니다.
 
 ---
 
@@ -296,7 +334,7 @@ wiki/ → express/blog/ → raw/blog/ → wiki/   ← 피드백 루프
 
 ### 🔍 query — 물어보기: wiki 기반 답변 *Query · Wiki-grounded Answers*
 
-**한 줄로: 내 지식에 '물어보기'.** wiki에 있는 current claim만 근거로 답한다 — 없으면 솔직히 "없다"고 한다(지어내지 않는다).
+**한 줄로: 내 지식에 '물어보기'.** 사용 가능한 current claim을 근거로 답하도록 제한하고, 근거가 없으면 답변을 보류한다. 인용 검증과 별개로 생성된 답변의 의미는 확인해야 한다.
 
 ▶ **Claude Code 입력창**에서 자연어로 물어본다:
 
@@ -370,7 +408,7 @@ uv run python -m wiki_app
   <img src="./assets/agent-memory-5layers.jpg" alt="AI 에이전트 메모리 5층 구조" width="440">
 </p>
 
-사람의 기억이 여러 종류로 나뉘듯, AI 에이전트도 여러 층의 기억이 필요하다. 지금까지의 `wiki/`는 그중 **의미 기억(semantic, '무엇을 아는가')** 하나였다. 여기에 4개 층을 더해, 한 번의 실행이 다음 실행을 더 똑똑하게 만드는 되먹임 루프를 완성한다 — **5개 층 모두 구현 완료(✅)**.
+사람의 기억이 여러 종류로 나뉘듯, AI 에이전트도 여러 층의 기억이 필요하다. 지금까지의 `wiki/`는 그중 **의미 기억(semantic, '무엇을 아는가')** 하나였다. 여기에 4개 층을 더해, 다음 실행이 이전 작업의 맥락을 참고할 수 있도록 구성한다. 각 층의 역할은 다음과 같다.
 
 | 층 (Layer) | 쉬운 비유 | 무엇을 하는가 | 구현 |
 |---|---|---|---|
@@ -396,65 +434,9 @@ uv run python scripts/memory_health.py --report
 
 ---
 
-## 작동 원리 *How it works (배경 이론)*
+## 설계에 참고한 아이디어 *Design inspiration*
 
-> 💡 **바로 쓰는 데는 안 읽어도 됩니다.** 이 도구가 *왜* 이렇게 설계됐는지 관심 있다면 읽어 보세요.
-
-llm-brain은 검증된 두 아이디어를 합친 것이다 — **Karpathy의 LLM Wiki**와 **Forte의 Second Brain**.
-
-### ① LLM Wiki — "LLM을 컴파일러처럼" (AI 연구자 Andrej Karpathy)
-
-> **"LLM을 컴파일러처럼 써라. raw 메모를 넣으면 구조화된 위키가 나온다."**
-
-```
-raw/   →   [LLM 컴파일러]   →   wiki/
-원본                              정제된 지식
-```
-
-| | 장점 |
-|---|---|
-| ✅ | **LLM이 구조화를 담당** — 사람이 직접 편집할 필요 없음 |
-| ✅ | **raw / wiki 분리** — 원본은 보존, 정제본은 별도 관리 |
-| ✅ | **wikilink(페이지끼리 잇는 링크) 연결** — 지식이 그래프로 이어짐 |
-| ✅ | **오염 방지** — raw 출처 없이 wiki 수정 금지 → 할루시네이션(AI가 없는 사실을 지어내는 것) 차단 |
-
-하지만 이 아이디어만으로는 실제로 운영해 보면 **4가지 벽**에 부딪힌다.
-
-| 빠진 것 | 쉬운 말 | 증상 |
-|---|---|---|
-| ❌ **Express 없음** | 꺼내 쓰기 없음 | 지식이 wiki에 쌓이기만 하고, 꺼내 쓸 방법이 없다 |
-| ❌ **Capture 필터 없음** | 받아들이기 필터 없음 | 뭐든 넣으면 노이즈가 차오른다 |
-| ❌ **단발성 압축** | 한 번만 압축 | 자주 쓰는 지식이 더 깊이 정제되지 않는다 |
-| ❌ **그래프 맹목** | 연결 구조 못 봄 | 페이지 간 연결 구조를 정리(curate)에 활용하지 않는다 |
-
-### ② Second Brain — "뇌는 저장소가 아니다" (생산성 전문가 Tiago Forte)
-
-> **"뇌는 아이디어를 떠올리는 곳이지, 저장하는 곳이 아니다."**
-> *"Your brain is for having ideas, not storing them."*
-
-Forte의 **CODE 프레임워크**는 지식의 전체 생애주기를 다룬다.
-
-```
-C apture  →  O rganize  →  D istill  →  E xpress
-  수집           정리           정제          출력
-```
-
-핵심은 **Distill(정제)과 Express(출력)** — 자주 꺼내볼수록 더 압축되고, 결국 창작물로 나와야 한다. 그런데 이 두 단계는 늘 **사람이 직접** 해야 했다. 가장 시간이 많이 드는 곳이다.
-
-### ①+② = llm-brain
-
-```
-         LLM Wiki          +        Second Brain
-    ─────────────────────────────────────────────
-    raw → wiki 컴파일       +    CODE 전체 생애주기
-    할루시네이션 방지         +    Distill → LLM 대행
-    wikilink 그래프          +    Express → 창작물 출력
-                             +    lifecycle → TTL(보관 기한) 관리
-```
-
-**Distill은 LLM이 대행한다. 당신은 Express에만 집중하라.**
-
-*LLM handles Distill. You focus only on Express.*
+LLM으로 원본 메모를 구조화된 위키로 컴파일하는 접근과 Tiago Forte의 Second Brain·CODE(Capture → Organize → Distill → Express)에서 출발했습니다. llm-brain은 수집과 정리뿐 아니라 다음 작업의 결과물로 꺼내 쓰는 흐름을 이어갑니다. 현재 계약과 제한은 [SPEC.md](SPEC.md)를 기준으로 합니다. 원문 보존과 인용 검증은 오류를 줄이기 위한 장치이며, AI 출력의 사실성을 보장하지 않습니다.
 
 ---
 
@@ -471,7 +453,7 @@ llm:
 
 | 모드 | 비용 | 조건 |
 |---|---|---|
-| `cli` (기본) | 토큰 비용 없음 | Claude Code 설치 필요 |
+| `cli` (기본) | 사용 중인 Claude Code 요금·한도 적용 | Claude Code 설치 필요 |
 | `api` | API 과금 | `ANTHROPIC_API_KEY` 필요 |
 
 > 이 표는 `wiki_app`의 AI 답변 백엔드 설정입니다. Codex 프로젝트 스킬은 별도 경로이며, Codex가 저장소 작업을 이끌 때 사용합니다.
@@ -505,12 +487,17 @@ llm-brain/
 ├── pyproject.toml
 ├── schema/
 │   ├── sources.example.yaml   # 소스 설정 템플릿
+│   ├── ontology.yaml          # Object / Relation 타입 계약
+│   ├── actions.yaml           # 입력·출력·승인·evidence 계약
+│   ├── claim_ledger.md        # 주장·원문 결합 계약
 │   ├── config.yaml            # LLM 엔진 선택
 │   ├── ingest.md              # ingest 규칙
 │   ├── curate.md              # curate 규칙
 │   ├── okf.md                 # OKF ↔ llm-brain 매핑 규칙
 │   └── okf_export.yaml        # /llm-brain:okf 제외 설정 (exclude_paths)
 ├── scripts/
+│   ├── ontology.py            # private projection validate / export / explain
+│   ├── claims.py              # 주장 원장 propose / build / validate
 │   ├── setup.sh               # 초기 설정
 │   ├── sync_raw.py            # 소스 미러링
 │   ├── ingest.py              # 파일 파싱 + 상태 관리
@@ -521,7 +508,7 @@ llm-brain/
 │   ├── episode.py             # 🧠 append-only 에피소드 원장 (episodes/YYYY-MM.jsonl)
 │   ├── brain_context.py       # 🧠 작업기억 팩 조립 (semantic+episode+procedure+제약)
 │   ├── procedures.py          # 🧠 재사용 절차 메모리 로더
-│   ├── memory_health.py       # 🧠 메모리 건강 리포트 (--fix: 약한 노드 자동 보강)
+│   ├── memory_health.py       # 🧠 메모리 건강 진단 리포트
 │   └── lib/                   # ⚙️ 순수 결정적 코어 (LLM 무호출·경계값 테스트)
 │       ├── frontmatter_utils.py  # frontmatter 파싱 단일 출처
 │       ├── memory_score.py       # 재사용 우선 메타 점수
@@ -538,6 +525,10 @@ llm-brain/
 │   └── static/                # vanilla JS + CSS + HTML
 ├── tools/
 │   └── intro-video/           # Remotion 소개 영상
+├── assets/                    # 공개 합성 다이어그램·화면 자료
+├── examples/                  # 공개 합성 예시 / 설치 데모
+├── claims.jsonl               # 개인 주장 원장 (.gitignore)
+├── ontology/                  # 재생성 가능한 private projection (.gitignore)
 ├── raw/                       # 원본 소스 (.gitignore)
 ├── wiki/                      # LLM 정제 결과 (.gitignore)
 ├── express/                   # 창작물 출력 (.gitignore)
