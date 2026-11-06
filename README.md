@@ -1,6 +1,6 @@
 # llm-brain
 
-### Personal Knowledge Ontology
+Personal Knowledge Ontology
 
 **저장한 정보에, 다시 쓸 맥락을.**
 
