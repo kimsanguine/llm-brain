@@ -28,6 +28,8 @@ def _minirepo(tmp_path: Path, pages: dict | None = None, local: dict | None = No
     (repo / "schema").mkdir()
     for s in ("okf_export.py", "export_graph.py"):
         shutil.copy(_SCRIPTS / s, repo / "scripts" / s)
+    (repo / "scripts" / "lib").mkdir()
+    shutil.copy(_SCRIPTS / "lib" / "wiki_links.py", repo / "scripts" / "lib" / "wiki_links.py")
     (repo / "schema" / "okf_export.yaml").write_text(
         "exclude_paths:\n  - 'business/**'\n  - 'canvas/**'\n"
         "exclude_domains: []\nexclude_slugs: []\nsensitive_patterns: []\n",

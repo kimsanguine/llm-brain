@@ -34,7 +34,7 @@ REQUIRED_SCRIPTS = [
     "ingest.py", "curate.py", "express.py", "okf_export.py", "export_graph.py",
     "sync_raw.py", "episode.py", "brain_context.py", "memory_health.py",
     "procedures.py", "lib/frontmatter_utils.py", "ontology.py",
-    "lib/ontology_contract.py", "lib/ontology_projection.py", "lib/ontology_observations.py",
+    "lib/ontology_contract.py", "lib/ontology_projection.py", "lib/ontology_observations.py", "lib/wiki_links.py",
 ]
 REQUIRED_COMMANDS = ["ingest.md", "curate.md", "express.md", "query.md", "okf.md", "doctor.md", "wikiweb.md", "ontology.md"]
 REQUIRED_CODEX_SKILLS = ["llm-brain"]

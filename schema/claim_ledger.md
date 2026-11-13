@@ -84,8 +84,11 @@ v0.4.2는 분할 뒤 남은 `1.` 또는 `2)` 같은 독립된 목록 번호도 `
 ## Query rules
 
 1. query는 persisted ledger를 읽기만 하며 `raw/**`, `wiki/**`, stats, Canvas를 쓰지 않는다.
-   로드한 모든 record의 slug를 현재 wiki 페이지와 대조하고, 페이지 `sources`가 정확히
-   하나의 유효한 `raw/**`가 아니거나 record `raw_path`와 다르면 원장 전체를 거부한다.
+   원장 전체의 형식과 중복을 먼저 검증한다. Wiki API는 요청한 페이지의 record만
+   현재 wiki 페이지와 대조하므로 관련 없는 페이지 변경으로 요청이 막히지 않는다.
+   요청한 페이지의 `sources`가 정확히 하나의 유효한 `raw/**`가 아니거나 record
+   `raw_path`와 다르면 해당 요청을 거부한다. CLI `claims.py context`와 ontology
+   `validate`는 전체 원장의 source inventory를 계속 검증한다.
    명시적 B1 binding이 있으면 이 단일 출처 조건 대신 현재 페이지 hash와 선택 출처의
    membership을 검사한다. binding 없는 구버전 여러 출처 원장은 계속 거부한다.
 2. `active + trusted + validity current + current raw SHA-256 match`인 claim만 trusted

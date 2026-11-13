@@ -94,6 +94,13 @@ class AIAnswerRequest(BaseModel):
     context_slugs: list[_Slug] = Field(default_factory=list, max_length=20)
 
 
+class GraphContextPreviewRequest(BaseModel):
+    seed_slug: _Slug
+    question: str = Field(min_length=1, max_length=1000)
+    offset: int = Field(default=0, ge=0, le=1000000)
+    limit: int = Field(default=20, ge=1, le=50)
+
+
 # claude -p subprocess timeout (초)
 _AI_ANSWER_TIMEOUT = 90
 # stream: 한 줄 사이 idle timeout (초) — claude hang 방지
@@ -122,8 +129,10 @@ def _collect_context(slugs, wiki_root):
     ledger_path = wiki_root.parent / "claims.jsonl"
     if ledger_path.exists():
         persisted = claim_ledger.read_claims_jsonl(ledger_path)
-        claim_ledger.validate_claim_source_inventory(persisted, wiki_root=wiki_root)
         ledger = claim_ledger.claims_for_slugs(persisted, valid)
+        # A changed, unrelated page must not block this request. Selected claims
+        # still pass the same strict inventory check before reaching the model.
+        claim_ledger.validate_claim_source_inventory(ledger, wiki_root=wiki_root)
     else:
         # Missing persistence authorizes zero claims. Query remains read-only; an
         # explicit `scripts/claims.py build` action creates the ledger.
@@ -301,13 +310,23 @@ def create_app(wiki_root: Path | None = None) -> FastAPI:
         try:
             contract = load_ontology_contract(_REPO_ROOT / "schema/ontology.yaml")
             actions = load_action_catalog(_REPO_ROOT / "schema/actions.yaml", contract)
-            bundle = build_private_bundle(wiki_root.parent, contract, actions)
+            bundle = build_private_bundle(wiki_root.parent, contract, actions, claim_page_slug=slug)
             return explain_object(bundle, "page:" + slug).to_mapping()
         except (OntologyContractError, OntologyProjectionError, OSError, UnicodeError, ValueError, TypeError, RecursionError):
             return JSONResponse(status_code=409, content={
                 "detail": "ontology inventory invalid",
                 "recovery": CLAIM_RECOVERY_HELP,
             })
+
+    @app.post("/api/graph-context/preview")
+    def api_graph_context_preview(req: GraphContextPreviewRequest):
+        from wiki_app.graph_context import build_preview, PreviewError
+        try:
+            return build_preview(wiki_root, seed=req.seed_slug, question=req.question,
+                                 offset=req.offset, limit=req.limit)
+        except PreviewError as exc:
+            return JSONResponse(status_code=404 if exc.code == 'seed_not_found' else 409,
+                                content={'code':exc.code})
 
     @app.get("/api/page/{slug:path}")
     def api_page(slug: str):

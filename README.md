@@ -14,7 +14,7 @@ Personal Knowledge Ontology
 ![License](https://img.shields.io/badge/License-MIT-green)
 ![Claude Code](https://img.shields.io/badge/Claude_Code-CLI-orange)
 ![Codex](https://img.shields.io/badge/Codex-Repo_Skill-412991)
-![Version](https://img.shields.io/badge/version-0.4.2-blue)
+![Version](https://img.shields.io/badge/version-0.4.3-blue)
 
 ## 왜 필요한가 *Why this exists*
 
@@ -373,6 +373,7 @@ uv run python -m wiki_app
 
 - **검색**: 제목 + description + tags + page_title 점수 매칭, 결과 < 3개일 때 본문 grep(본문 전체 텍스트 검색) 자동 확장
 - **페이지뷰**: 마크다운 렌더링 + `[[wikilink]]` 클릭 SPA 네비게이션(페이지 새로고침 없이 이동), 좌측 결과 리스트 유지
+- **연결 근거 미리보기**: 페이지에서 질문을 입력하면 한 단계 링크의 방향과 연결 문단, 각 주장의 원문 위치 및 사용 가능 상태를 살펴본다. 질문은 검토 맥락이며 검색·관련성 점수에는 사용하지 않는다. 모델 호출이나 파일 저장은 없고, 오래된 그래프와 잘못된 원장은 확인이 필요하다고 표시한다. `shared` 표시는 공개 승인과 다르다.
 - **AI 답변 토글**: 결과 부족도에 비례해 CTA 강조 차등 (작은 버튼 / 노란 박스 / 큰 검정 버튼)
 - **URL hash**: `#q=...&page=...` 형태로 검색·페이지 상태 보존, 새로고침 시 복원
 

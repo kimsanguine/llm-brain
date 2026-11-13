@@ -55,6 +55,8 @@ def _make_repo(
     (repo / "schema").mkdir()
     for name in ("okf_export.py", "export_graph.py"):
         shutil.copy(SCRIPTS / name, repo / "scripts" / name)
+    (repo / "scripts" / "lib").mkdir()
+    shutil.copy(SCRIPTS / "lib" / "wiki_links.py", repo / "scripts" / "lib" / "wiki_links.py")
 
     if base_config:
         config = {
