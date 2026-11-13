@@ -64,6 +64,26 @@
     <section id="ontology-explain-panel" hidden aria-live="polite" aria-label="지식의 출처와 활용"></section>
   </div>
 </template>
+<template id="graph-context-template">
+  <div class="graph-context-tools">
+    <button class="graph-context-toggle" type="button" aria-expanded="false" aria-controls="graph-context-panel">연결 근거 미리보기</button>
+    <section id="graph-context-panel" class="graph-context-panel" hidden aria-label="연결 근거 미리보기">
+      <form class="graph-context-form">
+        <label for="graph-context-question">어떤 질문의 근거를 찾고 있나요?</label>
+        <textarea id="graph-context-question" name="question" maxlength="1000" rows="2" required></textarea>
+        <button type="submit">연결 확인</button>
+      </form>
+      <p class="graph-context-note">질문은 검토 맥락으로 표시됩니다. 관련성은 직접 판단해 주세요. AI 호출이나 데이터 저장은 하지 않습니다.</p>
+      <p class="graph-context-status" role="status" aria-live="polite"></p>
+      <div class="graph-context-results"></div>
+      <nav class="graph-context-pagination" aria-label="연결 페이지 이동" hidden>
+        <button class="graph-context-prev" type="button">이전</button>
+        <span class="graph-context-range"></span>
+        <button class="graph-context-next" type="button">다음</button>
+      </nav>
+    </section>
+  </div>
+</template>
 <script src="/app.js" type="module"></script>
 </body>
 </html>

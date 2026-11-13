@@ -258,6 +258,33 @@ html, body {
 .ontology-chain li { padding: 8px 0; }
 .ontology-chain code, .ontology-source { color: #52647b; font-size: 12px; }
 .ontology-links { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
+
+/* Graph context preview */
+.graph-context-tools { margin: 18px 0 24px; }
+.graph-context-toggle, .graph-context-panel button {
+  font: inherit; font-size: 13px; color: #2455a4; background: #f3f7fc;
+  border: 1px solid #d8e3f2; padding: 8px 12px; border-radius: 8px; cursor: pointer;
+}
+.graph-context-panel button:disabled { color: #8993a1; cursor: default; }
+.graph-context-toggle:focus-visible, .graph-context-panel button:focus-visible,
+.graph-context-form textarea:focus-visible { outline: 2px solid #2563eb; outline-offset: 3px; }
+.graph-context-panel { margin-top: 12px; padding: 20px; border: 1px solid #e0e7ef; border-radius: 12px; background: #fafcfe; font-size: 13px; line-height: 1.65; overflow-wrap: anywhere; }
+.graph-context-panel[hidden], .graph-context-pagination[hidden] { display: none; }
+.graph-context-form { display: grid; gap: 8px; }
+.graph-context-form label { font-weight: 600; color: #27374e; }
+.graph-context-form textarea { width: 100%; min-width: 0; box-sizing: border-box; padding: 10px; border: 1px solid #cdd9e8; border-radius: 8px; font: inherit; resize: vertical; }
+.graph-context-form button { justify-self: start; }
+.graph-context-note, .graph-context-source { color: #52647b; font-size: 12px; }
+.graph-context-status { color: #344b68; font-size: 12px; }
+.graph-context-results h3 { margin: 18px 0 8px; font-size: 14px; }
+.graph-context-neighbor { margin: 8px 0; padding: 10px 12px; background: white; border: 1px solid #e0e7ef; border-radius: 8px; }
+.graph-context-neighbor summary, .graph-context-panel details summary { cursor: pointer; }
+.graph-context-neighbor button { margin: 8px 0; }
+.graph-context-claim { margin: 8px 0; padding: 10px; border-left: 3px solid #bfd1ea; background: #fff; }
+.graph-context-claim p, .graph-context-panel details p { margin: 6px 0; }
+.graph-context-claim code { font-size: 12px; overflow-wrap: anywhere; }
+.graph-context-excerpt { padding: 8px; white-space: pre-wrap; background: #f5f8fc; }
+.graph-context-pagination { display: flex; align-items: center; gap: 10px; margin-top: 14px; }
 @media (max-width: 640px) {
   body { display: flex; flex-direction: column; height: 100dvh; }
   .topbar { flex: none; padding: 12px 16px; gap: 8px; flex-wrap: wrap; }
@@ -274,4 +301,5 @@ html, body {
   .page-view { min-width: 0; min-height: 0; padding: 20px 16px; }
   #ontology-explain-panel { padding: 14px; }
   #ontology-explain-panel h2 { font-size: 14px; }
+  .graph-context-panel { padding: 14px; }
 }

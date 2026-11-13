@@ -23,13 +23,13 @@ import re
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
+from lib.wiki_links import WIKILINK_RE, extract_wikilinks, resolve_wikilink
 
 WIKI_DIR = Path(__file__).resolve().parent.parent / "wiki"
 OUTPUT = WIKI_DIR / "graph.json"
 
 META_FILES = {"graph_report.md", "distill_queue.md", "index.md"}
 
-WIKILINK_RE = re.compile(r"\[\[([^\]|#]+?)(?:#[^\]|]*)?(?:\|[^\]]+)?\]\]")
 FRONTMATTER_RE = re.compile(r"^---\n(.*?)\n---\n", re.DOTALL)
 
 TAG_PREFIX = "tag:"
@@ -70,11 +70,6 @@ def _unquote(s: str) -> str:
     if len(s) >= 2 and s[0] == s[-1] and s[0] in ("\"", "'"):
         return s[1:-1]
     return s
-
-
-def extract_wikilinks(text: str) -> set[str]:
-    body = FRONTMATTER_RE.sub("", text, count=1)
-    return set(WIKILINK_RE.findall(body))
 
 
 def main() -> int:
@@ -145,12 +140,7 @@ def main() -> int:
         예: [[prd]] 단축형 → 유일한 subpath page "260515_llm_wiki/prd" 매칭.
         모호한 매칭(2개 이상)은 ghost로 fall through.
         """
-        if tgt in pages:
-            return tgt
-        matches = [p for p in pages if p.endswith("/" + tgt)]
-        if len(matches) == 1:
-            return matches[0]
-        return None
+        return resolve_wikilink(tgt, pages)
 
     for slug, targets in raw_out_links.items():
         for tgt in targets:

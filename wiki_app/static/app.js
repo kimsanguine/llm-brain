@@ -256,8 +256,148 @@ function renderPage() {
     if (!explainPanel.hidden) loadOntologyExplanation(p.slug, explainPanel);
   });
 
+  const graphTools = $("#graph-context-template").content.cloneNode(true);
+  els.pageView.querySelector(".page-content").before(graphTools);
+  setupGraphContext(p.slug, state.query || p.title);
+
   // mini-graph fetch + render
   fetchAndRenderMiniGraph(p.slug);
+}
+
+function setupGraphContext(slug, initialQuestion) {
+  const toggle = els.pageView.querySelector(".graph-context-toggle");
+  const panel = els.pageView.querySelector("#graph-context-panel");
+  const form = panel.querySelector(".graph-context-form");
+  const question = panel.querySelector("#graph-context-question");
+  const status = panel.querySelector(".graph-context-status");
+  const results = panel.querySelector(".graph-context-results");
+  const pagination = panel.querySelector(".graph-context-pagination");
+  const previous = panel.querySelector(".graph-context-prev");
+  const next = panel.querySelector(".graph-context-next");
+  const range = panel.querySelector(".graph-context-range");
+  const pageSize = 20;
+  let offset = 0;
+  let requestId = 0;
+  question.value = initialQuestion;
+
+  const add = (parent, tag, text, className = "") => {
+    const node = document.createElement(tag);
+    node.textContent = text;
+    if (className) node.className = className;
+    parent.append(node);
+    return node;
+  };
+  const statusLabels = {
+    usable: "사용 가능", untrusted: "신뢰 미확인", stale: "유효기간 경과",
+    inventory_invalid: "출처 연결 점검 필요", source_missing: "원문 없음",
+    source_hash_mismatch: "원문 변경됨", source_binding_mismatch: "출처 연결 변경됨",
+    source_path_invalid: "원문 경로 오류", not_yet_valid: "유효기간 시작 전",
+    superseded: "대체됨",
+  };
+  const contextLabels = {
+    same_paragraph: "링크와 같은 문단", adjacent_paragraph: "링크의 앞뒤 문단",
+    other_paragraph: "링크와 다른 문단", unknown: "연결 위치 미확인",
+    position_unverified: "문장 위치 확인 불가",
+  };
+  const errorLabels = {
+    graph_missing: "연결 그래프가 없습니다. 그래프를 확인해 주세요.",
+    graph_stale: "Wiki와 연결 그래프가 달라 확인이 필요합니다.",
+    graph_invalid: "연결 그래프를 읽을 수 없습니다.",
+    ledger_missing: "주장 원장이 없습니다.", ledger_invalid: "주장 원장을 확인해 주세요.",
+    seed_inventory_invalid: "선택한 페이지의 출처 연결을 확인해 주세요.",
+    seed_not_found: "선택한 페이지를 찾을 수 없습니다.", wiki_invalid: "Wiki 데이터를 확인해 주세요.",
+  };
+
+  function renderClaims(parent, entry, isSeed = false) {
+    if (!entry.claims.length) add(parent, "p", "연결된 주장이 없습니다.", "graph-context-note");
+    for (const claim of entry.claims) {
+      const item = add(parent, "div", "", "graph-context-claim");
+      add(item, "strong", statusLabels[claim.eligibility] || claim.eligibility);
+      if (!isSeed) add(item, "span", ` · ${contextLabels[claim.link_context] || claim.link_context}`);
+      if (claim.statement) add(item, "p", `${claim.statement}${claim.statement_truncated ? " …(일부)" : ""}`);
+      if (claim.status && claim.trust && claim.valid_until) {
+        add(item, "p", `기록 상태: ${claim.status} · 신뢰: ${claim.trust} · 유효기간: ${claim.valid_until}`, "graph-context-note");
+      }
+      add(item, "code", claim.id);
+      if (claim.source) {
+        const locator = claim.source.locator ? ` · ${claim.source.locator}` : "";
+        add(item, "p", `원문 위치: ${claim.source.raw_path}${locator}`, "graph-context-source");
+      }
+    }
+    if (entry.claims_omitted) add(parent, "p", `주장 ${entry.claims_omitted}개는 표시 한도로 생략됐습니다.`, "graph-context-note");
+  }
+
+  function renderAnchors(parent, title, data) {
+    if (!data.total) return;
+    const detail = document.createElement("details");
+    parent.append(detail);
+    add(detail, "summary", `${title} ${data.total}곳`);
+    for (const location of data.locations) {
+      add(detail, "p", `문단 ${location.paragraph}: ${location.excerpt}${location.truncated ? " …(일부)" : ""}`, "graph-context-excerpt");
+    }
+    if (data.omitted) add(detail, "p", `${data.omitted}곳은 표시 한도로 생략됐습니다.`, "graph-context-note");
+  }
+
+  function render(data) {
+    results.replaceChildren();
+    add(results, "h3", `출발: ${data.seed.title} · scope: ${data.seed.scope}`);
+    renderClaims(results, data.seed, true);
+    add(results, "h3", `연결된 페이지 ${data.pagination.total}개`);
+    if (!data.pagination.total) add(results, "p", "연결된 페이지가 없습니다.", "graph-context-note");
+    const visibleClaims = [data.seed, ...data.neighbors].flatMap(entry => entry.claims);
+    if (visibleClaims.length && !visibleClaims.some(claim => claim.eligibility === "usable")) {
+      add(results, "p", "현재 표시한 범위에 사용 가능한 주장이 없습니다. 질문과의 관련성은 별도 확인이 필요합니다.", "graph-context-note");
+    }
+    for (const entry of data.neighbors) {
+      const detail = document.createElement("details");
+      detail.className = "graph-context-neighbor";
+      results.append(detail);
+      const direction = entry.direction === "both" ? "양방향" : entry.direction === "in" ? "이 페이지를 참조" : "이 페이지에서 참조";
+      add(detail, "summary", `${entry.title} · scope: ${entry.scope} · ${direction} · 주장 ${entry.claims_total}개`);
+      const open = add(detail, "button", "연결 페이지 열기");
+      open.type = "button";
+      open.addEventListener("click", () => selectPage(entry.slug));
+      if (entry.target_location === "unknown") add(detail, "p", "연결된 페이지의 대응 문단 위치는 확인되지 않았습니다.", "graph-context-note");
+      renderAnchors(detail, "연결 페이지에서 출발 페이지를 참조한 문단", entry.incoming_anchors);
+      renderAnchors(detail, "출발 페이지에서 연결 페이지를 참조한 문단", entry.outgoing_anchors);
+      renderClaims(detail, entry);
+    }
+    const p = data.pagination;
+    pagination.hidden = p.total <= p.limit;
+    previous.disabled = p.offset === 0;
+    next.disabled = p.remaining === 0;
+    range.textContent = `${p.total ? p.offset + 1 : 0}–${p.offset + p.returned} / ${p.total}`;
+  }
+
+  async function load() {
+    const current = ++requestId;
+    const text = question.value.trim();
+    if (!text) { status.textContent = "질문을 입력해 주세요."; return; }
+    status.textContent = "연결과 근거를 확인하는 중…";
+    results.replaceChildren();
+    pagination.hidden = true;
+    try {
+      const response = await fetch("/api/graph-context/preview", {
+        method: "POST", headers: {"Content-Type":"application/json"},
+        body: JSON.stringify({seed_slug:slug, question:text, offset, limit:pageSize}),
+      });
+      const data = await response.json();
+      if (current !== requestId || !panel.isConnected || state.selectedSlug !== slug) return;
+      if (!response.ok) { status.textContent = errorLabels[data.code] || "연결 근거를 확인하지 못했습니다."; return; }
+      status.textContent = "연결은 관련성이나 사실성을 보장하지 않습니다. 원문과 주장 상태를 확인해 주세요.";
+      render(data);
+    } catch (_) {
+      if (current === requestId && panel.isConnected && state.selectedSlug === slug) status.textContent = "연결 근거를 불러오지 못했습니다.";
+    }
+  }
+
+  toggle.addEventListener("click", () => {
+    panel.hidden = !panel.hidden;
+    toggle.setAttribute("aria-expanded", String(!panel.hidden));
+  });
+  form.addEventListener("submit", event => { event.preventDefault(); offset = 0; load(); });
+  previous.addEventListener("click", () => { offset = Math.max(0, offset - pageSize); load(); });
+  next.addEventListener("click", () => { offset += pageSize; load(); });
 }
 
 async function fetchAndRenderMiniGraph(slug) {

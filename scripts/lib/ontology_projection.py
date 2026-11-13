@@ -16,6 +16,7 @@ import yaml
 
 from lib import claim_ledger
 from lib.wiki_frontmatter import load_wiki_post
+from lib.wiki_links import extract_wikilinks, resolve_wikilink
 from lib.ontology_contract import OntologyContract, ActionCatalog, ActionTypeSpec
 
 
@@ -144,7 +145,8 @@ def _bundle(ontology, actions, objects, relations, observations=(), unknown=0):
                           objects, relations, action_types, observations, counts)
 
 
-def build_private_bundle(project_root: Path, ontology: OntologyContract, actions: ActionCatalog) -> OntologyBundle:
+def build_private_bundle(project_root: Path, ontology: OntologyContract, actions: ActionCatalog,
+                         *, claim_page_slug: str | None = None) -> OntologyBundle:
     root = Path(project_root).resolve()
     wiki = root / 'wiki'
     objects = {}
@@ -180,6 +182,11 @@ def build_private_bundle(project_root: Path, ontology: OntologyContract, actions
         records = claim_ledger.read_claims_jsonl(_contained(ledger, root)) if ledger.exists() else []
         if posts and not records:
             raise claim_ledger.ClaimLedgerError('missing claim inventory')
+        # Web page explanations need that page's claims, not every other page's
+        # claims. Parse the entire ledger first so malformed records still fail.
+        if claim_page_slug is not None:
+            safe_slug(claim_page_slug)
+            records = claim_ledger.claims_for_slugs(records, [claim_page_slug])
         # Containment is checked before the legacy validator reads the referenced page.
         for record in records:
             if claim_ledger.claim_slug(record) not in posts:
@@ -208,9 +215,10 @@ def build_private_bundle(project_root: Path, ontology: OntologyContract, actions
         relations.append(OntologyRelation('compiled_into', record.claim_id,
                                            'page:' + claim_ledger.claim_slug(record), (record.claim_id,)))
     for slug, post in posts.items():
-        for target in re.findall(r'\[\[([^\]|#]+)(?:[^\]]*)\]\]', post.content):
-            if target in posts:
-                relations.append(OntologyRelation('links_to', 'page:' + slug, 'page:' + target))
+        for target in extract_wikilinks(post.content):
+            resolved = resolve_wikilink(target, posts)
+            if resolved is not None and resolved != slug:
+                relations.append(OntologyRelation('links_to', 'page:' + slug, 'page:' + resolved))
     procedures = _contained(root / 'procedures', root)
     for path in sorted(procedures.glob('*.md')):
         post = _post(_contained(path, root))

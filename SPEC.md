@@ -102,7 +102,7 @@
 │
 ├── wiki_app/                    # HTML 검색·페이지뷰 (FastAPI + vanilla JS, port 8000)
 │   ├── __main__.py              # uv run python -m wiki_app
-│   ├── api.py                   # 7 endpoints (/api/index, /api/search, /api/page/{slug}, /api/page/{slug}/graph, /api/ai-answer, /api/ai-answer/stream, /api/ontology/page/{slug}). ai-answer 비스트림·스트림 양 핸들러가 finally에서 episode 기록(fail-soft)
+│   ├── api.py                   # 웹 API, ontology page 및 graph-context preview. ai-answer 비스트림·스트림 양 핸들러가 finally에서 episode 기록(fail-soft)
 │   ├── search.py                # Index + B 알고리즘 + C 확장 (본문 grep)
 │   ├── pages.py                 # 페이지 로더 (frontmatter + body + graph metadata)
 │   ├── render.py                # markdown-it + [[wikilink]] SPA 앵커 후처리
@@ -963,8 +963,10 @@ markdown 기본, `--json`은 동일 구조. <1s 목표(file-first, 임베딩 없
   Text matching does not establish semantic truth; B2 combined evidence is excluded.
 - allowed status: `active | stale | superseded`; trust: `trusted | untrusted`
 - malformed/partial/unknown-field/duplicate record 하나라도 있으면 API/CLI 전체 fail closed
-- source inventory 오류는 전체 ledger 검증을 유지하면서 affected slug/count와 정확한
-  읽기 전용 `uv run python scripts/claims.py build --help`만 노출하고 statement/raw path는 숨김
+- API는 전체 ledger의 형식을 검증하고 요청한 페이지의 source inventory만 검증한다.
+  선택된 페이지가 잘못되면 affected slug/count와 읽기 전용
+  `uv run python scripts/claims.py build --help`를 노출하고 statement/raw path는 숨김.
+  CLI `context`, ontology `validate`와 `export`는 전체 inventory를 검증한다.
 - trusted query/citation: `active + trusted + current validity + current raw hash match`만 허용
 - stale와 raw mutation은 각각 `stale`, `source_hash_mismatch`로 구분해 제외
 - 외부 capture statement는 single-line canonical JSON data로 격리하고 명령/인용 불허
@@ -1185,10 +1187,24 @@ path, saved-bundle and unknown-object errors exit 2. There is no public ontology
 incoming/outgoing steps, connected source/claim/page/artifact/procedure objects,
 relations, policy_notes and separate stored claim status/trust counts.
 Missing page: 404 with detail `ontology object not found`.
-Invalid inventory: 409 with detail `ontology inventory invalid` and safe recovery command.
+Malformed ledger or invalid selected-page inventory: 409 with detail `ontology inventory invalid`
+and safe recovery command. Inventory drift on another page does not block this explanation;
+the full-inventory CLI validate and export remain strict.
 Opening “왜 이 지식인가?” never exports or appends an episode. Frontend data uses
 text nodes; empty, invalid and failed-request states are visible. New requests cannot
 replace the explanation for a subsequently selected page.
+
+`POST /api/graph-context/preview` accepts `seed_slug`, `question`, `offset` and
+`limit` (default 20, maximum 50). It verifies the current page set and wikilinks
+against `wiki/graph.json`, then reads the ledger and returns one-hop incoming and
+outgoing pages, link paragraph excerpts, claim eligibility and source locations.
+The question is context only: no relevance ranking or LLM call occurs. Claims per
+page and link excerpts are capped, with omitted counts; outgoing-only target
+positions are unknown. A missing, malformed or stale graph, malformed ledger,
+or invalid selected-page inventory fails closed. Another page's invalid source
+inventory is marked without exposing that claim's text or source. This endpoint
+does not write wiki, raw, claims, graph or episodes. `scope: shared` is metadata,
+not permission to publish. The existing AI answer endpoint has a separate contract.
 
 Doctor validates compiler contracts/import and the ontology/ ignore boundary without
 scanning personal content. Generated output is optional, so its absence is OK.

@@ -1,7 +1,7 @@
 {
   "name": "llm-brain",
   "description": "Personal Knowledge Ontology: provenance-preserving file-first wiki compiler, strict Object/Relation/Action contracts, deterministic private bundles, validate/export/explain and local Wiki provenance UI. Existing ingest, curate, query, express and OKF workflows remain supported.",
-  "version": "0.4.2",
+  "version": "0.4.3",
   "author": {
     "name": "Sanguine Kim",
     "url": "https://github.com/kimsanguine"
